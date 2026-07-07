@@ -14,8 +14,13 @@ Uso (dentro de apps/api, com DATABASE_URL e WHATSAPP_TOKEN_ENCRYPTION_KEY no amb
 
 import argparse
 import asyncio
+import sys
+from pathlib import Path
 
-from sqlalchemy import select
+# Executável como `python scripts/seed_dev.py` de qualquer cwd.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from sqlalchemy import select  # noqa: E402
 
 from app.core.crypto import encrypt_access_token
 from app.core.db import SessionLocal
