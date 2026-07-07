@@ -10,36 +10,45 @@ services:
       - /repo/apps/web/node_modules
       - /repo/apps/web/.next
 
+  # Nos serviços Python, o bind mount do código esconderia a .venv da imagem
+  # (e exporia a .venv do host, incompatível) — o volume anônimo /app/.venv
+  # preserva a venv construída no build.
   api:
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./apps/api:/app
+      - /app/.venv
 
   agents:
     ports:
       - "8001:8001"
     volumes:
       - ./apps/agents:/app
+      - /app/.venv
 
   api_rag:
     ports:
       - "8002:8000"
     volumes:
       - ./apps/api_rag:/app
+      - /app/.venv
 
   worker:
     volumes:
       - ./apps/worker:/app
+      - /app/.venv
 
+  # Portas de host deslocadas por padrão para não colidir com outras stacks
+  # locais (Langfuse usa 5432/6379/3000; Qdrant avulso usa 6333).
   postgres:
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
 
   qdrant:
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QDRANT_HOST_PORT:-6335}:6333"
+      - "${QDRANT_GRPC_HOST_PORT:-6336}:6334"
 
   redis:
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6380}:6379"
