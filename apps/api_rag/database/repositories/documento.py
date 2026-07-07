@@ -1,10 +1,12 @@
 # db/repositories/documento.py
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 from datetime import datetime
 from uuid import UUID
-from database.models import DocumentoUsuario, DocumentoSistema
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database.models import DocumentoSistema, DocumentoUsuario
 
 
 class DocumentoRepository:
@@ -22,9 +24,14 @@ class DocumentoRepository:
     async def buscar_documento_usuario_por_id(self, documento_id: UUID) -> DocumentoUsuario | None:
         return await self.session.get(DocumentoUsuario, documento_id)
 
-    async def listar_documentos_por_usuario(self, usuario_id: UUID) -> list[DocumentoUsuario]:
+    async def listar_documentos_por_conversa(
+        self, tenant_id: str, conversation_id: str
+    ) -> list[DocumentoUsuario]:
         result = await self.session.execute(
-            select(DocumentoUsuario).where(DocumentoUsuario.usuario_id == usuario_id)
+            select(DocumentoUsuario).where(
+                DocumentoUsuario.tenant_id == tenant_id,
+                DocumentoUsuario.conversation_id == conversation_id,
+            )
         )
         return result.scalars().all()
 
@@ -34,17 +41,13 @@ class DocumentoRepository:
             await self.session.delete(doc)
             await self.session.commit()
 
-
     async def listar_documentos_por_periodo(
         self,
-        usuario_id: str,
+        tenant_id: str,
         data_inicio: datetime | None = None,
-        data_fim: datetime | None = None
+        data_fim: datetime | None = None,
     ) -> list[DocumentoUsuario]:
-
-        stmt = select(DocumentoUsuario).where(
-            DocumentoUsuario.usuario_id == usuario_id
-        )
+        stmt = select(DocumentoUsuario).where(DocumentoUsuario.tenant_id == tenant_id)
 
         if data_inicio:
             stmt = stmt.where(DocumentoUsuario.criado_em >= data_inicio)
@@ -54,7 +57,6 @@ class DocumentoRepository:
 
         result = await self.session.execute(stmt)
         return result.scalars().all()
-    
 
     # ── Documentos do Sistema ──────────────────────────────────────────
 

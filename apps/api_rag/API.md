@@ -6,6 +6,13 @@ Guarda metadados no **PostgreSQL**, arquivos no **filesystem do servidor** e vet
 (API externa de sparse embeddings), fundidos via **RRF**, com expansão de query por
 **HyDE + extração de palavras-chave** feita por um LLM.
 
+**Multi-tenancy:** collection **única** no Qdrant com `tenant_id` como payload
+indexado. Todo acesso (busca, deleção, upsert) passa **obrigatoriamente** por filtro
+de `tenant_id` na camada de acesso (`clients/qdrant.py`) — nunca é opcional nem
+decisão do chamador de alto nível. A base de conhecimento da plataforma
+(compartilhada entre escritórios) usa o tenant reservado **`system`**
+(`constants.SYSTEM_TENANT_ID`), que nunca deve ser usado por um escritório real.
+
 Este documento serve como referência para integrar esta API a outro projeto.
 
 ---
@@ -101,21 +108,23 @@ Sem autenticação.
 
 ### 3.2 `POST /documents/users/insert`
 
-Ingestão de um documento associado a uma conversa de usuário.
+Ingestão de um documento associado a uma conversa de usuário, escopado por tenant.
 
 - **Content-Type:** `multipart/form-data`
 - **Campos:**
 
 | Campo             | Tipo   | Obrigatório | Observação                                          |
 |-------------------|--------|-------------|-----------------------------------------------------|
-| `convesation_id`  | string | sim         | ⚠️ **Nome exatamente assim, com o typo** (`convesation_id`). Chave de agrupamento/filtro. |
+| `tenant_id`       | string | sim         | Escritório dono do documento.                        |
+| `conversation_id` | string | sim         | Conversa/contato (typo `convesation_id` corrigido).  |
 | `file`            | file   | sim         | Apenas `.pdf` ou `.docx`.                            |
 
 **Exemplo:**
 ```bash
 curl -X POST http://localhost:8000/documents/users/insert \
   -H "Authorization: $API_KEY" \
-  -F "convesation_id=conv-123" \
+  -F "tenant_id=<uuid-do-tenant>" \
+  -F "conversation_id=5511999998888" \
   -F "file=@contrato.pdf"
 ```
 
@@ -130,11 +139,14 @@ curl -X POST http://localhost:8000/documents/users/insert \
 
 ### 3.3 `DELETE /documents/users/delete`
 
-- **Parâmetros (query string):** `docs_ids` — repetível (lista).
+- **Parâmetros (query string):** `tenant_id` (obrigatório) e `docs_ids` — repetível (lista).
+
+Documento que não pertence ao `tenant_id` informado é **ignorado** (não deleta nem
+vaza a existência) — a resposta continua `200`.
 
 **Exemplo:**
 ```bash
-curl -X DELETE "http://localhost:8000/documents/users/delete?docs_ids=<uuid1>&docs_ids=<uuid2>" \
+curl -X DELETE "http://localhost:8000/documents/users/delete?tenant_id=<uuid>&docs_ids=<uuid1>&docs_ids=<uuid2>" \
   -H "Authorization: $API_KEY"
 ```
 
@@ -143,33 +155,30 @@ curl -X DELETE "http://localhost:8000/documents/users/delete?docs_ids=<uuid1>&do
 { "mensagem": "Documentos deletados com sucesso" }
 ```
 
-**Erros:** `404` (não encontrado) · `403` (auth) · `500`.
-> Ver §7 (ressalvas) — o fluxo de delete tem incompatibilidades conhecidas com o repositório/modelo.
+**Erros:** `400` (tenant_id ausente/inválido) · `403` (auth) · `500`.
 
 ---
 
 ### 3.4 `POST /documents/system/insert`
 
-Ingestão de documento na base "do sistema" (base de conhecimento global,
-com rastreio de origem no Drive).
+Ingestão de documento na base da plataforma (compartilhada entre todos os
+escritórios, com rastreio de origem no Drive). Indexado no Qdrant sob o tenant
+reservado `system`.
 
 - **Content-Type:** `multipart/form-data`
 - **Campos:**
 
-| Campo             | Tipo   | Obrigatório | Observação                                                   |
-|-------------------|--------|-------------|--------------------------------------------------------------|
-| `conversation_id` | string | sim         | Aqui **sem typo**. Usado como `base` (agrupamento/filtro).   |
-| `id_drive`        | string | sim         | Identificador de origem (ex.: ID no Google Drive).           |
-| `file`            | file   | sim         | Apenas `.pdf` ou `.docx`.                                    |
-
-> Nota: internamente o valor de `conversation_id` é usado como o campo **`base`**
-> (nome/partição da coleção do sistema) e como filtro de busca em `/retrieval/system`.
+| Campo      | Tipo   | Obrigatório | Observação                                                   |
+|------------|--------|-------------|--------------------------------------------------------------|
+| `base`     | string | sim         | Categoria/partição (ex.: `condominial`, `contratos`) — o mesmo valor filtrado em `/retrieval/system`. |
+| `id_drive` | string | sim         | Identificador de origem (ex.: ID no Google Drive).           |
+| `file`     | file   | sim         | Apenas `.pdf` ou `.docx`.                                    |
 
 **Exemplo:**
 ```bash
 curl -X POST http://localhost:8000/documents/system/insert \
   -H "Authorization: $API_KEY" \
-  -F "conversation_id=juridico" \
+  -F "base=condominial" \
   -F "id_drive=1AbC..." \
   -F "file=@lei.pdf"
 ```
@@ -191,14 +200,15 @@ curl -X DELETE "http://localhost:8000/documents/system/delete?docs_ids=<uuid1>" 
 
 ### 3.6 `POST /retrieval/system`
 
-Busca híbrida na coleção do sistema (`COLLECTION_SISTEMA`), filtrada por `base`.
+Busca híbrida na base da plataforma — internamente filtrada por
+`tenant_id = "system"` + `base`.
 
 - **Content-Type:** `application/json`
 - **Body:**
 
 | Campo     | Tipo   | Obrigatório | Descrição                                     |
 |-----------|--------|-------------|-----------------------------------------------|
-| `base`    | string | sim         | Partição a filtrar (o `conversation_id` usado na ingestão do sistema). |
+| `base`    | string | sim         | Categoria a filtrar (a `base` usada na ingestão do sistema). |
 | `message` | string | sim         | Pergunta / consulta em linguagem natural.     |
 
 **Exemplo:**
@@ -206,7 +216,7 @@ Busca híbrida na coleção do sistema (`COLLECTION_SISTEMA`), filtrada por `bas
 curl -X POST http://localhost:8000/retrieval/system \
   -H "Authorization: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"base": "juridico", "message": "Qual o prazo para recurso?"}'
+  -d '{"base": "condominial", "message": "Qual o prazo para recurso?"}'
 ```
 
 **Resposta `200`:**
@@ -217,7 +227,7 @@ curl -X POST http://localhost:8000/retrieval/system \
       "chunk_id": "b1e2...",
       "score": 0.82,
       "text": "…",
-      "metadata": { "base": "juridico", "name": "lei.pdf", "doc_id": "…", "id_drive": "…" }
+      "metadata": { "tenant_id": "system", "base": "condominial", "name": "lei.pdf", "doc_id": "…", "id_drive": "…" }
     }
   ]
 }
@@ -229,13 +239,14 @@ Lista vazia (`{"results": []}`) quando a busca no Qdrant falha ou não há hits.
 
 ### 3.7 `POST /retrieval/users`
 
-Busca híbrida na coleção de usuários (`COLLECTION_USERS`), filtrada por `conversation_id`.
+Busca híbrida nos documentos do contato, filtrada por `tenant_id` + `conversation_id`.
 
 - **Content-Type:** `application/json`
 - **Body:**
 
 | Campo             | Tipo   | Obrigatório | Descrição                              |
 |-------------------|--------|-------------|----------------------------------------|
+| `tenant_id`       | string | sim         | Escritório dono dos documentos.        |
 | `conversation_id` | string | sim         | Conversa a filtrar (ingestão do usuário). |
 | `message`         | string | sim         | Pergunta / consulta.                   |
 
@@ -243,8 +254,11 @@ Busca híbrida na coleção de usuários (`COLLECTION_USERS`), filtrada por `con
 curl -X POST http://localhost:8000/retrieval/users \
   -H "Authorization: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"conversation_id": "conv-123", "message": "resumo do contrato"}'
+  -d '{"tenant_id": "<uuid>", "conversation_id": "5511999998888", "message": "resumo do contrato"}'
 ```
+
+> No `agents`, o client (`clients/retrieval.py`) divide o `thread_id` composto
+> `"{tenant_id}:{contact_phone_number}"` e envia os dois campos separados.
 
 Mesmo formato de resposta de §3.6.
 
@@ -259,11 +273,12 @@ com Alembic (`alembic/versions/`).
 | Coluna            | Tipo      | Notas                                   |
 |-------------------|-----------|-----------------------------------------|
 | `id`              | UUID (PK) | default `uuid4`                         |
+| `tenant_id`       | String    | escritório dono — indexado; obrigatório na aplicação (nullable no banco só por causa de linhas legadas, ver migration `a1b2c3d4e5f6`) |
 | `conversation_id` | String    | chave de agrupamento                    |
 | `nome`            | String    | nome do arquivo, obrigatório            |
 | `extensao`        | String    | `pdf` / `docx`, obrigatório             |
 | `path_base`       | String    | raiz de armazenamento (`UPLOAD_DIR_USER`) |
-| `path_doc`        | String    | subpasta (= `conversation_id`)          |
+| `path_doc`        | String    | subpasta (= `{tenant_id}/{conversation_id}`) |
 | `criado_em`       | DateTime  | default `utcnow`                        |
 
 ### `documentos_sistema`
@@ -284,25 +299,26 @@ Arquivo cru gravado em: `{path_base}/{path_doc}/{nome}`.
 
 ## 5. Qdrant (vetores)
 
-Duas coleções, nomeadas pelas envs `COLLECTION_SISTEMA` e `COLLECTION_USERS`.
-Cada ponto usa **vetores nomeados**:
+**Collection única**, nomeada pela env `QDRANT_COLLECTION` (default `advoxs_kb`),
+provisionada **automaticamente no startup** (`ensure_collection`, com retry para
+esperar o Qdrant subir no compose). Cada ponto usa **vetores nomeados**:
 
-- `dense` — embedding OpenAI (`text-embedding-3-small`, 1536 dims), distância padrão.
+- `dense` — embedding OpenAI (`text-embedding-3-small`, `DENSE_VECTOR_SIZE`=1536 dims), distância cosseno.
 - `sparse` — vetor esparso (`indices` + `values`) vindo da API local de sparse.
 
-**Payload dos pontos:**
+**Payload dos pontos** (o texto do chunk vai na chave `text` — a mesma lida pelo retrieval):
 
-- Usuário: `{ conversation_id, name, doc_id, texto }`
-- Sistema: `{ base, name, doc_id, id_drive, texto }`
+- Usuário: `{ tenant_id, conversation_id, name, doc_id, text }`
+- Sistema: `{ tenant_id: "system", base, name, doc_id, id_drive, text }`
 
-Busca: dois `Prefetch` (denso e esparso), cada um com `limit=PREFETCH_K` e o mesmo
-`payload_filter`, fundidos por `FusionQuery(Fusion.RRF)`, retornando `TOP_K` resultados.
+Índices de payload (keyword) criados no startup: `tenant_id`, `base`,
+`conversation_id`, `doc_id`.
 
-> ⚠️ **As coleções precisam existir com esses vetores nomeados antes do uso.** O cliente
-> (`clients/qdrant.py`) faz `upsert`/`search`/`delete`, mas **não há criação de coleção
-> funcional exposta** (o `test_connection` referencia `create_collection`/`delete_collection`
-> que não estão implementados). Crie as coleções manualmente com os vetores `dense` e
-> `sparse` no provisionamento do ambiente.
+**Isolamento:** `clients/qdrant.py` exige `tenant_id` em toda busca/deleção
+(`ValueError` sem ele) e rejeita upsert de ponto sem `tenant_id` no payload.
+O filtro é aplicado nos dois ramos (`Prefetch` denso e esparso), cada um com
+`limit=PREFETCH_K`, fundidos por `FusionQuery(Fusion.RRF)`, retornando `TOP_K`
+resultados.
 
 ---
 
@@ -316,8 +332,8 @@ Carregadas de `.env` via `python-dotenv`. **Não versione segredos reais.**
 | `OPENAI_API_KEY`       | Chave OpenAI (embeddings denso + chat HyDE).       | `sk-...`                         |
 | `QDRANT_URL`           | URL do Qdrant.                                     | `http://localhost:6333`          |
 | `QDRANT_API_KEY`       | API key do Qdrant (opcional).                      | —                                |
-| `COLLECTION_SISTEMA`   | Nome da coleção do sistema.                        | `documentos_sistema`             |
-| `COLLECTION_USERS`     | Nome da coleção de usuários.                       | `documentos_usuarios`            |
+| `QDRANT_COLLECTION`    | Nome da collection única.                          | `advoxs_kb`                      |
+| `DENSE_VECTOR_SIZE`    | Dimensão do vetor denso.                           | `1536`                           |
 | `DENSE_MODEL`          | Modelo de embedding denso OpenAI.                  | `text-embedding-3-small`         |
 | `CHAT_MODEL`           | Modelo de chat para HyDE/keywords.                 | `gpt-5-mini`                     |
 | `URL_API_LOCAL_SPARSE` | Endpoint da API de sparse embeddings (`POST`).     | `http://host:8001/embed`         |
@@ -329,9 +345,9 @@ Carregadas de `.env` via `python-dotenv`. **Não versione segredos reais.**
 | `POSTGRES_PASSWORD`    | Senha Postgres.                                    | —                                |
 | `POSTGRES_HOST`        | Host Postgres.                                     | `localhost`                      |
 | `POSTGRES_PORT`        | Porta Postgres.                                    | `5432`                           |
-| `POSTGRES_DB`          | Banco.                                             | `root_db`                        |
-| `SECRET_KEY`           | Reservado (não usado nas rotas atuais).            | —                                |
-| `CHATVOLT_API_KEY`     | Reservado (não usado no código atual).             | —                                |
+| `POSTGRES_DB`          | Banco.                                             | `advoxs_rag`                     |
+
+Ver `.env.example` na raiz do serviço.
 
 ### API externa de Sparse Embeddings
 
@@ -368,7 +384,15 @@ Qdrant e os diretórios de upload.
 ```bash
 uv run alembic upgrade head
 ```
-> As tabelas também são criadas no startup via `create_all`; para produção prefira Alembic.
+> As tabelas também são criadas no startup via `create_all` (conveniência para
+> ambiente novo); para produção prefira Alembic — rode as migrations **antes**
+> de subir a API.
+
+### Testes e lint
+```bash
+uv run pytest tests/unit
+uv run ruff check .
+```
 
 ---
 
@@ -390,42 +414,42 @@ uv run alembic upgrade head
 
 ## 9. Ressalvas conhecidas (importante para a integração)
 
-Pontos do estado atual do código que o projeto integrador deve conhecer:
+Bugs históricos **já corrigidos** no retrofit multi-tenant (2026-07): typo
+`convesation_id` no form de usuário; mismatch `text`/`texto` entre ingestão e
+retrieval; fluxo de delete chamando métodos inexistentes no repositório
+(`buscar_documento_por_id`/`deletar_documento`/`doc.doc_id`); typo `fild=` no
+filtro de delete do Qdrant; coleções não provisionadas pela API; sparse
+embedding síncrono (`requests`) em código async; `TOP_K`/`PREFETCH_K` lidos
+como string.
 
-1. **Typo no form de usuário:** `POST /documents/users/insert` espera o campo
-   `convesation_id` (sem o segundo "r"). O cliente precisa enviar exatamente assim,
-   senão retorna `422`.
+Pontos que **permanecem** relevantes:
 
-2. **Campo de texto no retorno do retrieval:** o retrieval lê `payload.get("text")`,
-   mas a ingestão grava o texto do chunk sob a chave **`texto`**. Assim, `text` tende a
-   vir **vazio** no `RetrievalResult`; o conteúdo real fica em `metadata.texto`.
-   Alinhe as chaves (`text` vs `texto`) ao integrar.
+1. **Dados legados sem tenant:** pontos indexados antes do retrofit (nas
+   coleções antigas `COLLECTION_SISTEMA`/`COLLECTION_USERS`) não têm
+   `tenant_id` e ficam **invisíveis** para a collection única nova — precisam
+   ser re-ingeridos. O mesmo vale para linhas antigas de `documentos_usuario`
+   (coluna `tenant_id` nullable por isso).
 
-3. **Fluxo de delete inconsistente:** o service chama métodos que não existem no
-   repositório (`buscar_documento_por_id`, `deletar_documento`) e acessa `doc.doc_id`,
-   que não é coluna dos modelos (a coluna é `id`; `doc_id` só existe no payload do Qdrant).
-   Consequência: os endpoints de delete provavelmente **falham (500)** no estado atual.
+2. **Auth por API key única global:** o serviço continua com uma chave só
+   (`API_KEY`), adequada apenas como **serviço interno** (chamado por
+   `agents`/`api`/`worker`) — nunca exposto direto ao escritório. O isolamento
+   por tenant depende de o chamador enviar o `tenant_id` correto.
 
-4. **Filtro de delete no Qdrant:** `delete_points_by_filter` define o parâmetro `field`,
-   mas o service chama com `fild=` (typo) — chamada quebra por argumento inválido.
+3. **Custo em créditos não instrumentado:** ingestão e retrieval não geram
+   `credit_transactions`.
 
-5. **Criação de coleções do Qdrant:** não é feita pela API (ver §5). Provisione as
-   coleções (`dense` + `sparse`) antes de usar.
-
-6. **Sparse embedding é síncrono:** usa `requests` dentro de código async (bloqueante).
-   Sob carga, considere migrar para cliente async ao integrar.
-
-7. **Segredos no `.env`:** o `.env` do repositório contém credenciais reais
-   (OpenAI, Postgres, Qdrant). **Rotacione essas chaves** e não as reutilize no projeto
-   integrado.
+4. **Segredos no `.env`:** o `.env` local contém credenciais reais
+   (OpenAI, Postgres, Qdrant). **Rotacione essas chaves** e não as reutilize no
+   projeto integrado.
 
 ---
 
 ## 10. Estrutura do projeto
 
 ```
-api/
-├── main.py                        # app FastAPI + lifespan (cria dirs e tabelas)
+api_rag/
+├── main.py                        # app FastAPI + lifespan (dirs, tabelas, collection Qdrant)
+├── constants.py                   # SYSTEM_TENANT_ID, QDRANT_COLLECTION, DENSE_VECTOR_SIZE
 ├── api/
 │   ├── security.py                # verify_api_key (header Authorization)
 │   └── routes/
@@ -437,12 +461,13 @@ api/
 ├── services/
 │   ├── documents/main.py          # DocumentoService (ingestão/delete)
 │   └── retrieval/main.py          # RetrievalService (HyDE + híbrido)
-├── clients/qdrant.py              # QdrantClient async (upsert/search/delete)
+├── clients/qdrant.py              # QdrantClient async (ensure_collection/upsert/search/delete, filtro de tenant obrigatório)
 ├── database/
-│   ├── models.py                  # DocumentoUsuario, DocumentoSistema
+│   ├── models.py                  # DocumentoUsuario (tenant_id), DocumentoSistema
 │   ├── session.py                 # engine async + get_session
 │   └── repositories/documento.py  # DocumentoRepository
 ├── alembic/                       # migrations
+├── tests/unit/                    # pytest (isolamento por tenant, contratos das rotas)
 ├── docker-compose.yml             # api + postgres + qdrant
 ├── Dockerfile                     # python:3.13-slim + uv
 └── pyproject.toml                 # dependências (uv)

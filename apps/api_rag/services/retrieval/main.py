@@ -1,37 +1,40 @@
 import json
-import requests
-from dataclasses import dataclass
-from dotenv import load_dotenv
 import os
+from dataclasses import dataclass
 
-load_dotenv()
-
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+import httpx
+from dotenv import load_dotenv
 from langchain.messages import HumanMessage
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 
 from clients.qdrant import QdrantClient
+from constants import QDRANT_COLLECTION
+
+load_dotenv()
 
 # ---------- CONFIG ----------
 
-TOP_K            = os.getenv("TOP_K")
-PREFETCH_K       = os.getenv("PREFETCH_K")
-DENSE_MODEL      = os.getenv("DENSE_MODEL")
-CHAT_MODEL       = os.getenv("CHAT_MODEL")
+TOP_K = int(os.getenv("TOP_K", "5"))
+PREFETCH_K = int(os.getenv("PREFETCH_K", "20"))
+DENSE_MODEL = os.getenv("DENSE_MODEL")
+CHAT_MODEL = os.getenv("CHAT_MODEL")
 URL_API_LOCAL_SPARSE = os.getenv("URL_API_LOCAL_SPARSE")
 
 
 # ---------- SCHEMAS ----------
 
+
 @dataclass
 class RetrievalResult:
     chunk_id: str
-    score:    float
-    text:     str
+    score: float
+    text: str
     metadata: dict
 
 
 # ---------- SERVIÇO ----------
+
 
 class RetrievalService:
     """Pipeline completo de retrieval híbrido (dense + sparse).
@@ -39,6 +42,9 @@ class RetrievalService:
     Técnicas aplicadas:
       - HyDE (Hypothetical Document Embedding) → vetor denso
       - Extração de palavras-chave via LLM       → vetor esparso
+
+    Todo retrieval é escopado por tenant_id (obrigatório) — a base da
+    plataforma usa o tenant reservado SYSTEM_TENANT_ID.
     """
 
     def __init__(
@@ -49,13 +55,13 @@ class RetrievalService:
         chat_model: str = CHAT_MODEL,
         sparse_api_url: str = URL_API_LOCAL_SPARSE,
     ):
-        self.top_k            = top_k
-        self.prefetch_k       = prefetch_k
-        self.sparse_api_url   = sparse_api_url
+        self.top_k = top_k
+        self.prefetch_k = prefetch_k
+        self.sparse_api_url = sparse_api_url
 
         self._emb_model = OpenAIEmbeddings(model=dense_model)
-        self._openai    = ChatOpenAI(model=chat_model)
-        self._qdrant    = QdrantClient()
+        self._openai = ChatOpenAI(model=chat_model)
+        self._qdrant = QdrantClient()
 
     # ------------------------------------------------------------------ #
     # Ponto de entrada público                                             #
@@ -63,9 +69,9 @@ class RetrievalService:
 
     async def search_hybrid(
         self,
-        collection_name: str,
         query: str,
-        payload_filter: dict | None = None,
+        tenant_id: str,
+        extra_filters: dict | None = None,
     ) -> list[RetrievalResult]:
         """Pipeline completo de retrieval híbrido.
 
@@ -76,34 +82,36 @@ class RetrievalService:
                 ↓
             embeddings gerados para cada ramo
                 ↓
-            busca híbrida no Qdrant (dense + sparse via RRF)
+            busca híbrida no Qdrant (dense + sparse via RRF),
+            sempre filtrada por tenant_id (+ extra_filters)
                 ↓
             lista de RetrievalResult ordenada por score
         """
+        if not tenant_id:
+            raise ValueError("tenant_id é obrigatório no retrieval")
+
         hyde_doc, keywords = await self._transform_query(query)
 
         logger.info("Gerando embeddings...")
         dense_vector = await self._embed_dense(hyde_doc)
 
         logger.info("Gerando embeddings (sparse)...")
-        # conversation_id recebe "None" para evitar erro por enquanto
-        sparse_indices, sparse_values = self._embed_sparse(convesation_id="None", text=" ".join(keywords))
+        sparse_indices, sparse_values = await self._embed_sparse(text=" ".join(keywords))
 
         logger.info(
             f"Embeddings gerados | dense={len(dense_vector)}"
             f" | sparse={len(sparse_indices)} tokens ativos"
         )
 
-        
-
         result = await self._qdrant.search(
-            collection_name=collection_name,
+            collection_name=QDRANT_COLLECTION,
+            tenant_id=tenant_id,
             dense_vector=dense_vector,
             sparse_indices=sparse_indices,
             sparse_values=sparse_values,
             top_k=self.top_k,
             prefetch_k=self.prefetch_k,
-            payload_filter=payload_filter,
+            extra_filters=extra_filters,
         )
 
         if not result["success"]:
@@ -154,7 +162,7 @@ Exemplo de saída:
         response = await self._openai.ainvoke([HumanMessage(content=prompt)])
 
         try:
-            parsed   = json.loads(response.content)
+            parsed = json.loads(response.content)
             hyde_doc = parsed["hyde"]
             keywords = parsed["keywords"]
             logger.info(f"HyDE gerado ({len(hyde_doc)} chars) | Keywords: {keywords}")
@@ -169,18 +177,18 @@ Exemplo de saída:
         logger.debug(f"Dense embedding gerado | dims={len(embeddings)}")
         return embeddings
 
-    def _embed_sparse(self,convesation_id: str, text: str) -> tuple[list[int], list[float]]:
-        """Gera vetor esparso via API local."""
-        response = requests.post(
-            self.sparse_api_url,
-            json={"document_id": str(convesation_id), "texts": [text]},
-            timeout=10,
-        )
-        response.raise_for_status()
+    async def _embed_sparse(self, text: str) -> tuple[list[int], list[float]]:
+        """Gera vetor esparso via API local (assíncrono)."""
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                self.sparse_api_url,
+                json={"document_id": "query", "texts": [text]},
+            )
+            response.raise_for_status()
 
         vector = response.json()["vectors"][0]
         indices = vector["indices"]
-        values  = vector["values"]
+        values = vector["values"]
 
         logger.debug(f"Sparse embedding gerado | tokens ativos={len(indices)}")
         return indices, values

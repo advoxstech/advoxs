@@ -46,14 +46,27 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
     """Busca documentos privados do usuário.
 
     Args:
-        conversation_id: ID da conversa/usuário.
+        conversation_id: thread_id composto "{tenant_id}:{contact_phone_number}" —
+            dividido aqui para enviar tenant_id e conversation_id separados ao
+            api_rag (que exige tenant_id em todo retrieval).
         message: Pergunta do usuário.
     """
+    tenant_id, sep, contact_id = str(conversation_id).partition(":")
+    if not sep:
+        logger.warning(
+            "conversation_id sem tenant_id (esperado 'tenant:contato'): {}", conversation_id
+        )
+        contact_id = tenant_id
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{RAG_API_URL}/retrieval/users",
-                json={"conversation_id": str(conversation_id), "message": message},
+                json={
+                    "tenant_id": tenant_id,
+                    "conversation_id": contact_id,
+                    "message": message,
+                },
                 headers=HEADERS,
                 timeout=30,
             )

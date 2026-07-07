@@ -1,21 +1,23 @@
+import asyncio
 import os
 import time
+
 from dotenv import load_dotenv
 from loguru import logger
 from qdrant_client import AsyncQdrantClient as _AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
-    VectorParams,
-    SparseVectorParams,
-    NamedSparseVector,
-    SparseVector,
-    PointStruct,
-    Filter,
     FieldCondition,
-    MatchValue,
-    Prefetch,
-    FusionQuery,
+    Filter,
     Fusion,
+    FusionQuery,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    Prefetch,
+    SparseVector,
+    SparseVectorParams,
+    VectorParams,
 )
 
 load_dotenv()
@@ -23,17 +25,34 @@ load_dotenv()
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 
+# Campos de payload indexados — todo filtro passa por eles.
+INDEXED_PAYLOAD_FIELDS = ("tenant_id", "base", "conversation_id", "doc_id")
+
+
+def _tenant_filter(tenant_id: str, extra_filters: dict | None = None) -> Filter:
+    """Monta o filtro com tenant_id obrigatório + condições extras.
+
+    O tenant_id nunca é opcional nem decisão do chamador de alto nível
+    (agente): sem ele, qualquer operação de busca/deleção falha aqui.
+    """
+    if not tenant_id:
+        raise ValueError("tenant_id é obrigatório em todo acesso ao Qdrant")
+
+    conditions = [FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))]
+    for key, value in (extra_filters or {}).items():
+        conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+    return Filter(must=conditions)
+
 
 class QdrantClient:
     def __init__(self):
         self._url = QDRANT_URL
         self._client = _AsyncQdrantClient(url=self._url, api_key=QDRANT_API_KEY)
         logger.info(f"Conectado ao Qdrant em {self._url}")
-        logger.info(f"API Key: {QDRANT_API_KEY}") 
 
     # ---------- CORE SAFE REQUEST ----------
     async def _safe_call(self, operation_name: str, fn, *args, **kwargs):
-        """Wrapper que executa qualquer chamada ao Qdrant com logging e tratamento de erro uniforme."""
+        """Executa qualquer chamada ao Qdrant com logging e tratamento de erro uniforme."""
         started_at = time.perf_counter()
         try:
             logger.info(f"Operação Qdrant iniciada: {operation_name}")
@@ -63,10 +82,49 @@ class QdrantClient:
                 "error": str(e),
             }
 
+    # ---------- COLLECTION ----------
+    async def ensure_collection(
+        self, collection_name: str, dense_vector_size: int, retries: int = 5
+    ):
+        """Cria a collection (vetores nomeados dense+sparse) e os índices de
+        payload se ainda não existirem. Idempotente; chamado no startup.
+
+        Faz retry porque no docker-compose o Qdrant pode subir depois da API.
+        """
+        for attempt in range(1, retries + 1):
+            try:
+                if not await self._client.collection_exists(collection_name):
+                    await self._client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config={
+                            "dense": VectorParams(size=dense_vector_size, distance=Distance.COSINE)
+                        },
+                        sparse_vectors_config={"sparse": SparseVectorParams()},
+                    )
+                    logger.info(f"Collection '{collection_name}' criada")
+
+                for field in INDEXED_PAYLOAD_FIELDS:
+                    await self._client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field,
+                        field_schema=PayloadSchemaType.KEYWORD,
+                    )
+                logger.info(f"Collection '{collection_name}' pronta (índices ok)")
+                return
+            except Exception as e:
+                logger.warning(
+                    f"Tentativa {attempt}/{retries} de provisionar '{collection_name}' falhou: {e}"
+                )
+                if attempt == retries:
+                    raise
+                await asyncio.sleep(2)
 
     # ---------- POINTS ----------
     async def upsert_points(self, collection_name: str, points: list[PointStruct]):
-        
+        for point in points:
+            if not (point.payload or {}).get("tenant_id"):
+                raise ValueError("Todo ponto inserido no Qdrant precisa de tenant_id no payload")
+
         return await self._safe_call(
             "upsert_points",
             self._client.upsert,
@@ -77,36 +135,22 @@ class QdrantClient:
     async def search(
         self,
         collection_name: str,
+        tenant_id: str,
         dense_vector: list[float],
         sparse_indices: list[int],
         sparse_values: list[float],
         top_k: int = 5,
         prefetch_k: int = 20,
-        payload_filter: dict | None = None,
+        extra_filters: dict | None = None,
         dense_vector_name: str = "dense",
         sparse_vector_name: str = "sparse",
     ):
         """Busca híbrida: Dense (ANN) + Sparse (BM25/SPLADE) fundidos via RRF.
 
-        Args:
-            dense_vector: Embedding denso da query.
-            sparse_indices: Índices dos tokens do vetor esparso (BM25/SPLADE).
-            sparse_values: Pesos correspondentes aos índices esparsos.
-            top_k: Número de resultados finais após fusão RRF.
-            prefetch_k: Candidatos pré-buscados por cada ramo antes da fusão.
-            payload_filter: Filtro opcional aplicado em ambos os ramos.
-            dense_vector_name: Nome do vetor denso na coleção (padrão: "dense").
-            sparse_vector_name: Nome do vetor esparso na coleção (padrão: "sparse").
+        O filtro por tenant_id é obrigatório e aplicado em ambos os ramos;
+        extra_filters adiciona condições (ex: base, conversation_id).
         """
-
-
-        list_conditions = []
-        for key, value in payload_filter.items():
-            list_conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
-            
-        if list_conditions:
-            payload_filter = Filter(must=list_conditions)
-
+        payload_filter = _tenant_filter(tenant_id, extra_filters)
 
         prefetches = [
             # Ramo denso — busca por similaridade semântica
@@ -128,7 +172,6 @@ class QdrantClient:
             ),
         ]
 
-        
         return await self._safe_call(
             "hybrid_search",
             self._client.query_points,
@@ -149,79 +192,13 @@ class QdrantClient:
             with_vectors=False,
         )
 
-    async def delete_points_by_filter(self, collection_name: str, field: str, value: str):
-        payload_filter = Filter(
-            must=[FieldCondition(key=field, match=MatchValue(value=value))]
-        )
+    async def delete_points_by_filter(
+        self, collection_name: str, tenant_id: str, field: str, value: str
+    ):
+        payload_filter = _tenant_filter(tenant_id, {field: value})
         return await self._safe_call(
             "delete_points_by_filter",
             self._client.delete,
             collection_name=collection_name,
             points_selector=payload_filter,
         )
-    
-
-    # ---------- TESTE ----------
-    async def test_connection(self):
-        """Testa a conexão e operações básicas do Qdrant (upsert → hybrid search → delete)."""
-        TEST_COLLECTION = "_test_connection"
-        VECTOR_SIZE = 4
-        logger.info("Iniciando teste de conexão com o Qdrant")
-
-        # 1. Cria coleção temporária com vetores denso + esparso
-        result = await self.create_collection(TEST_COLLECTION, vector_size=VECTOR_SIZE)
-        if not result["success"]:
-            logger.error(f"Falha ao criar coleção de teste: {result['error']}")
-            return result
-
-        # 2. Insere um ponto de teste com vetor denso e esparso
-        test_point = PointStruct(
-            id=1,
-            vector={
-                "dense": [0.1, 0.2, 0.3, 0.4],
-                "sparse": SparseVector(indices=[0, 3, 7], values=[0.9, 0.5, 0.3]),
-            },
-            payload={"test": True, "label": "ping"},
-        )
-        result = await self.upsert_points(TEST_COLLECTION, [test_point])
-        if not result["success"]:
-            logger.error(f"Falha ao inserir ponto de teste: {result['error']}")
-            await self.delete_collection(TEST_COLLECTION)
-            return result
-
-        # 3. Busca híbrida com os mesmos vetores
-        result = await self.search(
-            TEST_COLLECTION,
-            dense_vector=[0.1, 0.2, 0.3, 0.4],
-            sparse_indices=[0, 3, 7],
-            sparse_values=[0.9, 0.5, 0.3],
-            top_k=1,
-        )
-        if not result["success"]:
-            logger.error(f"Falha na busca de teste: {result['error']}")
-            await self.delete_collection(TEST_COLLECTION)
-            return result
-
-        hits = result["data"].points
-        logger.info(f"Busca retornou {len(hits)} resultado(s)")
-
-        # 4. Limpa coleção temporária
-        await self.delete_collection(TEST_COLLECTION)
-
-        if hits:
-            logger.info("✅ Teste de conexão com Qdrant concluído com sucesso")
-            return {"success": True, "data": "Conexão OK", "error": None}
-        else:
-            logger.warning("⚠️ Conexão OK, mas nenhum resultado retornado na busca híbrida")
-            return {"success": False, "data": None, "error": "Nenhum hit retornado"}
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def main():
-        client = QdrantClient()
-        result = await client.test_connection()
-        print(result)
-
-    asyncio.run(main())

@@ -392,7 +392,11 @@ exceção):
 | Função               | Endpoint                          | Payload                                        |
 |----------------------|-----------------------------------|------------------------------------------------|
 | `retrieval_sistema`  | `POST {RAG_API_URL}/retrieval/system` | `{"base": <categoria>, "message": <query>}` |
-| `retrieval_usuario`  | `POST {RAG_API_URL}/retrieval/users`  | `{"conversation_id": <id>, "message": <query>}` |
+| `retrieval_usuario`  | `POST {RAG_API_URL}/retrieval/users`  | `{"tenant_id": <tenant>, "conversation_id": <contato>, "message": <query>}` |
+
+`retrieval_usuario` recebe o `thread_id` composto (`"{tenant_id}:{contact_phone_number}"`)
+e o divide no primeiro `:` para enviar `tenant_id` e `conversation_id` separados —
+contrato multi-tenant do `api_rag` (ver `apps/api_rag/API.md` §3.7).
 
 Header: `Authorization: {RAG_API_KEY}`. Timeout: 30s.
 

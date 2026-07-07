@@ -86,7 +86,7 @@ docker-compose.override.yml   # dev local
 - Isolamento por **`tenant_id`** em todas as camadas.
 - **Postgres**: toda tabela multi-tenant tem coluna `tenant_id` (FK indexada, `NOT NULL`). **RLS (Row-Level Security) ativado como camada extra de proteção**, além do filtro na aplicação — cada policy filtra por `tenant_id = current_setting('app.tenant_id')::uuid`; a aplicação seta essa variável de sessão a cada request. Justificativa: dado jurídico sensível, defesa em profundidade (mesmo um bug/query sem filtro não expõe dado de outro tenant).
 - **Qdrant**: **collection única** com `tenant_id` como payload indexado. Todo acesso ao Qdrant passa obrigatoriamente por filtro de `tenant_id` na camada de acesso (nunca opcional/decisão do agente).
-  - ⚠️ **Gap conhecido**: a implementação atual do `api_rag` usa **duas collections** (`COLLECTION_SISTEMA` e `COLLECTION_USERS`) filtradas por strings livres (`base` e `conversation_id`), sem qualquer noção de `tenant_id`. Isso precisa ser retrofitado antes de produção multi-tenant — ver "RAG Service" e pendências.
+  - ✅ **Implementado no `api_rag`**: collection única (`QDRANT_COLLECTION`, provisionada no startup), filtro de `tenant_id` obrigatório em busca/deleção e validado no upsert (`clients/qdrant.py`). A base de conhecimento da plataforma (compartilhada) usa o tenant reservado `"system"`. ⚠️ Dados indexados antes do retrofit (collections antigas) precisam ser re-ingeridos.
 - **Agents service**: recebe `tenant_id` no contexto de cada request e resolve dinamicamente qual KB/coleção consultar — os agentes em si são os mesmos para todos os tenants.
   - ✅ **Resolvido no `agents`**: o `thread_id` do checkpoint agora é `"{tenant_id}:{contact_phone_number}"` (isola checkpoint, debounce no Redis e docs de usuário no RAG por tenant), e as credenciais do WhatsApp são por tenant, recebidas em cada request (`phone_number_id` + `access_token`, resolvidas/descriptografadas pelo `api` a partir de `whatsapp_numbers`). O Chatwoot foi removido.
 - **Super-admin (plataforma)**: o painel `/admin` precisa ler dados agregados de todos os tenants, portanto opera fora do filtro por `tenant_id` — via um papel de banco com `BYPASSRLS` ou queries agregadas dedicadas que não setam `app.tenant_id`. Esse acesso é auditado (ver Painel de Administração da Plataforma).
@@ -343,15 +343,19 @@ Métricas previstas no dashboard:
 **O que já existe e funciona:**
 - Microserviço **FastAPI** para **ingestão** de documentos (PDF/DOCX) e **retrieval híbrido**: embedding **denso** (OpenAI `text-embedding-3-small`) + **esparso** (API HTTP própria), fundidos por **RRF** no Qdrant, com expansão de query via **HyDE** (parágrafo hipotético) + extração de keywords (ambos gerados por LLM).
 - Ingestão: extrai texto do arquivo → chunking (`chonkie`) → gera embeddings denso/esparso por chunk → salva o arquivo cru em disco → grava metadados no Postgres (`documentos_usuario`/`documentos_sistema`) → upsert no Qdrant.
-- Duas bases lógicas hoje: **sistema** (base de conhecimento global/compartilhada, com rastreio de origem via `id_drive`, ex. Google Drive) e **usuário** (documentos por conversa).
-- Autenticação simples via header `Authorization: <API_KEY>` (comparação com `secrets.compare_digest`), sem JWT/tenant — mesma chave para todas as chamadas.
+- Duas bases lógicas: **sistema** (base de conhecimento da plataforma, compartilhada, indexada sob o tenant reservado `"system"`, com rastreio de origem via `id_drive`) e **usuário** (documentos por tenant + conversa).
 - Endpoints: `POST/DELETE /documents/{system,users}/{insert,delete}`, `POST /retrieval/{system,users}`, `GET /health`.
 - Migrations com **Alembic** (mesma ferramenta já prevista para o `api` geral neste `CLAUDE.md`).
+- Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api_rag`).
 
-**⚠️ O que precisa de adaptação para multi-tenancy (antes de produção nesta plataforma):**
-- **Não existe `tenant_id`** nem RLS — o isolamento hoje é só por convenção de string (`base` na coleção sistema, `conversation_id` na coleção usuário). Isso diverge do modelo alvo deste `CLAUDE.md` ("collection única com `tenant_id` como payload indexado, filtro obrigatório na camada de acesso") e é um **risco real de leak de dado jurídico entre escritórios** se o `base`/`conversation_id` de um tenant for adivinhado ou reaproveitado por engano. Retrofit prioritário: unificar collections e indexar/filtrar por `tenant_id` sempre.
-- Autenticação por **API key única global** — precisa evoluir para autenticação por tenant (ou continuar como serviço interno, só acessível por `agents`/`api`/`worker`, nunca exposto ao escritório diretamente).
-- Bugs conhecidos a corrigir antes de produção (ver §9 de `API.md`): campo `text` esperado no retrieval mas gravado como `texto` no payload (retorno vem vazio); fluxo de delete (`/documents/*/delete`) chama métodos inexistentes no repositório e acessa coluna `doc_id` que não existe no modelo (falha 500); filtro de delete no Qdrant usa parâmetro `fild` (typo) em vez de `field`; criação das collections do Qdrant não é feita pela API — precisa ser provisionada manualmente com os vetores nomeados `dense`+`sparse`; chamada ao serviço de sparse embedding é síncrona (`requests`) dentro de código async.
+**✅ Retrofit multi-tenant feito (2026-07):**
+- **Collection única** (`QDRANT_COLLECTION`, provisionada automaticamente no startup com vetores `dense`+`sparse` e índices de payload) com **`tenant_id` obrigatório na camada de acesso**: busca/deleção sem `tenant_id` levantam erro, upsert rejeita ponto sem `tenant_id` no payload. Contrato das rotas atualizado (`/retrieval/users` e `/documents/users/*` exigem `tenant_id`; `/documents/system/insert` usa `base` de verdade no form). O client do `agents` (`clients/retrieval.py`) divide o `thread_id` composto e envia `tenant_id`+`conversation_id`.
+- **Bugs do §9 do `API.md` corrigidos**: mismatch `text`/`texto` no retrieval, fluxo de delete (métodos inexistentes + `doc.doc_id`), typo `fild`→`field`, typo `convesation_id` no form, sparse embedding síncrono → `httpx` async, `TOP_K`/`PREFETCH_K` como int, migration inicial vazia preenchida (cadeia Alembic funciona em banco novo).
+- Coluna `tenant_id` em `documentos_usuario` (migration `a1b2c3d4e5f6`; nullable por causa de linhas legadas).
+
+**⚠️ O que ainda falta neste serviço:**
+- **Decisão tomada**: a autenticação continua por API key única (`API_KEY`) como **serviço interno** — só `agents`/`api`/`worker` chamam, nunca exposto direto ao escritório. O isolamento depende de o chamador enviar o `tenant_id` correto.
+- Dados indexados antes do retrofit (collections antigas `COLLECTION_SISTEMA`/`COLLECTION_USERS`) ficam invisíveis — precisam ser **re-ingeridos** na collection única; linhas legadas de `documentos_usuario` estão com `tenant_id` NULL.
 - Sem custo em créditos instrumentado (ingestão e retrieval não geram `credit_transactions`).
 
 ## Testes
@@ -466,11 +470,11 @@ Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service
 - [x] ~~Remover Chatwoot do `agents` e migrar para Meta Cloud API direta~~ (feito — ver "Agents Service").
 - [x] ~~Webhook da Meta no `api` + processamento no `worker`~~ (feito — ver "Fluxo de mensagem entrante"; falta Embedded Signup, hoje o número/token entra manualmente em `whatsapp_numbers`).
 - [x] ~~Propagar `tenant_id` no `agents`~~ (feito — `thread_id` composto por tenant no checkpoint/debounce/RAG de usuário).
-- [ ] Definir e propagar `tenant_id` no `api_rag` (filtro no Qdrant, hoje por string livre).
-- [ ] Unificar as collections do `api_rag` (hoje `COLLECTION_SISTEMA`/`COLLECTION_USERS` filtradas por string livre) em torno de `tenant_id` como payload indexado — risco atual de leak de dado jurídico entre escritórios.
-- [ ] Trocar a API key global do `api_rag` por auth por tenant, ou restringir o serviço a acesso interno (nunca exposto direto ao escritório).
+- [x] ~~Definir e propagar `tenant_id` no `api_rag` + unificar as collections~~ (feito — collection única com `tenant_id` obrigatório na camada de acesso; ver "RAG Service". ⚠️ dados antigos precisam ser re-ingeridos).
+- [x] ~~Auth do `api_rag`~~ (decisão: continua API key única como serviço interno, nunca exposto direto ao escritório).
+- [x] ~~Corrigir bugs conhecidos do `api_rag`~~ (feito — mismatch `text`/`texto`, delete quebrado, typo `fild`→`field`, sparse síncrono, migration inicial vazia; ver §9 de `API.md`).
 - [ ] Avaliar se os 3 especialistas hardcoded do `agents` (condominial, contratos, direito do consumidor) são o conjunto fixo de agentes de toda a plataforma ou precisam generalizar.
-- [ ] Corrigir bugs conhecidos antes de produção: mismatch `text`/`texto` no retrieval, fluxo de delete quebrado (`api_rag`), typo `fild`→`field` no filtro Qdrant, credenciais hardcoded em `agents/tools.py`, chamada síncrona de sparse embedding em código async.
+- [ ] Remover credenciais/URL hardcoded em `agents/tools.py` (`ENDPOINT_URL`/`API_KEY`/`CONVERSATION_ID` da tool `enviar_documento`).
 - [ ] Instrumentar consumo de créditos (`tokens_used`, custo fixo por tool) em ambos os serviços, hoje inexistente.
 - [ ] Rotacionar os segredos reais presentes nos `.env` trazidos junto com esses dois projetos.
 
