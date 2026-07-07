@@ -1,0 +1,97 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-env-file: &default-env-file
+  - .env
+
+networks:
+  default:
+    name: advoxs
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: ghcr.io/advoxs/web:${TAG:-latest}
+    restart: unless-stopped
+    env_file: *default-env-file
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    logging: *default-logging
+
+  api:
+    build:
+      context: apps/api
+    image: ghcr.io/advoxs/api:${TAG:-latest}
+    restart: unless-stopped
+    env_file: *default-env-file
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    logging: *default-logging
+
+  # Dockerfile ainda pendente — sera adicionado quando o microservico
+  # (ja existente fora deste repo) for incorporado em apps/agents.
+  agents:
+    build:
+      context: apps/agents
+    image: ghcr.io/advoxs/agents:${TAG:-latest}
+    restart: unless-stopped
+    env_file: *default-env-file
+    depends_on:
+      - qdrant
+      - redis
+    logging: *default-logging
+
+  worker:
+    build:
+      context: apps/worker
+    image: ghcr.io/advoxs/worker:${TAG:-latest}
+    restart: unless-stopped
+    env_file: *default-env-file
+    depends_on:
+      - postgres
+      - redis
+    logging: *default-logging
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-advoxs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-advoxs}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./infra/qdrant/config.yaml:/qdrant/config/production.yaml:ro
+    logging: *default-logging
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - redis_data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    logging: *default-logging

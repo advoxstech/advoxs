@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 60 uv init --app --name advoxs-api --python 3.12 --no-readme --vcs none 2>&1)",
+      "Bash(timeout 90 uv add fastapi \"uvicorn[standard]\" sqlalchemy[asyncio] asyncpg alembic pydantic-settings pyjwt \"passlib[bcrypt]\" redis)",
+      "Bash(timeout 90 uv add --dev pytest pytest-asyncio pytest-mock httpx ruff)",
+      "Bash(DATABASE_URL=\"postgresql+asyncpg://u:p@localhost:5432/d\" REDIS_URL=\"redis://localhost:6379/0\" JWT_SECRET=\"test\" timeout 30 uv run alembic check)",
+      "Bash(DATABASE_URL=\"postgresql+asyncpg://u:p@localhost:5432/d\" REDIS_URL=\"redis://localhost:6379/0\" JWT_SECRET=\"test\" timeout 30 uv run pytest tests/unit/test_health.py -q)",
+      "Bash(timeout 30 uv run ruff check .)",
+      "Bash(timeout 30 uv run ruff check --fix .)",
+      "Bash(timeout 60 uv init --app --name advoxs-worker --python 3.12 --no-readme --vcs none)",
+      "Bash(rm main.py)",
+      "Bash(timeout 90 uv add arq redis pydantic-settings 'sqlalchemy[asyncio]' asyncpg)",
+      "Bash(timeout 60 uv add --dev pytest pytest-asyncio pytest-mock ruff)",
+      "Bash(DATABASE_URL=\"postgresql+asyncpg://u:p@localhost:5432/d\" REDIS_URL=\"redis://localhost:6379/0\" timeout 30 uv run pytest -q)",
+      "Bash(timeout 20 uv run ruff check --fix .)",
+      "Bash(timeout 20 uv run ruff check .)",
+      "Bash(cp .env.example .env)",
+      "Bash(docker compose *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(rm .env)"
+    ]
+  }
+}

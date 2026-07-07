@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api: ${{ steps.filter.outputs.api }}
+      agents: ${{ steps.filter.outputs.agents }}
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+            api:
+              - 'apps/api/**'
+            agents:
+              - 'apps/agents/**'
+            worker:
+              - 'apps/worker/**'
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter=@advoxs/web lint
+      - run: pnpm --filter=@advoxs/web test
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+        env:
+          DATABASE_URL: postgresql+asyncpg://advoxs:advoxs@localhost:5432/advoxs_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ci-test-secret
+
+  agents:
+    needs: changes
+    if: needs.changes.outputs.agents == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/agents
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --all-extras
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+        env:
+          DATABASE_URL: postgresql+asyncpg://advoxs:advoxs@localhost:5432/advoxs_test
+          REDIS_URL: redis://localhost:6379/0

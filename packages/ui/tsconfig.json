@@ -1,0 +1,9 @@
+{
+  "extends": "@advoxs/config/tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
