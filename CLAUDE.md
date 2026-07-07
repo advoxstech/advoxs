@@ -270,13 +270,15 @@ Métricas previstas no dashboard:
 
 > Valores de partida — ajustar depois de validar custo real de LLM/infra e margem desejada.
 
-### Regra de consumo
+### Regra de consumo — ✅ mecânica implementada (calibração pendente)
 - **Não é flat por mensagem.** Consumo é calculado a partir do custo real de cada execução:
   - Tokens (input + output) consumidos na chamada ao LLM → convertidos em créditos via proporção **1 crédito = N tokens** (N calibrado para cobrir custo do provedor + margem desejada — **a definir a margem exata**).
-  - Tools com custo adicional (ex: geração de documento, chamada ao Qdrant) somam um custo fixo de créditos por chamada, além do custo de tokens.
+  - Tools com custo adicional (ex: geração de documento, chamada ao Qdrant) somam um custo fixo de créditos por chamada, além do custo de tokens — **ainda não implementado**.
   - Arredondamento sempre para cima (`ceil`) — nunca cobra fração de crédito.
+- **Como funciona hoje**: o `agents` devolve `tokens_used` (soma do `usage_metadata` das mensagens de IA da execução, incluindo chamadas com tool_calls) em `POST /messages`; o `worker` converte em créditos (`ceil(tokens / CREDIT_TOKENS_PER_CREDIT)`, env com default 1000 — valor de partida a calibrar), grava `tokens_used`/`credits_consumed` na primeira mensagem de resposta, lança `credit_transactions` (tipo `consumption`, negativo, `related_message_id`) e atualiza `tenants.credit_balance`, tudo na mesma transação.
+- ⚠️ O saldo **pode negativar** hoje — o comportamento quando zera segue pendente (bloquear? avisar?), ver pendências de billing.
 - Toda transação (compra ou consumo) é registrada em `credit_transactions` (auditoria por tenant).
-- Webhook do Stripe confirma pagamento → credita o saldo (`credit_transactions` tipo `purchase`).
+- Webhook do Stripe confirma pagamento → credita o saldo (`credit_transactions` tipo `purchase`) — **a implementar**.
 
 ### Pendências de billing
 - [ ] Definir a margem desejada sobre o custo do LLM para calibrar o N (tokens por crédito).
@@ -334,7 +336,7 @@ Métricas previstas no dashboard:
 - Upload de mídia da Cloud API (para enviar documento gerado por tool sem depender de URL pública) ainda não implementado — `send_document_message` hoje só envia por link.
 - **Os 3 especialistas são hoje hardcoded para o nicho de um único escritório** (condominial, contratos, direito do consumidor). Avaliar se esse é o conjunto fixo de agentes para *toda* a plataforma (compatível com "agentes fixos definidos pela plataforma") ou se precisa generalizar.
 - Sem integração com o **estado `agent`/`human`** de takeover do painel de conversas — hoje sempre responde automaticamente.
-- Sem instrumentação de **consumo de créditos** (`tokens_used`/`credits_consumed` em `messages`, `credit_transactions`) — a resposta do LLM não é hoje contabilizada.
+- ✅ **Consumo de créditos instrumentado**: `POST /messages` devolve `tokens_used` da execução; o `worker` converte em créditos e lança em `messages`/`credit_transactions`/`tenants.credit_balance` (ver "Regra de consumo"). Falta o custo fixo por tool.
 - Débitos técnicos conhecidos (ver §11 de `API_AGENTS.md`): `ENDPOINT_URL`/`API_KEY`/`CONVERSATION_ID` hardcoded em `agents/tools.py`; tools de geração de documento citadas nos prompts (`fazer_contrato`, `enviar_arquivo`) não estão implementadas (só existe `enviar_documento`, e ele não está bindado a nenhum agente); despedida de transferência automática só implementada para secretária/condominial.
 
 ## RAG Service (`apps/api_rag`)
@@ -476,7 +478,7 @@ Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service
 - [x] ~~Corrigir bugs conhecidos do `api_rag`~~ (feito — mismatch `text`/`texto`, delete quebrado, typo `fild`→`field`, sparse síncrono, migration inicial vazia; ver §9 de `API.md`).
 - [ ] Avaliar se os 3 especialistas hardcoded do `agents` (condominial, contratos, direito do consumidor) são o conjunto fixo de agentes de toda a plataforma ou precisam generalizar.
 - [ ] Remover credenciais/URL hardcoded em `agents/tools.py` (`ENDPOINT_URL`/`API_KEY`/`CONVERSATION_ID` da tool `enviar_documento`).
-- [ ] Instrumentar consumo de créditos (`tokens_used`, custo fixo por tool) em ambos os serviços, hoje inexistente.
+- [x] ~~Instrumentar consumo de créditos por tokens~~ (feito — `agents` devolve `tokens_used`, `worker` debita; ver "Regra de consumo"). Falta: custo fixo por tool e consumo do `api_rag` (ingestão/retrieval).
 - [ ] Rotacionar os segredos reais presentes nos `.env` trazidos junto com esses dois projetos.
 
 (Ver também "Pendências específicas do WhatsApp", "Pendências de billing", "Pendências do modelo de dados" e "Pendências de CI/CD e testes" nas seções acima.)

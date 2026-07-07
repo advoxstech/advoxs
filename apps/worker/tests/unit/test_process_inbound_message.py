@@ -34,18 +34,25 @@ def _inbound(state: str = "agent") -> InboundContext:
     )
 
 
+FIRST_MESSAGE_ID = uuid.uuid4()
+
+
 @pytest.fixture
 def patched(monkeypatch):
     mocks = {
         "load": AsyncMock(return_value=_inbound()),
         "decrypt": MagicMock(return_value="token-claro"),
-        "send": AsyncMock(return_value=["resposta 1", "resposta 2"]),
-        "persist": AsyncMock(),
+        "send": AsyncMock(
+            return_value={"responses": ["resposta 1", "resposta 2"], "tokens_used": 3500}
+        ),
+        "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
+        "debitar": AsyncMock(),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
     monkeypatch.setattr(messages_task, "send_message_to_agents", mocks["send"])
     monkeypatch.setattr(messages_task, "_persist_agent_responses", mocks["persist"])
+    monkeypatch.setattr(messages_task, "_debitar_creditos", mocks["debitar"])
     return mocks
 
 
@@ -58,6 +65,27 @@ async def test_agent_flow_persists_responses(patched) -> None:
     assert patched["send"].await_args.kwargs["message"] == "Olá"
     patched["persist"].assert_awaited_once()
     assert patched["persist"].await_args.args[3] == ["resposta 1", "resposta 2"]
+
+
+async def test_consumo_convertido_em_creditos_com_ceil(patched) -> None:
+    # 3500 tokens / 1000 tokens por crédito = 3.5 → ceil → 4 créditos
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    persist_args = patched["persist"].await_args.args
+    assert persist_args[4] == 3500  # tokens_used
+    assert persist_args[5] == 4  # credits
+    patched["debitar"].assert_awaited_once_with(
+        patched["debitar"].await_args.args[0], TENANT_ID, FIRST_MESSAGE_ID, 3500, 4
+    )
+
+
+async def test_sem_tokens_nao_debita(patched) -> None:
+    patched["send"].return_value = {"responses": ["resposta"], "tokens_used": 0}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["persist"].assert_awaited_once()
+    patched["debitar"].assert_not_awaited()
 
 
 async def test_human_state_skips_agent(patched) -> None:

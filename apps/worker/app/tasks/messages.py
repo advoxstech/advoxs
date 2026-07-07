@@ -1,4 +1,5 @@
 import logging
+import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
 from app.clients.agents import send_message_to_agents
+from app.config import settings
 from app.crypto import decrypt_access_token
 
 logger = logging.getLogger(__name__)
@@ -53,7 +55,7 @@ async def process_inbound_message(
     access_token = decrypt_access_token(inbound.access_token_encrypted)
 
     try:
-        responses = await send_message_to_agents(
+        result = await send_message_to_agents(
             http,
             tenant_id=tenant_id,
             contact_phone_number=inbound.contact_phone_number,
@@ -71,7 +73,7 @@ async def process_inbound_message(
         )
         raise Retry(defer=ctx.get("job_try", 1) * 10)
 
-    if responses is None:
+    if result is None:
         # 202: debounce agrupou em execução já em andamento.
         logger.info(
             "Mensagem agrupada pelo debounce do agents | tenant=%s conversation=%s",
@@ -80,8 +82,18 @@ async def process_inbound_message(
         )
         return
 
+    responses = result["responses"]
+    tokens_used = result.get("tokens_used", 0)
+    # 1 crédito = N tokens, sempre arredondando pra cima — nunca cobra fração.
+    credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
+
     async with session_factory() as session:
-        await _persist_agent_responses(session, tenant_id, conversation_id, responses)
+        first_message_id = await _persist_agent_responses(
+            session, tenant_id, conversation_id, responses, tokens_used, credits
+        )
+        if credits and first_message_id is not None:
+            # Ledger + saldo na mesma transação das mensagens.
+            await _debitar_creditos(session, tenant_id, first_message_id, tokens_used, credits)
         await session.commit()
 
 
@@ -134,22 +146,65 @@ async def _load_context(
 
 
 async def _persist_agent_responses(
-    session: AsyncSession, tenant_id: str, conversation_id: str, responses: list[str]
-) -> None:
+    session: AsyncSession,
+    tenant_id: str,
+    conversation_id: str,
+    responses: list[str],
+    tokens_used: int = 0,
+    credits: int = 0,
+) -> uuid.UUID | None:
+    """Insere as respostas do agente e retorna o id da primeira.
+
+    O consumo da execução inteira (tokens/créditos) fica registrado na
+    primeira mensagem — é a ela que o lançamento do ledger se vincula.
+    """
     now = datetime.now(UTC)
-    for response in responses:
-        await session.execute(
-            insert(tables.messages).values(
-                conversation_id=uuid.UUID(conversation_id),
-                tenant_id=uuid.UUID(tenant_id),
-                sender_type="agent",
-                content=response,
-                created_at=now,
-            )
+    first_message_id: uuid.UUID | None = None
+    for i, response in enumerate(responses):
+        values: dict = {
+            "conversation_id": uuid.UUID(conversation_id),
+            "tenant_id": uuid.UUID(tenant_id),
+            "sender_type": "agent",
+            "content": response,
+            "created_at": now,
+        }
+        if i == 0:
+            values["tokens_used"] = tokens_used or None
+            values["credits_consumed"] = credits or None
+        result = await session.execute(
+            insert(tables.messages).values(**values).returning(tables.messages.c.id)
         )
+        if i == 0:
+            first_message_id = result.scalar_one()
     if responses:
         await session.execute(
             update(tables.conversations)
             .where(tables.conversations.c.id == uuid.UUID(conversation_id))
             .values(last_message_at=now)
         )
+    return first_message_id
+
+
+async def _debitar_creditos(
+    session: AsyncSession,
+    tenant_id: str,
+    message_id: uuid.UUID,
+    tokens_used: int,
+    credits: int,
+) -> None:
+    """Lança o consumo no ledger e atualiza o cache de saldo do tenant."""
+    await session.execute(
+        insert(tables.credit_transactions).values(
+            tenant_id=uuid.UUID(tenant_id),
+            type="consumption",
+            amount_credits=-credits,
+            related_message_id=message_id,
+            description=f"Consumo do agente ({tokens_used} tokens)",
+            created_at=datetime.now(UTC),
+        )
+    )
+    await session.execute(
+        update(tables.tenants)
+        .where(tables.tenants.c.id == uuid.UUID(tenant_id))
+        .values(credit_balance=tables.tenants.c.credit_balance - credits)
+    )

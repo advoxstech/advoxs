@@ -4,9 +4,16 @@ O schema é dono do `apps/api` (models + migrations Alembic); aqui só as
 colunas usadas pelos jobs. Manter em sincronia com apps/api/app/models/.
 """
 
-from sqlalchemy import Column, DateTime, MetaData, String, Table, Text, Uuid, text
+from sqlalchemy import Column, DateTime, Integer, MetaData, Numeric, String, Table, Text, Uuid, text
 
 metadata = MetaData()
+
+tenants = Table(
+    "tenants",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("credit_balance", Integer),
+)
 
 conversations = Table(
     "conversations",
@@ -26,6 +33,20 @@ messages = Table(
     Column("tenant_id", Uuid),
     Column("sender_type", String),
     Column("content", Text),
+    Column("tokens_used", Integer),
+    Column("credits_consumed", Numeric(12, 2)),
+    Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
+credit_transactions = Table(
+    "credit_transactions",
+    metadata,
+    Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("tenant_id", Uuid),
+    Column("type", String),
+    Column("amount_credits", Integer),
+    Column("related_message_id", Uuid),
+    Column("description", String),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
 )
 

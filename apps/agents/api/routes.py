@@ -91,7 +91,7 @@ async def receive(body: IncomingMessage):
 
     try:
         logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
-        response = await run_agent(
+        response, tokens_used = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
             conversation_id=thread_id,
@@ -108,9 +108,9 @@ async def receive(body: IncomingMessage):
             for msg in response:
                 await client.send_text_message(body.contact_phone_number, msg)
 
-        # Devolve todas as respostas para o chamador (`api`) persistir em
-        # `messages` e contabilizar créditos.
-        return {"responses": response}
+        # Devolve as respostas e os tokens da execução para o chamador
+        # (`worker`) persistir em `messages` e debitar os créditos.
+        return {"responses": response, "tokens_used": tokens_used}
     except Exception:
         logger.exception("Erro ao chamar o agente | thread_id={}", thread_id)
         raise HTTPException(

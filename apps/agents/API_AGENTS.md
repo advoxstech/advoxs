@@ -150,11 +150,15 @@ este serviço) e descriptografou as credenciais do WhatsApp do tenant.
 **Resposta de sucesso (200):**
 
 ```json
-{ "responses": ["resposta 1", "resposta 2"] }
+{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234 }
 ```
 
-Todas as respostas geradas são devolvidas ao chamador (`api`) para persistência
-em `messages` e contabilização de créditos.
+Todas as respostas geradas são devolvidas ao chamador (`worker`) para
+persistência em `messages`. `tokens_used` é a soma de tokens (input+output)
+das mensagens de IA da execução — incluindo as chamadas intermediárias com
+tool_calls — obtida do `usage_metadata` do langchain-openai
+(`sum_usage_tokens` em `services/call_agent.py`). O `worker` converte em
+créditos (ceil, `CREDIT_TOKENS_PER_CREDIT`) e debita do tenant.
 
 **Erros:** `202` (execução concorrente), `400` (validação), `403` (API key),
 `422` (payload), `503` (Redis), `500` (erro no agente).

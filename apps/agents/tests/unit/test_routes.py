@@ -57,7 +57,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
-    run_agent = AsyncMock(return_value=["resposta 1", "resposta 2"])
+    run_agent = AsyncMock(return_value=(["resposta 1", "resposta 2"], 1234))
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
@@ -65,7 +65,10 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     response = client.post("/messages", json=PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json() == {"responses": ["resposta 1", "resposta 2"]}
+    assert response.json() == {
+        "responses": ["resposta 1", "resposta 2"],
+        "tokens_used": 1234,
+    }
 
     # thread_id composto por tenant + telefone do contato
     expected_thread = "tenant-1:5511999999999"

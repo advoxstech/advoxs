@@ -13,5 +13,9 @@ class Settings(BaseSettings):
     # Chave Fernet para descriptografar whatsapp_numbers.access_token_encrypted
     whatsapp_token_encryption_key: str = ""
 
+    # Conversão de consumo: 1 crédito = N tokens (arredondamento sempre pra
+    # cima). Valor de partida — calibrar com o custo real do LLM + margem.
+    credit_tokens_per_credit: int = 1000
+
 
 settings = Settings()

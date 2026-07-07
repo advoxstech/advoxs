@@ -11,12 +11,12 @@ async def send_message_to_agents(
     message: str,
     phone_number_id: str,
     access_token: str,
-) -> list[str] | None:
+) -> dict | None:
     """Chama POST /messages do agents service.
 
-    Retorna a lista de respostas do agente, ou None quando o agents devolve
-    202 (a mensagem foi agrupada pelo debounce numa execução já em andamento —
-    as respostas virão pela execução que está rodando).
+    Retorna {"responses": [...], "tokens_used": N}, ou None quando o agents
+    devolve 202 (a mensagem foi agrupada pelo debounce numa execução já em
+    andamento — as respostas virão pela execução que está rodando).
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
     response = await http.post(
@@ -34,4 +34,8 @@ async def send_message_to_agents(
     if response.status_code == 202:
         return None
     response.raise_for_status()
-    return response.json().get("responses", [])
+    data = response.json()
+    return {
+        "responses": data.get("responses", []),
+        "tokens_used": data.get("tokens_used", 0),
+    }

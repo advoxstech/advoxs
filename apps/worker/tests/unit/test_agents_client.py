@@ -20,17 +20,27 @@ def _http_returning(response: Response) -> AsyncMock:
     return http
 
 
-async def test_returns_responses_on_200() -> None:
+async def test_returns_responses_and_tokens_on_200() -> None:
     response = MagicMock(spec=Response, status_code=200)
-    response.json.return_value = {"responses": ["oi", "como posso ajudar?"]}
+    response.json.return_value = {"responses": ["oi", "como posso ajudar?"], "tokens_used": 1234}
     http = _http_returning(response)
 
     result = await send_message_to_agents(http, **KWARGS)
 
-    assert result == ["oi", "como posso ajudar?"]
+    assert result == {"responses": ["oi", "como posso ajudar?"], "tokens_used": 1234}
     body = http.post.await_args.kwargs["json"]
     assert body["tenant_id"] == "t-1"
     assert body["access_token"] == "token"
+
+
+async def test_resposta_sem_tokens_usa_zero() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"]}
+    http = _http_returning(response)
+
+    result = await send_message_to_agents(http, **KWARGS)
+
+    assert result == {"responses": ["oi"], "tokens_used": 0}
 
 
 async def test_returns_none_on_202_debounce() -> None:

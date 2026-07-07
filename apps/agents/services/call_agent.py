@@ -16,6 +16,20 @@ DATABASE_PORT = os.getenv("DATABASE_PORT")
 DB_URI = f"postgresql://postgres:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/postgres"
 
 
+def sum_usage_tokens(messages: list) -> int:
+    """Soma os tokens (input+output) das mensagens de IA de uma execução.
+
+    O usage_metadata é preenchido pelo langchain-openai em cada AIMessage —
+    inclui as chamadas intermediárias com tool_calls, que também custam tokens.
+    """
+    total = 0
+    for m in messages:
+        usage = getattr(m, "usage_metadata", None)
+        if m.type == "ai" and usage:
+            total += usage.get("total_tokens", 0)
+    return total
+
+
 async def run_agent(
     message: str,
     conversation_id: str,
@@ -24,7 +38,7 @@ async def run_agent(
     db_uri: str = DB_URI,
     num_before_messages: int = 35,
     extra_data: dict = {},
-) -> list[str]:
+) -> tuple[list[str], int]:
     started_at = time.perf_counter()
     config = {"configurable": {"thread_id": conversation_id}, "callbacks": [langfuse_handler]}
 
@@ -55,15 +69,17 @@ async def run_agent(
 
     new_messages = response["messages"][prior_count:]
     answers = [m.content for m in new_messages if m.type == "ai" and m.content]
+    tokens_used = sum_usage_tokens(new_messages)
 
     elapsed = round(time.perf_counter() - started_at, 3)
     logger.info(
-        "Respostas geradas | conversation_id={} | total={} | elapsed_s={}",
+        "Respostas geradas | conversation_id={} | total={} | tokens={} | elapsed_s={}",
         conversation_id,
         len(answers),
+        tokens_used,
         elapsed,
     )
     for i, ans in enumerate(answers):
         logger.debug("Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans)
 
-    return answers
+    return answers, tokens_used
