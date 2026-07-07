@@ -25,6 +25,9 @@ services:
     image: ghcr.io/advoxs/web:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
+    environment:
+      # Na rede do compose o api é resolvido pelo nome do serviço
+      API_URL: http://api:8000
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
