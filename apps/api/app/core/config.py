@@ -11,5 +11,10 @@ class Settings(BaseSettings):
     jwt_refresh_token_expires_days: int = 30
     agents_service_url: str = "http://agents:8001"
 
+    # Webhook da Meta (WhatsApp Cloud API)
+    meta_verify_token: str = "changeme"
+    # Quando setado, valida a assinatura X-Hub-Signature-256 de cada webhook.
+    meta_app_secret: str = ""
+
 
 settings = Settings()

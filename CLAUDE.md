@@ -8,7 +8,9 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 Este repositório está em fase de transição entre planejamento e implementação:
 
-- `apps/web`, `apps/api` e `apps/worker` ainda **não existem** — só a spec deste `CLAUDE.md`.
+- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**: modelo de dados completo (migration Alembic `0001`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`) e enfileiramento no Arq. Ainda **não** tem: auth JWT/login, Embedded Signup, billing/Stripe, gestão de KB. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
+- `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. `ingest_knowledge_base_file` segue como stub. Mesmos comandos de teste/lint do `api`.
+- `apps/web` é só scaffold Next.js (nenhuma página real).
 - `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
 - **Ambos foram construídos single-tenant** (sem noção de `tenant_id`) — ver seções "Agents Service" e "RAG Service" abaixo para o detalhamento de features e o que precisa ser adaptado para multi-tenancy antes de irem para produção nesta plataforma.
 - Os `README.md` desses dois projetos estão vazios; a documentação real está em `apps/agents/API_AGENTS.md` e `apps/api_rag/API.md` — são a fonte da verdade sobre o comportamento atual de cada serviço e devem ser consultados (e mantidos atualizados) sempre que o código deles mudar.
@@ -32,11 +34,11 @@ Monorepo com múltiplos apps. O serviço de agentes é **isolado como microservi
 
 ```
 apps/
-  web/          # Next.js — painel do escritório (auth, gestão de KB, config WhatsApp)               [a implementar]
-  api/          # FastAPI — backend geral: tenants, usuários, billing, integrações, orquestra webhooks [a implementar]
+  web/          # Next.js — painel do escritório (auth, gestão de KB, config WhatsApp)               [scaffold]
+  api/          # FastAPI — backend geral: tenants, usuários, billing, integrações, orquestra webhooks [webhook WhatsApp + modelo de dados prontos; resto a implementar]
   agents/       # FastAPI — microserviço dedicado, executa os agentes (LangGraph)                     [código existente — ver "Agents Service"]
   api_rag/      # FastAPI — microserviço dedicado de RAG: ingestão de documentos + retrieval híbrido  [código existente — ver "RAG Service"]
-  worker/       # Arq — jobs assíncronos (ingestão de KB, processamento de mensagens)                  [a implementar]
+  worker/       # Arq — jobs assíncronos (ingestão de KB, processamento de mensagens)                  [processamento de mensagens pronto; ingestão de KB a implementar]
 packages/
   ui/           # componentes compartilhados (shadcn/ui)
   types/        # tipos TS compartilhados (contratos de API)
@@ -56,7 +58,7 @@ docker-compose.override.yml   # dev local
 4. Tools chamam `api_rag` (que acessa Qdrant), geram documentos, etc. — sempre escopadas por `tenant_id`.
 5. Resposta volta pela cadeia até o canal de origem (painel ou WhatsApp).
 
-> **Nota de arquitetura real vs. alvo:** o Chatwoot foi **removido** do `agents` — o serviço agora expõe `POST /messages` (contrato interno com `tenant_id` + credenciais do tenant) e envia respostas direto pela Graph API da Meta. O que falta para o fluxo acima funcionar ponta a ponta: o `api` (que recebe o webhook da Meta, resolve o tenant e chama o `agents`) ainda não existe, e o `api_rag` ainda filtra por `conversation_id`/`base`, não por `tenant_id`. Ver detalhes nas seções específicas de cada serviço.
+> **Nota de arquitetura real vs. alvo:** o Chatwoot foi **removido** do `agents` — o serviço agora expõe `POST /messages` (contrato interno com `tenant_id` + credenciais do tenant) e envia respostas direto pela Graph API da Meta. O caminho webhook Meta → `api` (resolve tenant, persiste, enfileira) → `worker` (checa `agent`/`human`, chama `agents`) → respostas persistidas **já está implementado**. O que ainda falta para operar de verdade: Embedded Signup (hoje o número/token do tenant precisa ser inserido manualmente em `whatsapp_numbers`, cifrado com Fernet) e o retrofit do `api_rag`, que ainda filtra por `conversation_id`/`base`, não por `tenant_id`. Ver detalhes nas seções específicas de cada serviço.
 
 ## Stack e versões
 
@@ -114,7 +116,7 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 ### `whatsapp_numbers` (tenant-scoped, 1:1 com tenant)
 - `id` (uuid, PK)
 - `tenant_id` (FK → `tenants`, `UNIQUE`)
-- `phone_number_id` (Meta)
+- `phone_number_id` (Meta — `UNIQUE`, é a chave de resolução do webhook)
 - `waba_id`
 - `display_phone_number`
 - `access_token_encrypted`
@@ -138,6 +140,7 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `state` (`agent` | `human`)
 - `last_message_at`
 - `created_at`
+- `UNIQUE (tenant_id, contact_phone_number)` — uma conversa por contato por tenant, espelha o `thread_id` do checkpoint no `agents`
 
 ### `messages` (tenant-scoped)
 - `id` (uuid, PK)
@@ -145,11 +148,13 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `tenant_id` (FK → `tenants`, denormalizado — facilita filtro/RLS direto na tabela sem join)
 - `sender_type` (`agent` | `human` | `contact`)
 - `content` (text)
-- `media_url` (nullable)
+- `media_url` (nullable — hoje guarda o media ID da Meta; download da mídia é pendência)
 - `media_type` (nullable)
+- `wa_message_id` (nullable, unique — wamid da Meta, dedup de retries do webhook)
 - `tokens_used` (nullable, integer — para cálculo de crédito)
 - `credits_consumed` (nullable, numeric)
 - `created_at`
+- Índice composto `(tenant_id, created_at)` para as queries do painel de conversas
 
 ### `platform_admins` (global — administração da plataforma)
 > Usuários da **empresa fornecedora** (você), não pertencem a nenhum tenant. Tabela separada de `users` de propósito: super-admin vê métricas agregadas de toda a plataforma e nunca deve se confundir com um usuário de escritório.
@@ -194,7 +199,7 @@ messages 1───N credit_transactions (quando type = consumption, via related
 
 ### Pendências do modelo de dados
 - [ ] Papéis/permissões de `users` além de `admin` (ex: papel de atendente).
-- [ ] Índices compostos a definir na prática (ex: `(tenant_id, created_at)` em `messages` para queries do painel de conversas).
+- [ ] RLS só tem efeito para papéis de banco que não sejam donos das tabelas — produção deve conectar com um papel dedicado sem ownership/`BYPASSRLS` (hoje a aplicação conecta como owner, então as policies criadas na migration `0001` são inertes até isso).
 
 ## Autenticação
 
@@ -285,14 +290,14 @@ Métricas previstas no dashboard:
 - **1 número por escritório** (relação `tenant_id` ↔ `phone_number_id` é 1:1).
 - Credenciais (access token, `phone_number_id`, `waba_id`) armazenadas de forma **criptografada** no Postgres, vinculadas ao `tenant_id`.
 
-### Fluxo de mensagem entrante (webhook)
-1. Meta envia webhook para um endpoint único da plataforma (`api`), ex: `POST /api/v1/webhooks/whatsapp`.
-2. `api` identifica o `tenant_id` a partir do `phone_number_id` recebido no payload.
-3. Mensagem é persistida no Postgres (histórico da conversa) e publicada numa fila (Redis/Arq) para processamento assíncrono — evita timeout no webhook (Meta exige resposta rápida, ~5s).
+### Fluxo de mensagem entrante (webhook) — ✅ implementado
+1. Meta envia webhook para o endpoint único da plataforma: `POST /api/v1/webhooks/whatsapp` (`GET` no mesmo path atende a verificação da Meta via `META_VERIFY_TOKEN`; assinatura `X-Hub-Signature-256` validada quando `META_APP_SECRET` setado).
+2. `api` identifica o `tenant_id` a partir do `phone_number_id` recebido no payload (lookup em `whatsapp_numbers`; payloads de número desconhecido, eventos de status e wamids duplicados são ignorados com 200).
+3. Mensagem é persistida no Postgres (upsert da conversa + `messages` com `sender_type=contact`) e publicada na fila Arq (`process_inbound_message`) **após o commit** — evita timeout no webhook (Meta exige resposta rápida, ~5s).
 4. `worker` consome a fila e verifica o **estado da conversa**:
-   - Se `agent` → repassa para o `agents` service (LangGraph), que processa e retorna a resposta.
+   - Se `agent` → descriptografa o access token (Fernet) e repassa para o `agents` service via `POST /messages`; as respostas retornadas são persistidas em `messages` (`sender_type=agent`). Erro transiente no `agents` → retry com backoff (`arq.Retry`); 202 = debounce agrupou a mensagem numa execução em andamento.
    - Se `human` → **não aciona o agente**; mensagem só aparece no Painel de Conversas esperando resposta do usuário do escritório.
-5. Resposta (do agente ou do humano via painel) é enviada de volta via **Graph API** (`POST /{phone_number_id}/messages`).
+5. O próprio `agents` envia a resposta ao contato via **Graph API** (`POST /{phone_number_id}/messages`) com as credenciais recebidas na request; envio pelo humano (takeover via painel) ainda não implementado.
 
 ### Fluxo de mensagem saindo (agente ou humano)
 - Mesma rota de envio para ambos os casos (agente ou takeover humano), diferenciando apenas a origem no registro da conversa (`sender_type: agent | human`).
@@ -324,7 +329,7 @@ Métricas previstas no dashboard:
 
 **⚠️ O que precisa de adaptação para multi-tenancy (antes de produção nesta plataforma):**
 - ✅ **Chatwoot removido (feito)**: `POST /` (payload do Chatwoot) virou `POST /messages` com contrato interno; `clients/chatwoot.py` substituído por `clients/whatsapp.py` (Graph API, `send_text_message` + `send_document_message` por link); `thread_id` do checkpoint e chaves de debounce no Redis agora escopados como `"{tenant_id}:{contact_phone_number}"`; envs do Chatwoot removidas (novas: `AGENTS_API_KEY`, `GRAPH_API_BASE_URL`, `GRAPH_API_VERSION`). Cobertura em `tests/unit/test_routes.py`.
-- O `tenant_id` já entra no contrato e escopa checkpoint/debounce/RAG de usuário, mas ainda **depende do `api` existir** para o fluxo real (webhook Meta → resolve tenant → chama `agents`). Enquanto isso, o serviço só pode ser exercitado com payloads simulados.
+- ✅ O lado do `api`/`worker` existe: webhook Meta → resolve tenant → fila → `POST /messages`. O que falta para exercitar de ponta a ponta é o Embedded Signup (ou inserção manual do número/token cifrado em `whatsapp_numbers`).
 - Upload de mídia da Cloud API (para enviar documento gerado por tool sem depender de URL pública) ainda não implementado — `send_document_message` hoje só envia por link.
 - **Os 3 especialistas são hoje hardcoded para o nicho de um único escritório** (condominial, contratos, direito do consumidor). Avaliar se esse é o conjunto fixo de agentes para *toda* a plataforma (compatível com "agentes fixos definidos pela plataforma") ou se precisa generalizar.
 - Sem integração com o **estado `agent`/`human`** de takeover do painel de conversas — hoje sempre responde automaticamente.
@@ -458,7 +463,8 @@ Itens ainda em aberto, que não bloqueiam o início do desenvolvimento:
 
 Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service") mas foram construídos single-tenant. Antes de atender tenants reais nesta plataforma:
 
-- [x] ~~Remover Chatwoot do `agents` e migrar para Meta Cloud API direta~~ (feito — ver "Agents Service"; falta o lado do `api`: webhook da Meta + Embedded Signup).
+- [x] ~~Remover Chatwoot do `agents` e migrar para Meta Cloud API direta~~ (feito — ver "Agents Service").
+- [x] ~~Webhook da Meta no `api` + processamento no `worker`~~ (feito — ver "Fluxo de mensagem entrante"; falta Embedded Signup, hoje o número/token entra manualmente em `whatsapp_numbers`).
 - [x] ~~Propagar `tenant_id` no `agents`~~ (feito — `thread_id` composto por tenant no checkpoint/debounce/RAG de usuário).
 - [ ] Definir e propagar `tenant_id` no `api_rag` (filtro no Qdrant, hoje por string livre).
 - [ ] Unificar as collections do `api_rag` (hoje `COLLECTION_SISTEMA`/`COLLECTION_USERS` filtradas por string livre) em torno de `tenant_id` como payload indexado — risco atual de leak de dado jurídico entre escritórios.

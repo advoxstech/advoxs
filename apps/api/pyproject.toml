@@ -5,12 +5,14 @@ description = "Advoxs — backend geral (tenants, usuarios, billing, KB, integra
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.5",
+    "arq>=0.28.0",
     "asyncpg>=0.31.0",
     "fastapi>=0.139.0",
     "passlib[bcrypt]>=1.7.4",
     "pydantic-settings>=2.14.2",
     "pyjwt>=2.13.0",
-    "redis>=8.0.1",
+    # arq exige redis<6 — manter alinhado com apps/worker
+    "redis>=5.3.1",
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn[standard]>=0.50.2",
 ]

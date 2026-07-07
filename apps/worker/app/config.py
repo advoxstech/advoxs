@@ -7,5 +7,11 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    # Agents service (chamada interna com credenciais do tenant)
+    agents_service_url: str = "http://agents:8001"
+    agents_api_key: str = ""
+    # Chave Fernet para descriptografar whatsapp_numbers.access_token_encrypted
+    whatsapp_token_encryption_key: str = ""
+
 
 settings = Settings()
