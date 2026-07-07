@@ -6,7 +6,14 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 ## Estado atual do repositório
 
-Este repositório está em fase de planejamento: contém apenas este `CLAUDE.md` (spec de produto/arquitetura), sem código-fonte ainda. Não existem `package.json`, `pyproject.toml`, apps ou testes implementados — portanto não há comandos de build/lint/test para documentar. Quando o código dos apps (`web`, `api`, `agents`, `worker`) for incorporado, esta seção deve ser substituída por comandos reais (setup, dev server, lint, testes) e por notas de arquitetura extraídas do código.
+Este repositório está em fase de transição entre planejamento e implementação:
+
+- `apps/web`, `apps/api` e `apps/worker` ainda **não existem** — só a spec deste `CLAUDE.md`.
+- `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
+- **Ambos foram construídos single-tenant** (sem noção de `tenant_id`) — ver seções "Agents Service" e "RAG Service" abaixo para o detalhamento de features e o que precisa ser adaptado para multi-tenancy antes de irem para produção nesta plataforma.
+- Os `README.md` desses dois projetos estão vazios; a documentação real está em `apps/agents/API_AGENTS.md` e `apps/api_rag/API.md` — são a fonte da verdade sobre o comportamento atual de cada serviço e devem ser consultados (e mantidos atualizados) sempre que o código deles mudar.
+- ⚠️ Os `.env` copiados junto com esses projetos contêm credenciais reais (OpenAI, Postgres, Qdrant, Chatwoot). **Rotacionar todas antes de reutilizar** e garantir que `.env` seguem ignorados pelo git (nunca commitar segredo real).
+- Quando `web`, `api` e `worker` forem implementados, e quando `agents`/`api_rag` forem adaptados para multi-tenancy, esta seção deve ser atualizada com comandos reais de build/lint/test de cada app.
 
 ## Visão do produto
 
@@ -21,14 +28,15 @@ Plataforma **multi-tenant B2B** que fornece **agentes de IA prontos** para escri
 
 ## Arquitetura geral
 
-Monorepo com múltiplos apps. O serviço de agentes é **isolado como microserviço** por receber requests de todos os tenants simultaneamente e concentrar a orquestração LangGraph.
+Monorepo com múltiplos apps. O serviço de agentes é **isolado como microserviço** por receber requests de todos os tenants simultaneamente e concentrar a orquestração LangGraph. O RAG (ingestão + retrieval) também é isolado em microserviço próprio (`api_rag`), separado do backend geral (`api`), porque tem dependências pesadas específicas (Qdrant, embeddings, chunking, parsing de PDF/DOCX) e é consumido tanto pelo `agents` (tools de conhecimento) quanto, futuramente, pelo `web`/`worker` (upload/gestão de KB).
 
 ```
 apps/
-  web/          # Next.js — painel do escritório (auth, gestão de KB, config WhatsApp)
-  api/          # FastAPI — backend geral: tenants, usuários, billing, KB, integrações
-  agents/       # FastAPI — microserviço dedicado, multi-tenant, executa os agentes (LangGraph)
-  worker/       # Arq — jobs assíncronos (ingestão de KB, processamento de mensagens)
+  web/          # Next.js — painel do escritório (auth, gestão de KB, config WhatsApp)               [a implementar]
+  api/          # FastAPI — backend geral: tenants, usuários, billing, integrações, orquestra webhooks [a implementar]
+  agents/       # FastAPI — microserviço dedicado, executa os agentes (LangGraph)                     [código existente — ver "Agents Service"]
+  api_rag/      # FastAPI — microserviço dedicado de RAG: ingestão de documentos + retrieval híbrido  [código existente — ver "RAG Service"]
+  worker/       # Arq — jobs assíncronos (ingestão de KB, processamento de mensagens)                  [a implementar]
 packages/
   ui/           # componentes compartilhados (shadcn/ui)
   types/        # tipos TS compartilhados (contratos de API)
@@ -41,12 +49,14 @@ docker-compose.yml
 docker-compose.override.yml   # dev local
 ```
 
-### Fluxo resumido
+### Fluxo resumido (alvo — ver pendências de adaptação nas seções "Agents Service" e "RAG Service")
 1. Escritório interage via painel (`web`) ou via WhatsApp Business (webhook → `api`).
 2. `api` identifica o `tenant_id`, valida permissões e repassa a requisição para o `agents` service.
-3. `agents` resolve qual agente (grafo LangGraph) deve ser executado, injeta o contexto do tenant (qual KB consultar) e executa as tools necessárias.
-4. Tools acessam Qdrant (RAG), geram documentos, etc., sempre escopadas por `tenant_id`.
+3. `agents` resolve qual agente (grafo LangGraph) deve ser executado, injeta o contexto do tenant (qual KB consultar via `api_rag`) e executa as tools necessárias.
+4. Tools chamam `api_rag` (que acessa Qdrant), geram documentos, etc. — sempre escopadas por `tenant_id`.
 5. Resposta volta pela cadeia até o canal de origem (painel ou WhatsApp).
+
+> **Nota de arquitetura real vs. alvo:** o Chatwoot foi **removido** do `agents` — o serviço agora expõe `POST /messages` (contrato interno com `tenant_id` + credenciais do tenant) e envia respostas direto pela Graph API da Meta. O que falta para o fluxo acima funcionar ponta a ponta: o `api` (que recebe o webhook da Meta, resolve o tenant e chama o `agents`) ainda não existe, e o `api_rag` ainda filtra por `conversation_id`/`base`, não por `tenant_id`. Ver detalhes nas seções específicas de cada serviço.
 
 ## Stack e versões
 
@@ -54,16 +64,19 @@ docker-compose.override.yml   # dev local
 |---|---|
 | Frontend | Next.js 15 (App Router, RSC) |
 | Backend geral | FastAPI + Python 3.12 |
-| Microserviço de agentes | FastAPI + Python 3.12 |
-| Orquestração de agentes | LangGraph |
-| Banco relacional | PostgreSQL 16 |
-| Banco vetorial | Qdrant |
-| Cache / fila | Redis 7 |
+| Microserviço de agentes (`agents`) | FastAPI + Python 3.13 |
+| Microserviço de RAG (`api_rag`) | FastAPI + Python 3.13 |
+| Orquestração de agentes | LangGraph (`StateGraph` + `Command`, checkpoint em Postgres) |
+| LLM (agentes) | OpenAI `gpt-5-mini` via `langchain-openai` |
+| Observabilidade dos agentes | Langfuse (tracing) + Loguru |
+| Banco relacional | PostgreSQL 16 (17 nos dois microserviços existentes) |
+| Banco vetorial | Qdrant — busca híbrida (denso OpenAI + esparso via API própria), fusão RRF, expansão de query via HyDE |
+| Cache / fila | Redis 7 (também usado hoje no `agents` para debounce de rajada de mensagens) |
 | Fila de jobs assíncronos | Arq |
 | Gerenciador pacotes JS | pnpm + Turborepo |
 | Gerenciador pacotes Python | uv |
 | Autenticação | JWT customizado no FastAPI |
-| Integração de canal | WhatsApp Business (Cloud API) |
+| Integração de canal | WhatsApp Business (Cloud API), Embedded Signup da Meta — Chatwoot já removido do `agents`, ver "Agents Service" |
 | Infra local/deploy | Docker Compose + volumes |
 
 ## Multi-tenancy
@@ -71,7 +84,9 @@ docker-compose.override.yml   # dev local
 - Isolamento por **`tenant_id`** em todas as camadas.
 - **Postgres**: toda tabela multi-tenant tem coluna `tenant_id` (FK indexada, `NOT NULL`). **RLS (Row-Level Security) ativado como camada extra de proteção**, além do filtro na aplicação — cada policy filtra por `tenant_id = current_setting('app.tenant_id')::uuid`; a aplicação seta essa variável de sessão a cada request. Justificativa: dado jurídico sensível, defesa em profundidade (mesmo um bug/query sem filtro não expõe dado de outro tenant).
 - **Qdrant**: **collection única** com `tenant_id` como payload indexado. Todo acesso ao Qdrant passa obrigatoriamente por filtro de `tenant_id` na camada de acesso (nunca opcional/decisão do agente).
+  - ⚠️ **Gap conhecido**: a implementação atual do `api_rag` usa **duas collections** (`COLLECTION_SISTEMA` e `COLLECTION_USERS`) filtradas por strings livres (`base` e `conversation_id`), sem qualquer noção de `tenant_id`. Isso precisa ser retrofitado antes de produção multi-tenant — ver "RAG Service" e pendências.
 - **Agents service**: recebe `tenant_id` no contexto de cada request e resolve dinamicamente qual KB/coleção consultar — os agentes em si são os mesmos para todos os tenants.
+  - ✅ **Resolvido no `agents`**: o `thread_id` do checkpoint agora é `"{tenant_id}:{contact_phone_number}"` (isola checkpoint, debounce no Redis e docs de usuário no RAG por tenant), e as credenciais do WhatsApp são por tenant, recebidas em cada request (`phone_number_id` + `access_token`, resolvidas/descriptografadas pelo `api` a partir de `whatsapp_numbers`). O Chatwoot foi removido.
 - **Super-admin (plataforma)**: o painel `/admin` precisa ler dados agregados de todos os tenants, portanto opera fora do filtro por `tenant_id` — via um papel de banco com `BYPASSRLS` ou queries agregadas dedicadas que não setam `app.tenant_id`. Esse acesso é auditado (ver Painel de Administração da Plataforma).
 
 ## Modelo de Dados (Postgres)
@@ -294,23 +309,45 @@ Métricas previstas no dashboard:
 - [ ] Rate limits da Cloud API por número — throttling na fila de envio.
 - [ ] Retry/dead-letter para falhas de envio.
 
-## Agents Service (`apps/agents`) — resumo geral (⚠️ a validar contra implementação real)
+## Agents Service (`apps/agents`)
 
-> Esta seção é um resumo do entendimento atual, construído pela conversa. Quando a implementação real do microserviço for incorporada ao repo, **revisar e corrigir** o que estiver divergente.
+> Código real, incorporado de um projeto standalone anterior (single-tenant). Documentação técnica completa em `apps/agents/API_AGENTS.md` — consultar/atualizar esse arquivo quando o código mudar. Resumo das features abaixo; ⚠️ marca o que precisa de adaptação para caber na visão multi-tenant deste `CLAUDE.md`.
 
-- Microserviço **FastAPI** isolado dos demais (`api`, `web`), dedicado exclusivamente à execução dos agentes.
-- Recebe requests de **múltiplos tenants simultaneamente** (multi-tenant nativo no serviço, não uma instância por tenant).
-- Orquestração via **LangGraph**.
-- **Agentes são fixos e bem definidos pela plataforma** — o mesmo conjunto de agentes/grafos atende todos os escritórios. Não há criação/customização de agente pelo tenant.
-- O que varia por tenant é **apenas a base de conhecimento** consultada via RAG.
-- Cada request recebida traz (ou o serviço resolve a partir do contexto) o `tenant_id`, usado para:
-  - Selecionar/filtrar a base de conhecimento correta no Qdrant (payload filter obrigatório por `tenant_id`).
-  - Aplicar qualquer regra de negócio específica do tenant (ex: consumo de créditos).
-- **Tools** disponíveis aos agentes incluem, no mínimo:
-  - Geração de documentos.
-  - Consulta à base de conhecimento (RAG, sempre escopada por tenant).
-- Respeita o estado da conversa definido pelo painel (`agent` | `human`): se a conversa estiver em modo `human` (takeover), o serviço não deve gerar resposta automática.
-- Entrada/saída do serviço se dá via chamadas do `api` (que já resolveu autenticação/tenant antes de repassar) — o `agents` service não lida com login/JWT de usuário final diretamente.
+**O que já existe e funciona:**
+- Microserviço **FastAPI** interno: recebe mensagens já resolvidas pelo `api` via `POST /messages` (contrato: `tenant_id`, `contact_phone_number`, `message`, `attachments`, `phone_number_id`, `access_token`; auth de serviço via header `Authorization: <AGENTS_API_KEY>`), faz **debounce de rajada** via Redis (agrupa mensagens próximas de um mesmo cliente por ~5s), roda um **grafo LangGraph** e envia a(s) resposta(s) ao cliente direto pela **Graph API da Meta** (`clients/whatsapp.py`), com as credenciais do tenant recebidas na request. Retorna as respostas ao chamador para persistência em `messages` e contabilização de créditos.
+- Grafo composto por uma **secretária de triagem** (`agente_secretaria`) + três **especialistas fixos**: `agente_condominial`, `agente_contratos`, `agente_direito_consumidor`. A secretária faz a triagem inicial e transfere para o especialista certo via tool `transfer_to_specialist`; a partir daí a conversa fica fixada nesse especialista (persistido no checkpoint).
+- Estado da conversa (histórico de mensagens, especialista fixado) persistido em **Postgres** via `AsyncPostgresSaver` do LangGraph — o `thread_id` do checkpoint é hoje o `conversation_id` do Chatwoot.
+- Tools de RAG (`bucar_base_conhecimento_condominial/contratos/direito_consumidor`, `bucar_base_conhecimento_usuario`) chamam o `api_rag` via HTTP (`RAG_API_URL`) para buscar na base do sistema (por categoria) ou na base de documentos do próprio usuário/conversa.
+- Sanitização de histórico (`strip_messages`) antes de cada chamada ao LLM: fecha `tool_calls` pendentes (evita erro da OpenAI) e recorta às últimas N mensagens sem quebrar um bloco de tool no meio.
+- Observabilidade via **Langfuse** (tracing) + **Loguru** (log estruturado, rotação em arquivo se `LOG_FILE` setado).
+- Endpoints: `POST /` (webhook), `GET /agents` (lista agentes/tools disponíveis, para dashboards), `DELETE /conversations/{thread_id}` (apaga histórico de uma conversa).
+
+**⚠️ O que precisa de adaptação para multi-tenancy (antes de produção nesta plataforma):**
+- ✅ **Chatwoot removido (feito)**: `POST /` (payload do Chatwoot) virou `POST /messages` com contrato interno; `clients/chatwoot.py` substituído por `clients/whatsapp.py` (Graph API, `send_text_message` + `send_document_message` por link); `thread_id` do checkpoint e chaves de debounce no Redis agora escopados como `"{tenant_id}:{contact_phone_number}"`; envs do Chatwoot removidas (novas: `AGENTS_API_KEY`, `GRAPH_API_BASE_URL`, `GRAPH_API_VERSION`). Cobertura em `tests/unit/test_routes.py`.
+- O `tenant_id` já entra no contrato e escopa checkpoint/debounce/RAG de usuário, mas ainda **depende do `api` existir** para o fluxo real (webhook Meta → resolve tenant → chama `agents`). Enquanto isso, o serviço só pode ser exercitado com payloads simulados.
+- Upload de mídia da Cloud API (para enviar documento gerado por tool sem depender de URL pública) ainda não implementado — `send_document_message` hoje só envia por link.
+- **Os 3 especialistas são hoje hardcoded para o nicho de um único escritório** (condominial, contratos, direito do consumidor). Avaliar se esse é o conjunto fixo de agentes para *toda* a plataforma (compatível com "agentes fixos definidos pela plataforma") ou se precisa generalizar.
+- Sem integração com o **estado `agent`/`human`** de takeover do painel de conversas — hoje sempre responde automaticamente.
+- Sem instrumentação de **consumo de créditos** (`tokens_used`/`credits_consumed` em `messages`, `credit_transactions`) — a resposta do LLM não é hoje contabilizada.
+- Débitos técnicos conhecidos (ver §11 de `API_AGENTS.md`): `ENDPOINT_URL`/`API_KEY`/`CONVERSATION_ID` hardcoded em `agents/tools.py`; tools de geração de documento citadas nos prompts (`fazer_contrato`, `enviar_arquivo`) não estão implementadas (só existe `enviar_documento`, e ele não está bindado a nenhum agente); despedida de transferência automática só implementada para secretária/condominial.
+
+## RAG Service (`apps/api_rag`)
+
+> Código real, incorporado de um projeto standalone anterior (single-tenant). Documentação técnica completa em `apps/api_rag/API.md` — consultar/atualizar esse arquivo quando o código mudar. É o serviço que os agentes chamam para consultar (e, no futuro, gerenciar) a base de conhecimento.
+
+**O que já existe e funciona:**
+- Microserviço **FastAPI** para **ingestão** de documentos (PDF/DOCX) e **retrieval híbrido**: embedding **denso** (OpenAI `text-embedding-3-small`) + **esparso** (API HTTP própria), fundidos por **RRF** no Qdrant, com expansão de query via **HyDE** (parágrafo hipotético) + extração de keywords (ambos gerados por LLM).
+- Ingestão: extrai texto do arquivo → chunking (`chonkie`) → gera embeddings denso/esparso por chunk → salva o arquivo cru em disco → grava metadados no Postgres (`documentos_usuario`/`documentos_sistema`) → upsert no Qdrant.
+- Duas bases lógicas hoje: **sistema** (base de conhecimento global/compartilhada, com rastreio de origem via `id_drive`, ex. Google Drive) e **usuário** (documentos por conversa).
+- Autenticação simples via header `Authorization: <API_KEY>` (comparação com `secrets.compare_digest`), sem JWT/tenant — mesma chave para todas as chamadas.
+- Endpoints: `POST/DELETE /documents/{system,users}/{insert,delete}`, `POST /retrieval/{system,users}`, `GET /health`.
+- Migrations com **Alembic** (mesma ferramenta já prevista para o `api` geral neste `CLAUDE.md`).
+
+**⚠️ O que precisa de adaptação para multi-tenancy (antes de produção nesta plataforma):**
+- **Não existe `tenant_id`** nem RLS — o isolamento hoje é só por convenção de string (`base` na coleção sistema, `conversation_id` na coleção usuário). Isso diverge do modelo alvo deste `CLAUDE.md` ("collection única com `tenant_id` como payload indexado, filtro obrigatório na camada de acesso") e é um **risco real de leak de dado jurídico entre escritórios** se o `base`/`conversation_id` de um tenant for adivinhado ou reaproveitado por engano. Retrofit prioritário: unificar collections e indexar/filtrar por `tenant_id` sempre.
+- Autenticação por **API key única global** — precisa evoluir para autenticação por tenant (ou continuar como serviço interno, só acessível por `agents`/`api`/`worker`, nunca exposto ao escritório diretamente).
+- Bugs conhecidos a corrigir antes de produção (ver §9 de `API.md`): campo `text` esperado no retrieval mas gravado como `texto` no payload (retorno vem vazio); fluxo de delete (`/documents/*/delete`) chama métodos inexistentes no repositório e acessa coluna `doc_id` que não existe no modelo (falha 500); filtro de delete no Qdrant usa parâmetro `fild` (typo) em vez de `field`; criação das collections do Qdrant não é feita pela API — precisa ser provisionada manualmente com os vetores nomeados `dense`+`sparse`; chamada ao serviço de sparse embedding é síncrona (`requests`) dentro de código async.
+- Sem custo em créditos instrumentado (ingestão e retrieval não geram `credit_transactions`).
 
 ## Testes
 
@@ -409,7 +446,6 @@ Volumes nomeados para persistência: `postgres_data`, `qdrant_data`, `redis_data
 
 Itens ainda em aberto, que não bloqueiam o início do desenvolvimento:
 
-- [ ] **Tools dos agentes e RAG** — contrato e registro no LangGraph (será trazido pela implementação já existente do microserviço `agents`, ainda por incorporar).
 - [ ] Papéis/permissões de `users` além de `admin` (ex: papel de atendente).
 - [ ] Extensões de arquivo suportadas na base de conhecimento além de PDF/TXT, e limite total de storage por tenant.
 - [ ] Fluxo de status de ingestão de documentos (processando/pronto/erro) exibido no front.
@@ -417,5 +453,19 @@ Itens ainda em aberto, que não bloqueiam o início do desenvolvimento:
 - [ ] Mecânica de retorno da conversa de `human` para `agent` (ação manual? timeout?).
 - [ ] Calibragem da margem sobre custo de LLM (N tokens por crédito) e custo fixo em créditos de cada tool.
 - [ ] Comportamento quando o saldo de créditos zera.
+
+### Retrofit de `apps/agents` e `apps/api_rag` para multi-tenancy (bloqueia produção, não bloqueia início do dev)
+
+Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service") mas foram construídos single-tenant. Antes de atender tenants reais nesta plataforma:
+
+- [x] ~~Remover Chatwoot do `agents` e migrar para Meta Cloud API direta~~ (feito — ver "Agents Service"; falta o lado do `api`: webhook da Meta + Embedded Signup).
+- [x] ~~Propagar `tenant_id` no `agents`~~ (feito — `thread_id` composto por tenant no checkpoint/debounce/RAG de usuário).
+- [ ] Definir e propagar `tenant_id` no `api_rag` (filtro no Qdrant, hoje por string livre).
+- [ ] Unificar as collections do `api_rag` (hoje `COLLECTION_SISTEMA`/`COLLECTION_USERS` filtradas por string livre) em torno de `tenant_id` como payload indexado — risco atual de leak de dado jurídico entre escritórios.
+- [ ] Trocar a API key global do `api_rag` por auth por tenant, ou restringir o serviço a acesso interno (nunca exposto direto ao escritório).
+- [ ] Avaliar se os 3 especialistas hardcoded do `agents` (condominial, contratos, direito do consumidor) são o conjunto fixo de agentes de toda a plataforma ou precisam generalizar.
+- [ ] Corrigir bugs conhecidos antes de produção: mismatch `text`/`texto` no retrieval, fluxo de delete quebrado (`api_rag`), typo `fild`→`field` no filtro Qdrant, credenciais hardcoded em `agents/tools.py`, chamada síncrona de sparse embedding em código async.
+- [ ] Instrumentar consumo de créditos (`tokens_used`, custo fixo por tool) em ambos os serviços, hoje inexistente.
+- [ ] Rotacionar os segredos reais presentes nos `.env` trazidos junto com esses dois projetos.
 
 (Ver também "Pendências específicas do WhatsApp", "Pendências de billing", "Pendências do modelo de dados" e "Pendências de CI/CD e testes" nas seções acima.)

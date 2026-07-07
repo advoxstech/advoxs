@@ -18,7 +18,8 @@
       "Bash(cp .env.example .env)",
       "Bash(docker compose *)",
       "Bash(echo \"exit: $?\")",
-      "Bash(rm .env)"
+      "Bash(rm .env)",
+      "Bash(uv run *)"
     ]
   }
 }
