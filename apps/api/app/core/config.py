@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     meta_verify_token: str = "changeme"
     # Quando setado, valida a assinatura X-Hub-Signature-256 de cada webhook.
     meta_app_secret: str = ""
+    # Chave Fernet para cifrar whatsapp_numbers.access_token_encrypted
+    # (mesma chave usada pelo worker para descriptografar).
+    whatsapp_token_encryption_key: str = ""
 
 
 settings = Settings()

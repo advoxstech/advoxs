@@ -8,7 +8,7 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 Este repositório está em fase de transição entre planejamento e implementação:
 
-- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**: modelo de dados completo (migration Alembic `0001`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`) e enfileiramento no Arq. Ainda **não** tem: auth JWT/login, Embedded Signup, billing/Stripe, gestão de KB. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
+- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp** e a **autenticação JWT**: modelo de dados completo (migration Alembic `0001`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, e auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta. Ainda **não** tem: Embedded Signup, billing/Stripe, gestão de KB, painel de conversas. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
 - `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. `ingest_knowledge_base_file` segue como stub. Mesmos comandos de teste/lint do `api`.
 - `apps/web` é só scaffold Next.js (nenhuma página real).
 - `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
@@ -201,14 +201,14 @@ messages 1───N credit_transactions (quando type = consumption, via related
 - [ ] Papéis/permissões de `users` além de `admin` (ex: papel de atendente).
 - [ ] RLS só tem efeito para papéis de banco que não sejam donos das tabelas — produção deve conectar com um papel dedicado sem ownership/`BYPASSRLS` (hoje a aplicação conecta como owner, então as policies criadas na migration `0001` são inertes até isso).
 
-## Autenticação
+## Autenticação — ✅ implementada no `api`
 
-- JWT customizado, emitido pelo `api` (FastAPI).
+- JWT customizado (HS256, `pyjwt`), emitido pelo `api` (FastAPI). Senhas com `bcrypt` direto (sem passlib — incompatível com bcrypt>=4.1).
 - Fluxo:
-  1. `POST /api/v1/auth/login` → valida credenciais → retorna access + refresh token.
-  2. Next.js guarda o token em cookie `httpOnly` + `secure`.
-  3. Toda request ao FastAPI passa por uma dependency (`get_current_tenant`) que decodifica o JWT e injeta `tenant_id`/`role` no contexto.
-  4. Refresh token com rotação; revogação via blacklist no Redis.
+  1. `POST /api/v1/auth/login` → valida credenciais (comparação com hash dummy para e-mail inexistente — evita enumeração por timing; tenant suspenso → 403) → retorna access + refresh token.
+  2. Next.js guarda o token em cookie `httpOnly` + `secure` (lado `web`, a implementar).
+  3. Toda request autenticada passa pela dependency `get_current_tenant` (`app/api/deps.py`), que decodifica o JWT (`type=access`) e injeta `user_id`/`tenant_id`/`role` no contexto. Para rotas tenant-scoped, usar `get_tenant_session`, que também seta `app.tenant_id` na transação (ativa as policies de RLS).
+  4. `POST /api/v1/auth/refresh` com **rotação**: o `jti` do refresh usado vai para a blacklist no Redis (`auth:blacklist:{jti}`, TTL = expiração restante) e um novo par é emitido; reuso de token rotacionado → 401. `POST /api/v1/auth/logout` revoga o refresh; access tokens expiram sozinhos (vida curta, 15 min).
 
 ## Frontend (`apps/web`) — páginas e funcionalidades
 
