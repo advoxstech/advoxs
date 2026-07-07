@@ -1,3 +1,39 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  /* Papel frio com leve cast verde — base de todo o painel */
+  --ground: #f1f2ec;
+  --surface: #ffffff;
+  /* Verde-tinta (encadernação jurídica) — texto e rail */
+  --text: #14231c;
+  --muted: #5c6b62;
+  --line: #d8dbd0;
+  /* Verde-lombada — ações e estado "agente respondendo" */
+  --accent: #166950;
+  --accent-soft: #e3efe7;
+  /* Latão — exclusivo do estado de atendimento manual (takeover) */
+  --brass: #9c6b33;
+  --brass-soft: #f3eadd;
+  --danger: #96372b;
+}
+
+body {
+  background-color: var(--ground);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

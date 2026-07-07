@@ -10,7 +10,7 @@ Este repositório está em fase de transição entre planejamento e implementaç
 
 - `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp** e a **autenticação JWT**: modelo de dados completo (migration Alembic `0001`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, e auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta. Ainda **não** tem: Embedded Signup, billing/Stripe, gestão de KB, painel de conversas. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
 - `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. `ingest_knowledge_base_file` segue como stub. Mesmos comandos de teste/lint do `api`.
-- `apps/web` é só scaffold Next.js (nenhuma página real).
+- `apps/web` implementa **login e o painel de conversas**: `/login` (server action → cookies httpOnly com os tokens do `api`), middleware de proteção de rotas, proxy autenticado (`/api/backend/*` → `api`, com refresh transparente do access token no 401) e `/conversas` (lista com polling, thread, toggle de takeover e resposta manual). Design tokens em `globals.css`/`tailwind.config.ts` (papel frio + verde-tinta + latão para o estado manual; fontes Spectral/IBM Plex via `next/font`). Comandos: `pnpm test`, `pnpm lint`, `pnpm build` (dentro de `apps/web`). Ainda não tem: `/rom` (dashboard), base de conhecimento, billing, `/admin`.
 - `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
 - **Ambos foram construídos single-tenant** (sem noção de `tenant_id`) — ver seções "Agents Service" e "RAG Service" abaixo para o detalhamento de features e o que precisa ser adaptado para multi-tenancy antes de irem para produção nesta plataforma.
 - Os `README.md` desses dois projetos estão vazios; a documentação real está em `apps/agents/API_AGENTS.md` e `apps/api_rag/API.md` — são a fonte da verdade sobre o comportamento atual de cada serviço e devem ser consultados (e mantidos atualizados) sempre que o código deles mudar.
@@ -214,7 +214,7 @@ messages 1───N credit_transactions (quando type = consumption, via related
 
 Páginas principais previstas:
 
-- **`/login`** — autenticação do escritório (JWT, ver seção Autenticação).
+- **`/login`** — ✅ implementada: autenticação do escritório (JWT, ver seção Autenticação); server action troca credenciais por tokens e grava cookies `httpOnly`.
 - **`/rom`** — página inicial pós-login, com visão geral/informações gerais do escritório (dashboard).
 - **`/base-de-conhecimento`** (ou `/knowledge-base`) — gestão da base de conhecimento própria do escritório:
   - Upload de arquivos (PDF, TXT, e possivelmente outros formatos — a definir extensões suportadas).
@@ -233,7 +233,8 @@ Páginas principais previstas:
     - Precisa de um estado de conversa (`agent` | `human`) refletido no backend.
     - Enquanto em modo `human`, o `agents` service não deve responder automaticamente.
     - A definir: como/quando a conversa retorna para o agente (ação manual de "devolver pro agente"? timeout?).
-  - ✅ **API pronta** (`/api/v1/conversations`, autenticada e tenant-scoped): `GET` lista conversas (paginado, por `last_message_at`), `GET /{id}/messages` histórico, `PATCH /{id}` toggle `agent|human` (mesma flag consultada pelo worker), `POST /{id}/messages` resposta humana — exige modo `human` (409 caso contrário), envia via Graph API com o token do tenant e persiste com `sender_type=human`. Falta o front e a mecânica de retorno pro agente (hoje: `PATCH` manual de volta pra `agent`).
+  - ✅ **API pronta** (`/api/v1/conversations`, autenticada e tenant-scoped): `GET` lista conversas (paginado, por `last_message_at`), `GET /{id}/messages` histórico, `PATCH /{id}` toggle `agent|human` (mesma flag consultada pelo worker), `POST /{id}/messages` resposta humana — exige modo `human` (409 caso contrário), envia via Graph API com o token do tenant e persiste com `sender_type=human`.
+  - ✅ **Front pronto em `/conversas`**: lista + thread com polling (5s/4s — "tempo real" via polling por ora; WebSocket/SSE fica como evolução), toggle de takeover e composer de resposta manual (habilitado só em modo `human`). O browser fala com o `api` através do proxy `/api/backend/*` do Next (cookies httpOnly + refresh transparente). A mecânica de retorno pro agente é o botão "Devolver ao agente" (`PATCH` de volta pra `agent`).
 
 ## Painel de Administração da Plataforma (`apps/web`, rota `/admin`)
 

@@ -1,7 +1,6 @@
+import { redirect } from "next/navigation";
+
+// O middleware decide entre /login e /conversas; isto cobre acesso direto.
 export default function HomePage() {
-  return (
-    <main>
-      <h1>Advoxs</h1>
-    </main>
-  );
+  redirect("/conversas");
 }
