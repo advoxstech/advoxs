@@ -18,6 +18,6 @@ RUN uv run playwright install --with-deps chromium
 
 COPY . .
 
-EXPOSE 8082
+EXPOSE 8001
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8082"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

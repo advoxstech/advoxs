@@ -10,10 +10,17 @@ load_dotenv()
 
 langfuse_handler = CallbackHandler()
 
-DATABASE_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+# Database dedicado ao checkpoint do LangGraph (advoxs_agents no monorepo);
+# defaults mantêm compatibilidade com o compose standalone legado.
+DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
+DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD") or os.getenv("POSTGRES_PASSWORD")
 DATABASE_HOST = os.getenv("DATABASE_HOST")
 DATABASE_PORT = os.getenv("DATABASE_PORT")
-DB_URI = f"postgresql://postgres:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/postgres"
+DATABASE_NAME = os.getenv("DATABASE_NAME", "postgres")
+DB_URI = (
+    f"postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}"
+    f"@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+)
 
 
 def sum_usage_tokens(messages: list) -> int:

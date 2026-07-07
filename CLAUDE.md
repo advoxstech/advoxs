@@ -448,8 +448,12 @@ Pipeline em **GitHub Actions**, pensado para o monorepo com múltiplos apps/cont
 
 ## Infraestrutura (Docker Compose)
 
-Serviços previstos: `web`, `api`, `agents`, `worker`, `postgres`, `qdrant`, `redis`.
-Volumes nomeados para persistência: `postgres_data`, `qdrant_data`, `redis_data`.
+Serviços no compose da raiz: `web`, `api`, `agents`, `api_rag`, `worker`, `postgres`, `qdrant`, `redis`.
+Volumes nomeados para persistência: `postgres_data`, `qdrant_data`, `redis_data`, `rag_uploads` (arquivos crus do RAG). Volumes nomeados vivem no storage do Docker (`/var/lib/docker/volumes/advoxs_*`), não na pasta do repo.
+
+- **Postgres: instância única, um database por serviço** — `advoxs` (api/worker, negócio + RLS), `advoxs_agents` (checkpoints do LangGraph) e `advoxs_rag` (metadados de documentos). Roles e databases criados por `infra/postgres/init/002-databases.sh` na primeira subida do volume; cada serviço conecta com usuário próprio e `CONNECT` revogado de `PUBLIC` (um serviço comprometido não lê o database dos outros). Senhas: `AGENTS_DB_PASSWORD`/`RAG_DB_PASSWORD` no `.env`.
+- **Portas padronizadas**: web 3000, api 8000, agents 8001, api_rag 8002 (host, via override; internamente o api_rag escuta 8000).
+- ⚠️ `apps/agents/docker-compose.yml` e `apps/api_rag/docker-compose.yml` são **composes legados** dos projetos standalone (sobem postgres/redis/qdrant próprios e colidem com as portas do compose da raiz) — servem só para rodar o microserviço isolado; candidatos a remoção quando a integração estiver completa.
 
 - Hospedagem: **VPS próprio (Ubuntu Linux)**.
 - Exposição/HTTPS: **Cloudflare Tunnel (`cloudflared`)** rodando **direto no VPS** (fora do Docker Compose), apontando para a porta externa que os serviços (`web`/`api`) expõem no host. Não há reverse proxy próprio (Nginx/Caddy) nem serviço `cloudflared` dentro do `docker-compose.yml`.

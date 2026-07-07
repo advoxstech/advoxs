@@ -21,6 +21,12 @@ services:
     volumes:
       - ./apps/agents:/app
 
+  api_rag:
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./apps/api_rag:/app
+
   worker:
     volumes:
       - ./apps/worker:/app

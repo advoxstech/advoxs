@@ -15,6 +15,7 @@ volumes:
   postgres_data:
   qdrant_data:
   redis_data:
+  rag_uploads:
 
 services:
   web:
@@ -43,17 +44,47 @@ services:
       - redis
     logging: *default-logging
 
-  # Dockerfile ainda pendente — sera adicionado quando o microservico
-  # (ja existente fora deste repo) for incorporado em apps/agents.
   agents:
     build:
       context: apps/agents
     image: ghcr.io/advoxs/agents:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
+    environment:
+      # Checkpoint do LangGraph em database dedicado (init 002-databases.sh)
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: advoxs_agents
+      DATABASE_NAME: advoxs_agents
+      DATABASE_PASSWORD: ${AGENTS_DB_PASSWORD:-changeme}
+      RAG_API_URL: http://api_rag:8000
     depends_on:
-      - qdrant
+      - postgres
       - redis
+      - api_rag
+    logging: *default-logging
+
+  api_rag:
+    build:
+      context: apps/api_rag
+    image: ghcr.io/advoxs/api-rag:${TAG:-latest}
+    restart: unless-stopped
+    env_file: *default-env-file
+    environment:
+      # Metadados de documentos em database dedicado (init 002-databases.sh)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: advoxs_rag
+      POSTGRES_DB: advoxs_rag
+      POSTGRES_PASSWORD: ${RAG_DB_PASSWORD:-changeme}
+      API_KEY: ${RAG_API_KEY:-changeme}
+      UPLOAD_DIR_USER: /data/uploads/users
+      UPLOAD_DIR_SYSTEM: /data/uploads/system
+    volumes:
+      - rag_uploads:/data/uploads
+    depends_on:
+      - postgres
+      - qdrant
     logging: *default-logging
 
   worker:
@@ -74,6 +105,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-advoxs}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-advoxs}
+      # Consumidos pelo init 002-databases.sh (databases advoxs_agents/advoxs_rag)
+      AGENTS_DB_PASSWORD: ${AGENTS_DB_PASSWORD:-changeme}
+      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
