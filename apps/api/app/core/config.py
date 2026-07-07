@@ -19,5 +19,9 @@ class Settings(BaseSettings):
     # (mesma chave usada pelo worker para descriptografar).
     whatsapp_token_encryption_key: str = ""
 
+    # Graph API da Meta (envio de mensagem no takeover humano)
+    graph_api_base_url: str = "https://graph.facebook.com"
+    graph_api_version: str = "v23.0"
+
 
 settings = Settings()

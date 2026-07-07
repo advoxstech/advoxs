@@ -40,7 +40,9 @@ class TestTokens:
         assert payload_a["jti"] != payload_b["jti"]
 
     def test_assinatura_invalida_rejeitada(self) -> None:
-        token = jwt.encode({"sub": "user-1"}, "outro-segredo", algorithm="HS256")
+        token = jwt.encode(
+            {"sub": "user-1"}, "outro-segredo-tambem-com-32-bytes-ou-mais", algorithm="HS256"
+        )
 
         with pytest.raises(jwt.PyJWTError):
             decode_token(token)

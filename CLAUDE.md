@@ -233,6 +233,7 @@ Páginas principais previstas:
     - Precisa de um estado de conversa (`agent` | `human`) refletido no backend.
     - Enquanto em modo `human`, o `agents` service não deve responder automaticamente.
     - A definir: como/quando a conversa retorna para o agente (ação manual de "devolver pro agente"? timeout?).
+  - ✅ **API pronta** (`/api/v1/conversations`, autenticada e tenant-scoped): `GET` lista conversas (paginado, por `last_message_at`), `GET /{id}/messages` histórico, `PATCH /{id}` toggle `agent|human` (mesma flag consultada pelo worker), `POST /{id}/messages` resposta humana — exige modo `human` (409 caso contrário), envia via Graph API com o token do tenant e persiste com `sender_type=human`. Falta o front e a mecânica de retorno pro agente (hoje: `PATCH` manual de volta pra `agent`).
 
 ## Painel de Administração da Plataforma (`apps/web`, rota `/admin`)
 
