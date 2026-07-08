@@ -54,10 +54,15 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
 
   useEffect(() => {
     void load();
-    if (!pollMs) return;
+  }, [load]);
+
+  const hasProcessing = files.some((file) => file.status === "processing");
+
+  useEffect(() => {
+    if (!pollMs || !hasProcessing) return;
     const interval = setInterval(() => void load(), pollMs);
     return () => clearInterval(interval);
-  }, [load, pollMs]);
+  }, [load, pollMs, hasProcessing]);
 
   async function handleUpload(selected: File) {
     setFeedback(null);
@@ -85,6 +90,8 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         return;
       }
       await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -93,13 +100,17 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
 
   async function handleDelete(file: KbFile) {
     if (!window.confirm(`Excluir "${file.filename}" da base de conhecimento?`)) return;
-    const response = await backendFetch(`knowledge-base/files/${file.id}`, { method: "DELETE" });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      setFeedback(body?.detail ?? "Falha ao excluir — tente novamente.");
-      return;
+    try {
+      const response = await backendFetch(`knowledge-base/files/${file.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(body?.detail ?? "Falha ao excluir — tente novamente.");
+        return;
+      }
+      await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
     }
-    await load();
   }
 
   return (
