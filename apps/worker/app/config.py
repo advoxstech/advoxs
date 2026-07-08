@@ -17,5 +17,10 @@ class Settings(BaseSettings):
     # cima). Valor de partida — calibrar com o custo real do LLM + margem.
     credit_tokens_per_credit: int = 1000
 
+    # api_rag (ingestão da base de conhecimento)
+    rag_api_url: str = "http://api_rag:8000"
+    rag_api_key: str = ""
+    kb_upload_dir: str = "/data/kb_uploads"
+
 
 settings = Settings()

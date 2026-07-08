@@ -59,3 +59,13 @@ whatsapp_numbers = Table(
     Column("access_token_encrypted", Text),
     Column("status", String),
 )
+
+knowledge_base_files = Table(
+    "knowledge_base_files",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("filename", String),
+    Column("status", String),
+    Column("error_message", Text),
+)

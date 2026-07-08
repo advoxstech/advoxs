@@ -15,10 +15,15 @@ async def startup(ctx: dict) -> None:
     ctx["http"] = httpx.AsyncClient(
         base_url=settings.agents_service_url, timeout=httpx.Timeout(300.0)
     )
+    # A ingestão do api_rag é síncrona (parsing + embeddings + Qdrant) — timeout largo.
+    ctx["rag_http"] = httpx.AsyncClient(
+        base_url=settings.rag_api_url, timeout=httpx.Timeout(300.0)
+    )
 
 
 async def shutdown(ctx: dict) -> None:
     await ctx["http"].aclose()
+    await ctx["rag_http"].aclose()
     await ctx["engine"].dispose()
 
 
