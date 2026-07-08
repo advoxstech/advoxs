@@ -179,3 +179,54 @@ class TestInserirComDocIdExterno:
         await service.inserir_documento_usuario([self._file()], "t1", "conversa-1")
 
         service.repo.buscar_documento_usuario_por_id.assert_not_awaited()
+
+
+class TestReingestaoSubstituiArquivoNoDisco:
+    """Interação real entre _salvar_arquivo e deletar_documento_usuario.
+
+    Regressão: se o arquivo novo for gravado no disco ANTES da deleção do
+    documento antigo (mesmo tenant + conversation + filename ⇒ mesmo path),
+    a deleção apaga o arquivo recém-gravado.
+    """
+
+    async def test_arquivo_novo_sobrevive_a_reingestao(self, tmp_path, monkeypatch) -> None:
+        from services.documents import main as documents_main
+
+        monkeypatch.setattr(documents_main, "UPLOAD_DIR_USER", str(tmp_path))
+
+        doc_id = str(uuid.uuid4())
+        filename = "regimento.txt"
+        caminho = tmp_path / "t1" / "kb" / filename
+
+        # Arquivo antigo já no disco, da ingestão anterior com o mesmo doc_id.
+        caminho.parent.mkdir(parents=True)
+        caminho.write_bytes(b"conteudo antigo")
+
+        doc_antigo = MagicMock()
+        doc_antigo.id = uuid.UUID(doc_id)
+        doc_antigo.tenant_id = "t1"
+        doc_antigo.path_base = str(tmp_path)
+        doc_antigo.path_doc = "t1/kb"
+        doc_antigo.nome = filename
+
+        repo = AsyncMock()
+        repo.buscar_documento_usuario_por_id.return_value = doc_antigo
+
+        service = DocumentoService(qdrant=AsyncMock(), repo=repo)
+        sparse_vec = [{"indices": [0], "values": [1.0]}]
+        monkeypatch.setattr(
+            service,
+            "_processar_documento",
+            AsyncMock(return_value=("txt", "texto", ["texto"], [[0.1]], sparse_vec)),
+        )
+        monkeypatch.setattr(service, "_salvar_qdrant", AsyncMock())
+
+        file = MagicMock()
+        file.filename = filename
+        file.read = AsyncMock(return_value=b"conteudo novo")
+
+        await service.inserir_documento_usuario([file], "t1", "kb", doc_id=doc_id)
+
+        # O arquivo novo tem que existir no disco após a re-ingestão.
+        assert caminho.exists()
+        assert caminho.read_bytes() == b"conteudo novo"

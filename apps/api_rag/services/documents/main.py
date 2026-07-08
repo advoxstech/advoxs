@@ -141,6 +141,15 @@ class DocumentoService:
             ) = await self._processar_documento(
                 doc_item["file_bytes"], doc_item["file_name"], conversation_id
             )
+            if doc_id is not None:
+                # Re-ingestão idempotente: retry do worker com o mesmo doc_id
+                # substitui o documento anterior (disco + Qdrant + Postgres).
+                # Deletar ANTES de gravar o arquivo novo — o path do antigo é
+                # o mesmo (tenant + conversation + filename) e a deleção
+                # apagaria o arquivo recém-gravado.
+                existente = await self.repo.buscar_documento_usuario_por_id(UUID(doc_id))
+                if existente is not None:
+                    await self.deletar_documento_usuario(tenant_id, [doc_id])
             # Disco escopado por tenant: {UPLOAD_DIR_USER}/{tenant_id}/{conversation_id}/
             path_base, path_doc = self._salvar_arquivo(
                 UPLOAD_DIR_USER,
@@ -158,11 +167,6 @@ class DocumentoService:
                 path_doc=path_doc,
             )
             if doc_id is not None:
-                # Re-ingestão idempotente: retry do worker com o mesmo doc_id
-                # substitui o documento anterior (disco + Qdrant + Postgres).
-                existente = await self.repo.buscar_documento_usuario_por_id(UUID(doc_id))
-                if existente is not None:
-                    await self.deletar_documento_usuario(tenant_id, [doc_id])
                 instance.id = UUID(doc_id)
             doc = await self.repo.criar_documento_usuario(instance)
             logger.info(f"Documento salvo no banco | id={doc.id}")
