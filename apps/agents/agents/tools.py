@@ -1,6 +1,6 @@
 from langchain.tools import tool
 from langgraph.types import Command
-from clients.retrieval import retrieval_sistema, retrieval_usuario
+from clients.retrieval import retrieval_sistema, retrieval_usuario, retrieval_escritorio
 from loguru import logger
 import requests
 import tempfile
@@ -183,6 +183,22 @@ async def bucar_base_conhecimento_usuario(query: str, conversation_id: str) -> s
     """
     return await retrieval_usuario(conversation_id, query)
 
+
+@tool("buscar_base_conhecimento_escritorio")
+async def buscar_base_conhecimento_escritorio(query: str, conversation_id: str) -> str:
+    """Busca na base de conhecimento própria do escritório de advocacia.
+
+    Use quando a pergunta envolver documentos, materiais, modelos ou
+    orientações internas do próprio escritório — por exemplo regimentos,
+    políticas de atendimento, modelos de contrato do escritório ou qualquer
+    material institucional que o escritório tenha cadastrado na plataforma.
+
+    Args:
+        query: Pergunta ou tema a ser pesquisado nos documentos do escritório.
+        conversation_id: ID da conversa (preenchido automaticamente pelo sistema).
+    """
+    return await retrieval_escritorio(conversation_id, query)
+
 @tool("transfer_to_specialist")
 def transfer_to_specialist(current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"]) -> str:
     """
@@ -206,5 +222,6 @@ tools = [
     bucar_base_conhecimento_contratos,
     bucar_base_conhecimento_direito_consumidor,
     bucar_base_conhecimento_usuario,
+    buscar_base_conhecimento_escritorio,
     transfer_to_specialist,
 ]

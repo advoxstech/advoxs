@@ -1,9 +1,9 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import clients.retrieval as retrieval_module
-from clients.retrieval import retrieval_usuario
+from clients.retrieval import retrieval_escritorio, retrieval_usuario
 
 
 class FakeAsyncClient:
@@ -52,3 +52,28 @@ async def test_retrieval_usuario_sem_separador_usa_id_inteiro():
     (_, kwargs) = FakeAsyncClient.calls[0]
     assert kwargs["json"]["tenant_id"] == "id-legado"
     assert kwargs["json"]["conversation_id"] == "id-legado"
+
+
+def _mock_async_client(monkeypatch, payload: dict) -> AsyncMock:
+    client = AsyncMock()
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value=payload)
+    client.post.return_value = response
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(retrieval_module.httpx, "AsyncClient", MagicMock(return_value=cm))
+    return client
+
+
+async def test_retrieval_escritorio_usa_conversation_id_kb(monkeypatch) -> None:
+    client = _mock_async_client(monkeypatch, {"results": [{"text": "regimento"}]})
+
+    results = await retrieval_escritorio("tenant-1:5511999998888", "qual o regimento?")
+
+    assert results == [{"text": "regimento"}]
+    body = client.post.await_args.kwargs["json"]
+    assert body["tenant_id"] == "tenant-1"
+    assert body["conversation_id"] == "kb"
+    assert body["message"] == "qual o regimento?"

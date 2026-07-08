@@ -12,6 +12,10 @@ load_dotenv()
 
 model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 
+# Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
+# o tenant_id vive dentro dele (isolamento multi-tenant).
+STATE_SCOPED_TOOLS = {"bucar_base_conhecimento_usuario", "buscar_base_conhecimento_escritorio"}
+
 
 async def agente_secretaria(state: dict) -> dict:
     logger.info(
@@ -21,7 +25,7 @@ async def agente_secretaria(state: dict) -> dict:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist])
+    model_with_tools = model.bind_tools([transfer_to_specialist, buscar_base_conhecimento_escritorio])
 
     with open("agents/prompts/secretaria.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
@@ -58,7 +62,7 @@ async def agente_condominial(state: dict) -> Command:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_condominial, bucar_base_conhecimento_usuario])
+    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_condominial, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
 
     with open("agents/prompts/condominial.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
@@ -107,7 +111,7 @@ async def agente_contratos(state: dict) -> Command:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_contratos, bucar_base_conhecimento_usuario])
+    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_contratos, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
 
     with open("agents/prompts/contratos.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
@@ -147,7 +151,7 @@ async def agente_direito_consumidor(state: dict) -> Command:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_direito_consumidor, bucar_base_conhecimento_usuario])
+    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_direito_consumidor, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
 
     with open("agents/prompts/direito_consumidor.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
@@ -194,8 +198,12 @@ async def tool_node(state: dict) -> dict:
             logger.warning("Ferramenta não encontrada | tool={}", tool_call["name"])
             continue
 
-        logger.info("Executando ferramenta | tool={} | args={}", tool_call["name"], tool_call["args"])
-        observation = await tool.ainvoke(tool_call["args"])
+        args = dict(tool_call["args"])
+        if tool_call["name"] in STATE_SCOPED_TOOLS:
+            args["conversation_id"] = state["conversation_id"]
+
+        logger.info("Executando ferramenta | tool={} | args={}", tool_call["name"], args)
+        observation = await tool.ainvoke(args)
         logger.info("Ferramenta concluída | tool={}", tool_call["name"])
 
         if isinstance(observation, Command):

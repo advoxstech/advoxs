@@ -1,7 +1,10 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+from langchain_core.messages import AIMessage
 from langgraph.graph import END
 from tests.factories import ai_with_tool_call, ai_response, mock_model, base_state
+
+import agents.tools as tools_module
 
 
 # ──────────────────────────────────────────────
@@ -240,3 +243,32 @@ async def test_direito_consumidor_nao_first_run_nao_inclui_flag_no_update():
         result = await agente_direito_consumidor(base_state(receptive_message_specialist=False))
 
     assert "receptive_message_specialist" not in result.update
+
+
+# ──────────────────────────────────────────────
+# tool_node — injeção de conversation_id do estado
+# ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_tool_node_injeta_conversation_id_do_estado(monkeypatch) -> None:
+    from agents.nodes import tool_node
+
+    retrieval = AsyncMock(return_value=[])
+    monkeypatch.setattr(tools_module, "retrieval_escritorio", retrieval)
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "buscar_base_conhecimento_escritorio",
+                # O LLM tentou passar outro id — deve ser ignorado.
+                "args": {"query": "regimento", "conversation_id": "tenant-malicioso:123"},
+                "id": "call-1",
+            }
+        ],
+    )
+    state = {"messages": [message], "conversation_id": "tenant-real:5511999998888"}
+
+    await tool_node(state)
+
+    retrieval.assert_awaited_once_with("tenant-real:5511999998888", "regimento")

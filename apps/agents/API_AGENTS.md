@@ -292,10 +292,10 @@ class State(TypedDict):
 
 | Nó                          | Papel                                                        |
 |-----------------------------|--------------------------------------------------------------|
-| `agente_secretaria`         | Triagem inicial. Só tem a tool `transfer_to_specialist`.     |
-| `agente_condominial`        | Especialista em direito condominial. Tools: transfer + RAG condominial + RAG usuário. |
-| `agente_contratos`          | Especialista em contratos. Tools: transfer + RAG contratos + RAG usuário. |
-| `agente_direito_consumidor` | Especialista em direito do consumidor. Tools: transfer + RAG consumidor + RAG usuário. |
+| `agente_secretaria`         | Triagem inicial. Tools: transfer + RAG do escritório (KB do tenant). |
+| `agente_condominial`        | Especialista em direito condominial. Tools: transfer + RAG condominial + RAG usuário + RAG do escritório. |
+| `agente_contratos`          | Especialista em contratos. Tools: transfer + RAG contratos + RAG usuário + RAG do escritório. |
+| `agente_direito_consumidor` | Especialista em direito do consumidor. Tools: transfer + RAG consumidor + RAG usuário + RAG do escritório. |
 | `tool_node`                 | Executa as tool calls e atualiza o estado.                   |
 
 Cada nó:
@@ -344,6 +344,13 @@ START → agente_secretaria → (transfer_to_specialist) → tool_node
 - Lê `tool_calls` da última mensagem.
 - Para cada call, resolve a tool pelo nome (`tools` de `agents/tools.py`) e faz
   `await tool.ainvoke(args)`.
+- **Injeção de `conversation_id` do estado (segurança multi-tenant):** para as
+  tools em `STATE_SCOPED_TOOLS` (`bucar_base_conhecimento_usuario`,
+  `buscar_base_conhecimento_escritorio`), o `conversation_id` recebido do LLM
+  em `tool_call["args"]` é **sempre sobrescrito** por `state["conversation_id"]`
+  antes do `ainvoke`. O LLM nunca decide o `conversation_id` real dessas
+  buscas — evita que uma mensagem maliciosa induza a tool a vazar dado de
+  outro tenant.
 - Se a tool retorna um `Command` (caso de `transfer_to_specialist`), aplica o
   `update` ao estado (ex.: seta `current_specialist`) e emite uma `ToolMessage`
   vazia.
@@ -371,10 +378,18 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 | `bucar_base_conhecimento_contratos(query)`  | async  | RAG na base do sistema, categoria `contratos`.                         |
 | `bucar_base_conhecimento_direito_consumidor(query)` | async | RAG na base do sistema, categoria `direito_consumidor`.          |
 | `bucar_base_conhecimento_usuario(query, conversation_id)` | async | RAG na base de documentos privados do usuário.             |
+| `buscar_base_conhecimento_escritorio(query, conversation_id)` | async | RAG na base de conhecimento própria do escritório (tenant), via `/retrieval/users` com `conversation_id="kb"`. |
 | `enviar_documento(url, conversation_id)`    | sync   | Baixa um documento de uma URL e faz upload para endpoint de inserção.  |
 
-A lista `tools` exportada (usada pelo `tool_node`) contém as 4 tools de
+A lista `tools` exportada (usada pelo `tool_node`) contém as 5 tools de
 retrieval + `transfer_to_specialist`.
+
+Para `bucar_base_conhecimento_usuario` e `buscar_base_conhecimento_escritorio`,
+o `conversation_id` declarado na assinatura da tool existe só para o LLM
+"preencher" a chamada — o `tool_node` **sempre** substitui esse valor pelo
+`state["conversation_id"]` real antes de invocar (ver §5.4, `STATE_SCOPED_TOOLS`
+em `agents/nodes.py`). Isso é o que garante isolamento de tenant: o LLM nunca
+controla de fato qual tenant/conversa é consultado nessas duas tools.
 
 > ⚠️ **Pontos de atenção para integração:**
 > - `enviar_documento` **não está na lista `tools`** nem é bindada aos nós no
@@ -397,10 +412,17 @@ exceção):
 |----------------------|-----------------------------------|------------------------------------------------|
 | `retrieval_sistema`  | `POST {RAG_API_URL}/retrieval/system` | `{"base": <categoria>, "message": <query>}` |
 | `retrieval_usuario`  | `POST {RAG_API_URL}/retrieval/users`  | `{"tenant_id": <tenant>, "conversation_id": <contato>, "message": <query>}` |
+| `retrieval_escritorio` | `POST {RAG_API_URL}/retrieval/users` | `{"tenant_id": <tenant>, "conversation_id": "kb", "message": <query>}` |
 
 `retrieval_usuario` recebe o `thread_id` composto (`"{tenant_id}:{contact_phone_number}"`)
 e o divide no primeiro `:` para enviar `tenant_id` e `conversation_id` separados —
 contrato multi-tenant do `api_rag` (ver `apps/api_rag/API.md` §3.7).
+
+`retrieval_escritorio` também recebe o `thread_id` composto, mas usa só a
+parte do `tenant_id` (via `partition(":")`) — a busca é sempre feita com o
+`conversation_id` reservado `"kb"` (constante `KB_CONVERSATION_ID`), que é o
+marcador usado pela ingestão da base de conhecimento do escritório (worker do
+monorepo, fora deste microserviço).
 
 Header: `Authorization: {RAG_API_KEY}`. Timeout: 30s.
 

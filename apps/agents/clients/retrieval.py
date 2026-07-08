@@ -82,3 +82,44 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
     except Exception as e:
         logger.error("Erro ao consultar retrieval usuário | error={}", str(e))
         return []
+
+
+# conversation_id reservado da base de conhecimento do escritório —
+# documentos ingeridos pelo worker do monorepo com esse marcador.
+KB_CONVERSATION_ID = "kb"
+
+
+async def retrieval_escritorio(conversation_id: str, message: str) -> list[dict]:
+    """Busca na base de conhecimento própria do escritório (tenant).
+
+    Args:
+        conversation_id: thread_id composto "{tenant_id}:{contact_phone_number}" —
+            só o tenant_id é usado; a busca é sempre em conversation_id="kb".
+        message: Pergunta do usuário.
+    """
+    tenant_id, _, _ = str(conversation_id).partition(":")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{RAG_API_URL}/retrieval/users",
+                json={
+                    "tenant_id": tenant_id,
+                    "conversation_id": KB_CONVERSATION_ID,
+                    "message": message,
+                },
+                headers=HEADERS,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", [])
+            logger.debug("Retrieval escritório retornou {} chunks | tenant={}", len(results), tenant_id)
+            return results
+
+    except httpx.HTTPStatusError as e:
+        logger.error("Erro HTTP no retrieval escritório | status={} | response={}", e.response.status_code, e.response.text)
+        return []
+    except Exception as e:
+        logger.error("Erro ao consultar retrieval escritório | error={}", str(e))
+        return []

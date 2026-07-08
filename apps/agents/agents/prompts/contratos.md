@@ -278,3 +278,7 @@ notificação extrajudicial
 revisão contratual
 mediação
 ou busca por advogado humano.
+
+## Base de conhecimento do escritório
+
+Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
