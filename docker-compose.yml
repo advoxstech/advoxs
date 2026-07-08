@@ -91,6 +91,10 @@ services:
       UPLOAD_DIR_SYSTEM: /data/uploads/system
     volumes:
       - rag_uploads:/data/uploads
+    extra_hosts:
+      # Permite o container alcançar a API de sparse embeddings rodando no host
+      # (fora do compose) via URL_API_LOCAL_SPARSE=http://host.docker.internal:PORT/embed.
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - qdrant

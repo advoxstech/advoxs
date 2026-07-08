@@ -370,6 +370,13 @@ O serviço depende de uma API HTTP separada em `URL_API_LOCAL_SPARSE`:
 Um item por texto, na mesma ordem. Essa API **não faz parte deste repositório** e precisa
 estar disponível para ingestão e retrieval funcionarem.
 
+**Rodando no host (fora do compose), em dev local**: aponte `URL_API_LOCAL_SPARSE` para
+`http://host.docker.internal:<porta>/embed`, nunca para `http://localhost:<porta>/embed` —
+de dentro do container `api_rag`, `localhost` resolve para o próprio container, não para o
+host. O serviço `api_rag` no `docker-compose.yml` da raiz já mapeia `host.docker.internal`
+para o gateway do Docker via `extra_hosts` (necessário no Linux; Docker Desktop já resolve
+isso nativamente).
+
 ---
 
 ## 7. Como rodar
