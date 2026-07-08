@@ -13,4 +13,8 @@ describe("isAllowedPath", () => {
     expect(isAllowedPath(["webhooks", "whatsapp"])).toBe(false);
     expect(isAllowedPath([])).toBe(false);
   });
+
+  it("permite rotas de knowledge-base", () => {
+    expect(isAllowedPath(["knowledge-base", "files"])).toBe(true);
+  });
 });

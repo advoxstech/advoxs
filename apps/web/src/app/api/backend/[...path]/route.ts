@@ -26,13 +26,15 @@ async function handle(
 
   const store = await cookies();
   const url = `${API_URL}/api/v1/${path.join("/")}${request.nextUrl.search}`;
-  const body = request.method === "GET" ? undefined : await request.text();
+  const contentType = request.headers.get("content-type");
+  const hasBody = request.method !== "GET" && request.method !== "DELETE";
+  const body = hasBody ? await request.arrayBuffer() : undefined;
 
   const forward = (token: string | undefined) =>
     fetch(url, {
       method: request.method,
       headers: {
-        "content-type": "application/json",
+        ...(hasBody && contentType ? { "content-type": contentType } : {}),
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body,
@@ -83,4 +85,4 @@ async function refreshSession(
   return tokens.access_token;
 }
 
-export { handle as GET, handle as POST, handle as PATCH };
+export { handle as GET, handle as POST, handle as PATCH, handle as DELETE };
