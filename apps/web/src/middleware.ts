@@ -26,5 +26,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/conversas/:path*"],
+  matcher: ["/", "/login", "/conversas/:path*", "/base-de-conhecimento/:path*"],
 };
