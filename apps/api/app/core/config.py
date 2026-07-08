@@ -23,5 +23,12 @@ class Settings(BaseSettings):
     graph_api_base_url: str = "https://graph.facebook.com"
     graph_api_version: str = "v23.0"
 
+    # Base de conhecimento (upload → volume compartilhado → ingestão no api_rag)
+    kb_upload_dir: str = "/data/kb_uploads"
+    kb_max_file_size_bytes: int = 20 * 1024 * 1024
+    kb_max_total_size_bytes: int = 500 * 1024 * 1024
+    rag_api_url: str = "http://api_rag:8000"
+    rag_api_key: str = ""
+
 
 settings = Settings()
