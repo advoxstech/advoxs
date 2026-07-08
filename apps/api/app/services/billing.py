@@ -106,7 +106,15 @@ async def process_checkout_completed(session: AsyncSession, stripe_session: dict
         logger.error("Metadata incompleta no checkout.session.completed | session=%s", session_id)
         return
 
-    package = await session.get(CreditPackage, uuid.UUID(credit_package_id))
+    try:
+        package_id = uuid.UUID(credit_package_id)
+    except ValueError:
+        logger.error(
+            "credit_package_id malformado no checkout.session.completed | session=%s", session_id
+        )
+        return
+
+    package = await session.get(CreditPackage, package_id)
     if package is None:
         logger.error("Pacote não encontrado ao processar pagamento | session=%s", session_id)
         return

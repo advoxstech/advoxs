@@ -150,6 +150,15 @@ class TestProcessCheckoutCompleted:
 
         session.add.assert_not_called()
 
+    async def test_credit_package_id_malformado_nao_processa(self, session) -> None:
+        session.scalar.return_value = None
+
+        await process_checkout_completed(
+            session, self._stripe_session(credit_package_id="not-a-uuid")
+        )
+
+        session.add.assert_not_called()
+
     async def test_integrity_error_no_commit_e_tratado(self, session) -> None:
         session.scalar.return_value = None
         session.get.return_value = _package()
