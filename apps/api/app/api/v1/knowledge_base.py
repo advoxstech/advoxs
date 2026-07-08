@@ -1,5 +1,6 @@
 """Base de conhecimento do escritório: upload, listagem e exclusão de arquivos."""
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from app.core.config import settings
 from app.core.queue import get_arq_pool
 from app.models import KnowledgeBaseFile
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/knowledge-base", tags=["knowledge-base"])
 
@@ -54,7 +57,7 @@ async def upload_file(
     if len(data) > settings.kb_max_file_size_bytes:
         limite_mb = settings.kb_max_file_size_bytes // (1024 * 1024)
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Arquivo excede o limite de {limite_mb} MB",
         )
 
@@ -66,7 +69,7 @@ async def upload_file(
     if used + len(data) > settings.kb_max_total_size_bytes:
         remaining = max(settings.kb_max_total_size_bytes - used, 0)
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Limite de storage do escritório atingido — restam {remaining} bytes",
         )
 
@@ -163,7 +166,12 @@ async def delete_file(
     try:
         await delete_documents(str(ctx.tenant_id), [str(file_id)])
     except RagApiError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        # Detalhe interno só no log — não expor nome/erro do serviço ao tenant.
+        logger.error("Falha ao excluir no api_rag | file=%s erro=%s", file_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Falha ao excluir o arquivo — tente novamente em instantes",
+        )
 
     temp_path = Path(settings.kb_upload_dir) / str(ctx.tenant_id) / str(file_id)
     temp_path.unlink(missing_ok=True)
