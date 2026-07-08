@@ -43,7 +43,7 @@ Qdrant (`qdrant-client` async) · LangChain + `langchain-openai` · `chonkie`
 (chunking) · `pdfplumber` / `python-docx` (extração de texto) · `loguru`.
 
 ### Fluxo de ingestão
-1. Recebe arquivo (`pdf` ou `docx`) via `multipart/form-data`.
+1. Recebe arquivo (`pdf`, `docx` ou `txt`) via `multipart/form-data`.
 2. Extrai texto → divide em *chunks* (`RecursiveChunker`).
 3. Gera embeddings **denso** (OpenAI) e **esparso** (API externa) por chunk.
 4. Salva o arquivo cru no disco (`UPLOAD_DIR_*`).
@@ -116,8 +116,9 @@ Ingestão de um documento associado a uma conversa de usuário, escopado por ten
 | Campo             | Tipo   | Obrigatório | Observação                                          |
 |-------------------|--------|-------------|-----------------------------------------------------|
 | `tenant_id`       | string | sim         | Escritório dono do documento.                        |
-| `conversation_id` | string | sim         | Conversa/contato (typo `convesation_id` corrigido).  |
-| `file`            | file   | sim         | Apenas `.pdf` ou `.docx`.                            |
+| `conversation_id` | string | sim         | Conversa/contato. Valor reservado: `"kb"` (base de conhecimento do escritório, gerida pelo `api`/`worker`). |
+| `doc_id`          | string | não         | UUID do documento (chave externa para re-ingestão idempotente). Quando presente: se já existir documento com esse id, é deletado antes (substituição completa — disco + Qdrant + Postgres). Ausente: gera um novo UUID. |
+| `file`            | file   | sim         | Apenas `.pdf`, `.docx` ou `.txt`.                    |
 
 **Exemplo:**
 ```bash
@@ -126,6 +127,16 @@ curl -X POST http://localhost:8000/documents/users/insert \
   -F "tenant_id=<uuid-do-tenant>" \
   -F "conversation_id=5511999998888" \
   -F "file=@contrato.pdf"
+```
+
+**Com `doc_id` (re-ingestão idempotente):**
+```bash
+curl -X POST http://localhost:8000/documents/users/insert \
+  -H "Authorization: $API_KEY" \
+  -F "tenant_id=<uuid-do-tenant>" \
+  -F "conversation_id=kb" \
+  -F "doc_id=<uuid-do-doc>" \
+  -F "file=@regimento.txt"
 ```
 
 **Resposta `200`:**
@@ -272,11 +283,11 @@ com Alembic (`alembic/versions/`).
 ### `documentos_usuario`
 | Coluna            | Tipo      | Notas                                   |
 |-------------------|-----------|-----------------------------------------|
-| `id`              | UUID (PK) | default `uuid4`                         |
+| `id`              | UUID (PK) | default `uuid4` (ou `doc_id` externo quando re-ingestão idempotente) |
 | `tenant_id`       | String    | escritório dono — indexado; obrigatório na aplicação (nullable no banco só por causa de linhas legadas, ver migration `a1b2c3d4e5f6`) |
 | `conversation_id` | String    | chave de agrupamento                    |
 | `nome`            | String    | nome do arquivo, obrigatório            |
-| `extensao`        | String    | `pdf` / `docx`, obrigatório             |
+| `extensao`        | String    | `pdf` / `docx` / `txt`, obrigatório    |
 | `path_base`       | String    | raiz de armazenamento (`UPLOAD_DIR_USER`) |
 | `path_doc`        | String    | subpasta (= `{tenant_id}/{conversation_id}`) |
 | `criado_em`       | DateTime  | default `utcnow`                        |
@@ -288,7 +299,7 @@ com Alembic (`alembic/versions/`).
 | `id_drive`   | String    | origem (ex.: Drive)                       |
 | `base`       | String    | partição (= `conversation_id` da ingestão) |
 | `nome`       | String    | nome do arquivo                           |
-| `extensao`   | String    | `pdf` / `docx`                            |
+| `extensao`   | String    | `pdf` / `docx` / `txt`                    |
 | `path_base`  | String    | raiz (`UPLOAD_DIR_SYSTEM`)                |
 | `path_doc`   | String    | subpasta (= `base`)                       |
 | `criado_em`  | DateTime  | default `utcnow`                          |

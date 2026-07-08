@@ -50,6 +50,11 @@ class DocumentoService:
         elif extensao == "docx":
             doc = Document(io.BytesIO(document_bytes))
             return "\n".join([p.text for p in doc.paragraphs])
+        elif extensao == "txt":
+            try:
+                return document_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                return document_bytes.decode("latin-1")
         else:
             raise ValueError(f"Formato não suportado: {extensao}")
 
@@ -112,7 +117,11 @@ class DocumentoService:
     # ──  Documentos do Usuário ──────────────────────────────────────────
 
     async def inserir_documento_usuario(
-        self, files: list[UploadFile], tenant_id: str, conversation_id: str
+        self,
+        files: list[UploadFile],
+        tenant_id: str,
+        conversation_id: str,
+        doc_id: str | None = None,
     ):
         if not tenant_id:
             raise ValueError("tenant_id é obrigatório")
@@ -148,6 +157,13 @@ class DocumentoService:
                 path_base=path_base,
                 path_doc=path_doc,
             )
+            if doc_id is not None:
+                # Re-ingestão idempotente: retry do worker com o mesmo doc_id
+                # substitui o documento anterior (disco + Qdrant + Postgres).
+                existente = await self.repo.buscar_documento_usuario_por_id(UUID(doc_id))
+                if existente is not None:
+                    await self.deletar_documento_usuario(tenant_id, [doc_id])
+                instance.id = UUID(doc_id)
             doc = await self.repo.criar_documento_usuario(instance)
             logger.info(f"Documento salvo no banco | id={doc.id}")
 

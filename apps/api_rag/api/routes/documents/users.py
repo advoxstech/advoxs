@@ -33,6 +33,7 @@ async def get_service(
 async def inserir_documento(
     tenant_id: str = Form(...),
     conversation_id: str = Form(...),
+    doc_id: str | None = Form(default=None),
     file: UploadFile = File(...),
     service: DocumentoService = Depends(get_service),
     security: str = Depends(verify_api_key),
@@ -40,7 +41,7 @@ async def inserir_documento(
     try:
         files = [file]
         logger.info(f"Recebendo {len(files)} arquivos | tenant={tenant_id}")
-        await service.inserir_documento_usuario(files, tenant_id, conversation_id)
+        await service.inserir_documento_usuario(files, tenant_id, conversation_id, doc_id=doc_id)
         return {"mensagem": "Documentos inseridos com sucesso"}
     except ValueError as e:
         logger.warning(f"Erro de validação ao inserir documento: {e}")

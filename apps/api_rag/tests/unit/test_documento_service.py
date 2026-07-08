@@ -116,3 +116,66 @@ class TestInserirDocumentoUsuario:
     async def test_sem_tenant_id_levanta_erro(self, service) -> None:
         with pytest.raises(ValueError, match="tenant_id"):
             await service.inserir_documento_usuario([], "", "c1")
+
+
+def _service() -> DocumentoService:
+    return DocumentoService(qdrant=MagicMock(), repo=MagicMock())
+
+
+class TestExtrairTextoTxt:
+    def test_txt_utf8(self) -> None:
+        texto = _service()._extrair_texto("ação e direção".encode(), "txt")
+        assert texto == "ação e direção"
+
+    def test_txt_latin1_fallback(self) -> None:
+        texto = _service()._extrair_texto("ação".encode("latin-1"), "txt")
+        assert texto == "ação"
+
+
+class TestInserirComDocIdExterno:
+    @pytest.fixture
+    def service(self, monkeypatch) -> DocumentoService:
+        service = DocumentoService(qdrant=MagicMock(), repo=AsyncMock())
+        sparse_vec = [{"indices": [0], "values": [1.0]}]
+        monkeypatch.setattr(
+            service,
+            "_processar_documento",
+            AsyncMock(return_value=("txt", "texto", ["texto"], [[0.1]], sparse_vec)),
+        )
+        monkeypatch.setattr(
+            service, "_salvar_arquivo", MagicMock(return_value=("/base", "path"))
+        )
+        monkeypatch.setattr(service, "_salvar_qdrant", AsyncMock())
+        monkeypatch.setattr(service, "deletar_documento_usuario", AsyncMock())
+        return service
+
+    def _file(self) -> MagicMock:
+        file = MagicMock()
+        file.filename = "regimento.txt"
+        file.read = AsyncMock(return_value=b"conteudo")
+        return file
+
+    async def test_usa_doc_id_como_pk(self, service) -> None:
+        doc_id = str(uuid.uuid4())
+        service.repo.buscar_documento_usuario_por_id.return_value = None
+
+        await service.inserir_documento_usuario([self._file()], "t1", "kb", doc_id=doc_id)
+
+        instance = service.repo.criar_documento_usuario.await_args.args[0]
+        assert str(instance.id) == doc_id
+        service.deletar_documento_usuario.assert_not_awaited()
+
+    async def test_doc_id_repetido_deleta_antes(self, service) -> None:
+        doc_id = str(uuid.uuid4())
+        service.repo.buscar_documento_usuario_por_id.return_value = MagicMock()
+
+        await service.inserir_documento_usuario([self._file()], "t1", "kb", doc_id=doc_id)
+
+        service.deletar_documento_usuario.assert_awaited_once_with("t1", [doc_id])
+
+    async def test_sem_doc_id_mantem_default(self, service) -> None:
+        service.repo.buscar_documento_usuario_por_id.return_value = None
+
+        await service.inserir_documento_usuario([self._file()], "t1", "conversa-1")
+
+        service.repo.buscar_documento_usuario_por_id.assert_not_awaited()
