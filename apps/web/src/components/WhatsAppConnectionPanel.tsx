@@ -20,6 +20,14 @@ type FormState = {
 
 const EMPTY_FORM: FormState = { phone_number_id: "", waba_id: "", access_token: "", pin: "" };
 
+function extractErrorDetail(body: unknown, fallback: string): string {
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return fallback;
+}
+
 const STATUS_LABEL: Record<Connection["status"], string> = {
   connected: "conectado",
   disconnected: "desconectado",
@@ -64,7 +72,7 @@ export function WhatsAppConnectionPanel() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        setFeedback(body?.detail ?? "Falha ao conectar — tente novamente.");
+        setFeedback(extractErrorDetail(body, "Falha ao conectar — tente novamente."));
         return;
       }
       setConnection(body);
@@ -84,7 +92,7 @@ export function WhatsAppConnectionPanel() {
       const response = await backendFetch("whatsapp/disconnect", { method: "POST" });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        setFeedback(body?.detail ?? "Falha ao desconectar — tente novamente.");
+        setFeedback(extractErrorDetail(body, "Falha ao desconectar — tente novamente."));
         return;
       }
       setConnection(body);
@@ -203,7 +211,10 @@ export function WhatsAppConnectionPanel() {
               {connection && (
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => {
+                    setShowForm(false);
+                    setForm(EMPTY_FORM);
+                  }}
                   className="font-mono text-xs uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
                 >
                   Cancelar
