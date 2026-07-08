@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -11,7 +21,10 @@ class KnowledgeBaseFile(Base):
     """Arquivo da base de conhecimento do escritório (tenant-scoped)."""
 
     __tablename__ = "knowledge_base_files"
-    __table_args__ = (CheckConstraint("status IN ('processing', 'ready', 'error')", name="status"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('processing', 'ready', 'error')", name="status"),
+        UniqueConstraint("tenant_id", "filename", name="uq_knowledge_base_files_tenant_filename"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")

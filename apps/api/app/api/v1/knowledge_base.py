@@ -6,6 +6,7 @@ from pathlib import Path
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -98,7 +99,17 @@ async def upload_file(
     tenant_dir.mkdir(parents=True, exist_ok=True)
     (tenant_dir / str(record.id)).write_bytes(data)
 
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Corrida entre uploads concorrentes com o mesmo filename — a unique
+        # constraint (tenant_id, filename) é o backstop do check acima.
+        await session.rollback()
+        (tenant_dir / str(record.id)).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Já existe um arquivo com esse nome — exclua o antigo antes de re-subir",
+        )
     await session.refresh(record)
     # Enfileira só depois do commit — o worker não pode acordar antes de a
     # linha estar visível (mesmo padrão do webhook do WhatsApp).

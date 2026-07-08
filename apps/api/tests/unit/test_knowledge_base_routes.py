@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 import app.api.v1.knowledge_base as kb_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -138,6 +139,18 @@ class TestUpload:
         response = _upload(client)
 
         assert response.status_code == 409
+
+    def test_corrida_de_duplicado_no_commit_409(self, client, session, tmp_path) -> None:
+        # Dois uploads concorrentes passam pelo check de duplicado; a unique
+        # constraint (tenant_id, filename) estoura no commit do segundo.
+        session.scalar.side_effect = [0, None]
+        session.commit.side_effect = IntegrityError("stmt", {}, Exception("uq"))
+
+        response = _upload(client)
+
+        assert response.status_code == 409
+        tenant_dir = tmp_path / str(TENANT_ID)
+        assert not tenant_dir.exists() or not any(tenant_dir.iterdir())
 
 
 class TestList:
