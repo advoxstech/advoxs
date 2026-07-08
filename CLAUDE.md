@@ -8,7 +8,7 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 Este repositório está em fase de transição entre planejamento e implementação:
 
-- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**, a **autenticação JWT** e a **gestão da base de conhecimento**: modelo de dados completo (migrations Alembic `0001`+`0002`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação) e `/api/v1/knowledge-base/files` (upload/listagem/exclusão, ver seção Frontend). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta. Ainda **não** tem: Embedded Signup, billing/Stripe, painel de conversas (esse já existe — ver `web`), dashboard `/rom`, `/admin`. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
+- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**, a **autenticação JWT** e a **gestão da base de conhecimento**: modelo de dados completo (migrations Alembic `0001`+`0002`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação), `/api/v1/knowledge-base/files` (upload/listagem/exclusão, ver seção Frontend) e `/api/v1/whatsapp/{connect,connection,disconnect}` (conexão manual do número, ver seção Integração WhatsApp Business). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta (a conexão pelo painel é a via preferida agora, mas o seed ainda serve pra debug local). Ainda **não** tem: billing/Stripe, dashboard `/rom`, `/admin`. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
 - `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. `ingest_knowledge_base_file` lê o arquivo do volume compartilhado `kb_uploads`, envia ao `api_rag` (`doc_id` = id do registro, `conversation_id="kb"`) e atualiza `status` (`ready`/`error`, com retry com backoff em erro transiente). Mesmos comandos de teste/lint do `api`.
 - `apps/web` implementa **login, o painel de conversas e a gestão da base de conhecimento**: `/login` (server action → cookies httpOnly com os tokens do `api`), middleware de proteção de rotas, proxy autenticado (`/api/backend/*` → `api`, com suporte a multipart/DELETE e refresh transparente do access token no 401), `/conversas` (lista com polling, thread, toggle de takeover e resposta manual) e `/base-de-conhecimento` (upload PDF/DOCX/TXT até 20 MB/arquivo e 500 MB/tenant, listagem com status `processando`/`pronto`/`erro` via polling condicional, exclusão com confirmação; nome duplicado → erro 409 exibido). Design tokens em `globals.css`/`tailwind.config.ts` (papel frio + verde-tinta + latão para o estado manual; fontes Spectral/IBM Plex via `next/font`). Comandos: `pnpm test`, `pnpm lint`, `pnpm build` (dentro de `apps/web`). Ainda não tem: `/rom` (dashboard), billing, `/admin`.
 - `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
@@ -58,7 +58,7 @@ docker-compose.override.yml   # dev local
 4. Tools chamam `api_rag` (que acessa Qdrant), geram documentos, etc. — sempre escopadas por `tenant_id`.
 5. Resposta volta pela cadeia até o canal de origem (painel ou WhatsApp).
 
-> **Nota de arquitetura real vs. alvo:** o Chatwoot foi **removido** do `agents` — o serviço agora expõe `POST /messages` (contrato interno com `tenant_id` + credenciais do tenant) e envia respostas direto pela Graph API da Meta. O caminho webhook Meta → `api` (resolve tenant, persiste, enfileira) → `worker` (checa `agent`/`human`, chama `agents`) → respostas persistidas **já está implementado**. O que ainda falta para operar de verdade: Embedded Signup (hoje o número/token do tenant precisa ser inserido manualmente em `whatsapp_numbers`, cifrado com Fernet) e o retrofit do `api_rag`, que ainda filtra por `conversation_id`/`base`, não por `tenant_id`. Ver detalhes nas seções específicas de cada serviço.
+> **Nota de arquitetura real vs. alvo:** o Chatwoot foi **removido** do `agents` — o serviço agora expõe `POST /messages` (contrato interno com `tenant_id` + credenciais do tenant) e envia respostas direto pela Graph API da Meta. O caminho webhook Meta → `api` (resolve tenant, persiste, enfileira) → `worker` (checa `agent`/`human`, chama `agents`) → respostas persistidas **já está implementado**. O onboarding do número (`/configuracoes/whatsapp` → `POST /api/v1/whatsapp/connect`) já está implementado — ver "Integração WhatsApp Business". Ver detalhes nas seções específicas de cada serviço.
 
 ## Stack e versões
 
@@ -78,7 +78,7 @@ docker-compose.override.yml   # dev local
 | Gerenciador pacotes JS | pnpm + Turborepo |
 | Gerenciador pacotes Python | uv |
 | Autenticação | JWT customizado no FastAPI |
-| Integração de canal | WhatsApp Business (Cloud API), Embedded Signup da Meta — Chatwoot já removido do `agents`, ver "Agents Service" |
+| Integração de canal | WhatsApp Business (Cloud API), conexão manual do número pelo painel — Chatwoot já removido do `agents`, ver "Agents Service" |
 | Infra local/deploy | Docker Compose + volumes |
 
 ## Multi-tenancy
@@ -289,8 +289,7 @@ Métricas previstas no dashboard:
 ## Integração WhatsApp Business
 
 - Canal: **WhatsApp Business Platform (Cloud API)**.
-- Onboarding do número: **Embedded Signup da Meta** — o escritório conecta o número diretamente no painel (`web`), sem manuseio manual de token/Phone Number ID.
-  - Requer app Meta configurado como Tech Provider/Solution Partner (setup único da plataforma, não por tenant).
+- Onboarding do número: **conexão manual pelo painel** (mesmo modelo usado por Chatwoot/Chatvolt — substituiu o plano de Embedded Signup, que exigia aprovação da Meta como Tech Provider). ✅ **Implementado**: o escritório faz o setup do lado da Meta (cria/acessa um app, adiciona um System User com role Admin, gera um token de acesso permanente com `whatsapp_business_management`/`whatsapp_business_messaging`, adiciona e verifica o número) e cola as credenciais em `/configuracoes/whatsapp` no painel. O `api` (`POST /api/v1/whatsapp/connect`) valida o token/`phone_number_id` na Graph API (`GET /{phone_number_id}`, obtém o `display_phone_number`) e registra o número (`POST /{phone_number_id}/register` com o PIN de 2 fatores) **antes** de persistir qualquer credencial — nada é salvo se a Meta rejeitar. O PIN nunca é armazenado, só passa pela request. `GET /api/v1/whatsapp/connection` e `POST /api/v1/whatsapp/disconnect` completam o ciclo (número mascarado na resposta; `access_token` nunca aparece em nenhuma resposta da API).
 - **1 número por escritório** (relação `tenant_id` ↔ `phone_number_id` é 1:1).
 - Credenciais (access token, `phone_number_id`, `waba_id`) armazenadas de forma **criptografada** no Postgres, vinculadas ao `tenant_id`.
 
@@ -314,7 +313,6 @@ Métricas previstas no dashboard:
 
 ### Pendências específicas do WhatsApp
 - [ ] Definir se haverá suporte a mensagens template (contato proativo) ou só reativo (dentro da janela de 24h).
-- [ ] Setup do app Meta como Tech Provider (documentação/processo de aprovação).
 - [ ] Rate limits da Cloud API por número — throttling na fila de envio.
 - [ ] Retry/dead-letter para falhas de envio.
 
@@ -479,7 +477,8 @@ Itens ainda em aberto, que não bloqueiam o início do desenvolvimento:
 Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service") mas foram construídos single-tenant. Antes de atender tenants reais nesta plataforma:
 
 - [x] ~~Remover Chatwoot do `agents` e migrar para Meta Cloud API direta~~ (feito — ver "Agents Service").
-- [x] ~~Webhook da Meta no `api` + processamento no `worker`~~ (feito — ver "Fluxo de mensagem entrante"; falta Embedded Signup, hoje o número/token entra manualmente em `whatsapp_numbers`).
+- [x] ~~Webhook da Meta no `api` + processamento no `worker`~~ (feito — ver "Fluxo de mensagem entrante").
+- [x] ~~Onboarding do número (Embedded Signup)~~ (feito com um modelo mais simples — conexão manual pelo painel em `/configuracoes/whatsapp`, sem exigir aprovação da Meta como Tech Provider; ver "Integração WhatsApp Business").
 - [x] ~~Propagar `tenant_id` no `agents`~~ (feito — `thread_id` composto por tenant no checkpoint/debounce/RAG de usuário).
 - [x] ~~Definir e propagar `tenant_id` no `api_rag` + unificar as collections~~ (feito — collection única com `tenant_id` obrigatório na camada de acesso; ver "RAG Service". ⚠️ dados antigos precisam ser re-ingeridos).
 - [x] ~~Auth do `api_rag`~~ (decisão: continua API key única como serviço interno, nunca exposto direto ao escritório).
