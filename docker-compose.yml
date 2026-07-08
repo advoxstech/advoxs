@@ -16,6 +16,7 @@ volumes:
   qdrant_data:
   redis_data:
   rag_uploads:
+  kb_uploads:
 
 services:
   web:
@@ -40,11 +41,16 @@ services:
     image: ghcr.io/advoxs/api:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
+    environment:
+      RAG_API_URL: http://api_rag:8000
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      - kb_uploads:/data/kb_uploads
     depends_on:
       - postgres
       - redis
+      - api_rag
     logging: *default-logging
 
   agents:
@@ -96,9 +102,14 @@ services:
     image: ghcr.io/advoxs/worker:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
+    environment:
+      RAG_API_URL: http://api_rag:8000
+    volumes:
+      - kb_uploads:/data/kb_uploads
     depends_on:
       - postgres
       - redis
+      - api_rag
     logging: *default-logging
 
   postgres:
