@@ -18,6 +18,7 @@ dependencies = [
     # arq exige redis<6 — manter alinhado com apps/worker
     "redis>=5.3.1",
     "sqlalchemy[asyncio]>=2.0.51",
+    "stripe>=10.0.0",
     "uvicorn[standard]>=0.50.2",
 ]
 

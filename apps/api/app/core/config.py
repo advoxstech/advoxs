@@ -30,5 +30,11 @@ class Settings(BaseSettings):
     rag_api_url: str = "http://api_rag:8000"
     rag_api_key: str = ""
 
+    # Stripe (cadastro self-service — checkout de créditos, sem assinatura)
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    # URL pública do `web`, usada para montar success_url/cancel_url do Checkout.
+    web_app_url: str = "http://localhost:3000"
+
 
 settings = Settings()
