@@ -129,7 +129,9 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       </header>
 
       {feedback && (
-        <p className="border-b border-line bg-danger/5 px-8 py-3 text-sm text-danger">{feedback}</p>
+        <p role="alert" className="border-b border-line bg-danger/5 px-8 py-3 text-sm text-danger">
+          {feedback}
+        </p>
       )}
 
       <ul className="flex-1 overflow-y-auto px-8 py-4">
