@@ -21,6 +21,12 @@ export default function BaseDeConhecimentoPage() {
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ground [writing-mode:vertical-rl]">
             Base
           </span>
+          <Link
+            href="/configuracoes/whatsapp"
+            className="font-mono text-[10px] uppercase tracking-[0.2em] text-ground/60 transition-colors [writing-mode:vertical-rl] hover:text-ground"
+          >
+            Config
+          </Link>
         </div>
         <form action={logout}>
           <button

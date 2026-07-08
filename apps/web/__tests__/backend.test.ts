@@ -17,4 +17,8 @@ describe("isAllowedPath", () => {
   it("permite rotas de knowledge-base", () => {
     expect(isAllowedPath(["knowledge-base", "files"])).toBe(true);
   });
+
+  it("permite rotas de whatsapp", () => {
+    expect(isAllowedPath(["whatsapp", "connection"])).toBe(true);
+  });
 });
