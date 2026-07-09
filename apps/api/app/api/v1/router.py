@@ -2,7 +2,10 @@ from fastapi import APIRouter
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.conversations import router as conversations_router
+from app.api.v1.credit_packages import router as credit_packages_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
+from app.api.v1.signup import router as signup_router
+from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.whatsapp import router as whatsapp_webhook_router
 from app.api.v1.whatsapp import router as whatsapp_router
 
@@ -10,7 +13,10 @@ api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router)
 api_router.include_router(conversations_router)
+api_router.include_router(credit_packages_router)
 api_router.include_router(knowledge_base_router)
+api_router.include_router(signup_router)
+api_router.include_router(stripe_webhook_router)
 api_router.include_router(whatsapp_webhook_router)
 api_router.include_router(whatsapp_router)
 
