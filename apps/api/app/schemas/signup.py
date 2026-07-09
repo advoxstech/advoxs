@@ -14,7 +14,7 @@ class CreditPackageOut(BaseModel):
 
 
 class SignupCheckoutRequest(BaseModel):
-    tenant_name: str = Field(min_length=1)
+    tenant_name: str = Field(min_length=1, max_length=200)
     email: EmailStr
     password: str = Field(min_length=8)
     credit_package_id: uuid.UUID
