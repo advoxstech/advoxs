@@ -123,8 +123,9 @@ este serviço) e descriptografou as credenciais do WhatsApp do tenant.
   "contact_phone_number": "5511999999999",     // obrigatório; cliente final
   "message": "texto da mensagem do cliente",   // opcional se houver attachments
   "attachments": [],                           // opcional
-  "phone_number_id": "1234567890",             // obrigatório; número do tenant (Meta)
-  "access_token": "EAAG..."                    // obrigatório; token do tenant (já descriptografado)
+  "phone_number_id": "1234567890",             // obrigatório quando send_to_whatsapp=true (default)
+  "access_token": "EAAG...",                   // obrigatório quando send_to_whatsapp=true (default)
+  "send_to_whatsapp": true                     // opcional, default true — false pula o envio via Graph API (usado pelo playground de admin em apps/api)
 }
 ```
 
@@ -143,14 +144,16 @@ este serviço) e descriptografou as credenciais do WhatsApp do tenant.
    retorna `202 Accepted` (`{"message": "Execução em andamento"}`) e encerra.
    Falha de Redis → `503`.
 3. **Agente** (`run_agent`) — invoca o grafo com a mensagem consolidada.
-4. **Envio** — cada resposta gerada é enviada ao cliente via
-   `WhatsAppClient.send_text_message` (Graph API), usando as credenciais do
-   tenant recebidas na request.
+4. **Envio** (só quando `send_to_whatsapp=true`, o default) — cada resposta
+   gerada é enviada ao cliente via `WhatsAppClient.send_text_message` (Graph
+   API), usando as credenciais do tenant recebidas na request. Com
+   `send_to_whatsapp=false` este passo é pulado — usado pelo playground de
+   admin (`apps/api`), que só quer as respostas de volta, sem canal.
 
 **Resposta de sucesso (200):**
 
 ```json
-{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234 }
+{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234, "current_agent": "agente_condominial" }
 ```
 
 Todas as respostas geradas são devolvidas ao chamador (`worker`) para
@@ -159,6 +162,11 @@ das mensagens de IA da execução — incluindo as chamadas intermediárias com
 tool_calls — obtida do `usage_metadata` do langchain-openai
 (`sum_usage_tokens` em `services/call_agent.py`). O `worker` converte em
 créditos (ceil, `CREDIT_TOKENS_PER_CREDIT`) e debita do tenant.
+
+`current_agent` é o nome interno do agente que respondeu por último nesta
+execução (`"agente_secretaria"` ou um dos 3 especialistas) — lido do estado do
+grafo (`current_specialist`, `None` antes de qualquer transferência). Usado hoje
+só pelo playground de admin para exibir uma tag do agente ativo na conversa.
 
 **Erros:** `202` (execução concorrente), `400` (validação), `403` (API key),
 `422` (payload), `503` (Redis), `500` (erro no agente).
@@ -208,7 +216,7 @@ async def run_agent(
     db_uri: str = DB_URI,
     num_before_messages: int = 35,   # nº de mensagens de histórico enviadas ao LLM
     extra_data: dict = {},
-) -> list[str]:
+) -> tuple[list[str], int, str]:
 ```
 
 - Cria `config = {"configurable": {"thread_id": conversation_id}, "callbacks": [langfuse_handler]}`.
@@ -222,9 +230,14 @@ async def run_agent(
   (`prior_count`) e assim isolar apenas as **novas** mensagens geradas nesta
   execução.
 - Invoca o grafo com a `HumanMessage` nova.
-- **Retorno:** lista com os `content` de todas as `AIMessage` novas e não-vazias
-  (`answers`). Pode conter mais de uma mensagem (ex.: despedida de transferência
-  + resposta do especialista).
+- **Retorno:** tupla `(answers, tokens_used, current_agent)`:
+  - `answers`: lista com os `content` de todas as `AIMessage` novas e não-vazias.
+    Pode conter mais de uma mensagem (ex.: despedida de transferência + resposta
+    do especialista).
+  - `tokens_used`: soma de tokens (input+output) da execução.
+  - `current_agent`: nome do agente ativo no estado (`"agente_secretaria"` ou um
+    dos 3 especialistas, obtido de `response.get("current_specialist")`; padrão
+    é `"agente_secretaria"` se indefinido).
 
 `DB_URI` é montado como:
 `postgresql://postgres:{POSTGRES_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/postgres`.

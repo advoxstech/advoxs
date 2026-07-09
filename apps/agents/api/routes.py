@@ -30,14 +30,20 @@ async def verify_api_key(authorization: str | None = Header(default=None)):
 class IncomingMessage(BaseModel):
     """Contrato interno: o `api` já resolveu o tenant (via phone_number_id do
     webhook da Meta), validou o estado da conversa (agent|human) e
-    descriptografou as credenciais do WhatsApp antes de chamar aqui."""
+    descriptografou as credenciais do WhatsApp antes de chamar aqui.
+
+    `send_to_whatsapp=False` (usado pelo playground de admin) roda o grafo
+    normalmente mas pula o envio pela Graph API — phone_number_id/access_token
+    ficam vazios nesse caso.
+    """
 
     tenant_id: str
     contact_phone_number: str
     message: str = ""
     attachments: list = Field(default_factory=list)
-    phone_number_id: str
-    access_token: str
+    phone_number_id: str = ""
+    access_token: str = ""
+    send_to_whatsapp: bool = True
 
 
 app = FastAPI()
@@ -91,26 +97,36 @@ async def receive(body: IncomingMessage):
 
     try:
         logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
-        response, tokens_used = await run_agent(
+        response, tokens_used, current_agent = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
         )
 
-        logger.info(
-            "Enviando {} resposta(s) via WhatsApp | thread_id={}",
-            len(response),
-            thread_id,
-        )
-
-        async with WhatsAppClient(body.phone_number_id, body.access_token) as client:
-            for msg in response:
-                await client.send_text_message(body.contact_phone_number, msg)
+        if body.send_to_whatsapp:
+            logger.info(
+                "Enviando {} resposta(s) via WhatsApp | thread_id={}",
+                len(response),
+                thread_id,
+            )
+            async with WhatsAppClient(
+                body.phone_number_id, body.access_token
+            ) as client:
+                for msg in response:
+                    await client.send_text_message(body.contact_phone_number, msg)
+        else:
+            logger.info(
+                "send_to_whatsapp=False — envio pulado | thread_id={}", thread_id
+            )
 
         # Devolve as respostas e os tokens da execução para o chamador
         # (`worker`) persistir em `messages` e debitar os créditos.
-        return {"responses": response, "tokens_used": tokens_used}
+        return {
+            "responses": response,
+            "tokens_used": tokens_used,
+            "current_agent": current_agent,
+        }
     except Exception:
         logger.exception("Erro ao chamar o agente | thread_id={}", thread_id)
         raise HTTPException(

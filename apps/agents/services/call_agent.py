@@ -6,6 +6,7 @@ from loguru import logger
 import os
 import time
 from langfuse.langchain import CallbackHandler
+
 load_dotenv()
 
 langfuse_handler = CallbackHandler()
@@ -45,9 +46,12 @@ async def run_agent(
     db_uri: str = DB_URI,
     num_before_messages: int = 35,
     extra_data: dict = {},
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, str]:
     started_at = time.perf_counter()
-    config = {"configurable": {"thread_id": conversation_id}, "callbacks": [langfuse_handler]}
+    config = {
+        "configurable": {"thread_id": conversation_id},
+        "callbacks": [langfuse_handler],
+    }
 
     logger.info(
         "Preparando agente | conversation_id={} | num_before_messages={} | has_whatsapp={}",
@@ -61,7 +65,9 @@ async def run_agent(
         agent = graph.compile(checkpointer=checkpointer)
 
         prior_state = await agent.aget_state(config)
-        prior_count = len(prior_state.values.get("messages", [])) if prior_state.values else 0
+        prior_count = (
+            len(prior_state.values.get("messages", [])) if prior_state.values else 0
+        )
 
         logger.info("Enviando mensagem ao agente | conversation_id={}", conversation_id)
         response = await agent.ainvoke(
@@ -78,15 +84,20 @@ async def run_agent(
     answers = [m.content for m in new_messages if m.type == "ai" and m.content]
     tokens_used = sum_usage_tokens(new_messages)
 
+    current_agent = response.get("current_specialist") or "agente_secretaria"
+
     elapsed = round(time.perf_counter() - started_at, 3)
     logger.info(
-        "Respostas geradas | conversation_id={} | total={} | tokens={} | elapsed_s={}",
+        "Respostas geradas | conversation_id={} | total={} | tokens={} | current_agent={} | elapsed_s={}",
         conversation_id,
         len(answers),
         tokens_used,
+        current_agent,
         elapsed,
     )
     for i, ans in enumerate(answers):
-        logger.debug("Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans)
+        logger.debug(
+            "Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans
+        )
 
-    return answers, tokens_used
+    return answers, tokens_used, current_agent

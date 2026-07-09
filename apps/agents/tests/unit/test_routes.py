@@ -47,7 +47,9 @@ def test_execucao_concorrente_retorna_202(client, monkeypatch):
     monkeypatch.setattr(
         routes,
         "debounce_messages",
-        AsyncMock(return_value={"combined_message": None, "other_exec_is_running": True}),
+        AsyncMock(
+            return_value={"combined_message": None, "other_exec_is_running": True}
+        ),
     )
     response = client.post("/messages", json=PAYLOAD)
     assert response.status_code == 202
@@ -57,7 +59,9 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
-    run_agent = AsyncMock(return_value=(["resposta 1", "resposta 2"], 1234))
+    run_agent = AsyncMock(
+        return_value=(["resposta 1", "resposta 2"], 1234, "agente_secretaria")
+    )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
@@ -68,6 +72,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     assert response.json() == {
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 1234,
+        "current_agent": "agente_secretaria",
     }
 
     # thread_id composto por tenant + telefone do contato
@@ -81,6 +86,54 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     wa_instance.send_text_message.assert_awaited_with("5511999999999", "resposta 2")
 
 
+def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["resposta 1", "resposta 2"], 1234, "agente_condominial")
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
+
+    payload = {
+        **PAYLOAD,
+        "phone_number_id": "",
+        "access_token": "",
+        "send_to_whatsapp": False,
+    }
+    response = client.post("/messages", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "responses": ["resposta 1", "resposta 2"],
+        "tokens_used": 1234,
+        "current_agent": "agente_condominial",
+    }
+    wa_cls.assert_not_called()
+    wa_instance.send_text_message.assert_not_awaited()
+
+
+def test_send_to_whatsapp_default_true_continua_enviando(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(return_value=(["resposta 1"], 100, None))
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
+
+    response = client.post("/messages", json=PAYLOAD)
+
+    assert response.status_code == 200
+    assert response.json()["current_agent"] is None
+    wa_cls.assert_called_once_with("111222333", "token-do-tenant")
+    wa_instance.send_text_message.assert_awaited_once_with(
+        "5511999999999", "resposta 1"
+    )
+
+
 def test_api_key_ausente_retorna_403(client, monkeypatch):
     monkeypatch.setattr(routes, "AGENTS_API_KEY", "segredo")
     response = client.post("/messages", json=PAYLOAD)
@@ -92,7 +145,9 @@ def test_api_key_correta_passa(client, monkeypatch):
     monkeypatch.setattr(
         routes,
         "debounce_messages",
-        AsyncMock(return_value={"combined_message": None, "other_exec_is_running": True}),
+        AsyncMock(
+            return_value={"combined_message": None, "other_exec_is_running": True}
+        ),
     )
     response = client.post(
         "/messages", json=PAYLOAD, headers={"Authorization": "segredo"}
