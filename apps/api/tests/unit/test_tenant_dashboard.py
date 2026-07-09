@@ -87,4 +87,4 @@ class TestBuildTenantDashboard:
         for sql in scalar_sqls[1:]:
             assert "tenant_id" in sql
         execute_sql = str(session.execute.await_args_list[0].args[0])
-        assert "tenant_id" in execute_sql
+        assert "WHERE conversations.tenant_id" in execute_sql
