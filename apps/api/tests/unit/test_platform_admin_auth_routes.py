@@ -2,11 +2,15 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_current_platform_admin, get_current_tenant
 from app.core.db import get_session
+from app.core.platform_security import create_platform_access_token
 from app.core.redis import get_redis
-from app.core.security import hash_password
+from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.models import PlatformAdmin
 from app.services.platform_admin_auth import BLACKLIST_PREFIX
@@ -119,3 +123,29 @@ class TestLogout:
 
         assert response.status_code == 204
         redis.set.assert_awaited_once()
+
+
+class TestIsolamentoDeSessao:
+    """Prova (não só "por construção") que um token de tenant e um token de
+    platform_admin não são intercambiáveis entre as duas dependencies de auth,
+    mesmo chamando-as direto (sem passar por rota HTTP)."""
+
+    async def test_token_de_tenant_nao_e_aceito_por_get_current_platform_admin(self) -> None:
+        token = create_access_token(
+            user_id=str(uuid.uuid4()), tenant_id=str(uuid.uuid4()), role="admin"
+        )
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_platform_admin(credentials)
+
+        assert exc_info.value.status_code == 401
+
+    async def test_token_de_platform_admin_nao_e_aceito_por_get_current_tenant(self) -> None:
+        token = create_platform_access_token(admin_id=str(uuid.uuid4()), role="superadmin")
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_tenant(credentials)
+
+        assert exc_info.value.status_code == 401
