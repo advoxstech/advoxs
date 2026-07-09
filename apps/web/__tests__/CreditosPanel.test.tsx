@@ -24,7 +24,7 @@ describe("CreditosPanel", () => {
   it("carrega e exibe o saldo atual", async () => {
     mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ credit_balance: 1500 }) });
 
-    render(<CreditosPanel packages={PACKAGES} sessionId={null} />);
+    render(<CreditosPanel packages={PACKAGES} />);
 
     await waitFor(() => expect(screen.getByText("1500 créditos")).toBeInTheDocument());
   });
@@ -32,7 +32,7 @@ describe("CreditosPanel", () => {
   it("renderiza os pacotes recebidos por prop", async () => {
     mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ credit_balance: 0 }) });
 
-    render(<CreditosPanel packages={PACKAGES} sessionId={null} />);
+    render(<CreditosPanel packages={PACKAGES} />);
 
     expect(screen.getByText("Starter")).toBeInTheDocument();
     expect(screen.getByText("Growth")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("CreditosPanel", () => {
       throw new Error(`chamada inesperada: ${path}`);
     });
 
-    render(<CreditosPanel packages={PACKAGES} sessionId={null} />);
+    render(<CreditosPanel packages={PACKAGES} />);
     await waitFor(() => expect(screen.getByText("Growth")).toBeInTheDocument());
 
     fireEvent.click(screen.getAllByRole("button", { name: "Comprar" })[1]);
@@ -77,7 +77,7 @@ describe("CreditosPanel", () => {
       throw new Error(`chamada inesperada: ${path}`);
     });
 
-    render(<CreditosPanel packages={PACKAGES} sessionId={null} />);
+    render(<CreditosPanel packages={PACKAGES} />);
     await waitFor(() => expect(screen.getByText("Growth")).toBeInTheDocument());
 
     const buttons = screen.getAllByRole("button", { name: "Comprar" });
@@ -101,43 +101,25 @@ describe("CreditosPanel", () => {
     expect(checkoutCalls).toBe(1);
   });
 
-  it("mostra 'Confirmando' enquanto o pagamento não é confirmado, com sessionId", async () => {
+  it("mostra erro e reabilita o botão quando o checkout falha", async () => {
     mockedFetch.mockImplementation(async (path: string) => {
       if (path === "billing/balance") {
         return { ok: true, json: async () => ({ credit_balance: 0 }) };
       }
-      if (path.startsWith("billing/status")) {
-        return { ok: true, json: async () => ({ ready: false }) };
+      if (path === "billing/checkout") {
+        return { ok: false, status: 502 };
       }
       throw new Error(`chamada inesperada: ${path}`);
     });
 
-    render(<CreditosPanel packages={PACKAGES} sessionId="cs_123" pollMs={0} />);
+    render(<CreditosPanel packages={PACKAGES} />);
+    await waitFor(() => expect(screen.getByText("Starter")).toBeInTheDocument());
 
-    await waitFor(() => expect(screen.getByText("Confirmando seu pagamento…")).toBeInTheDocument());
-  });
-
-  it("some com 'Confirmando' e atualiza o saldo quando o pagamento confirma", async () => {
-    let statusReady = false;
-    mockedFetch.mockImplementation(async (path: string) => {
-      if (path === "billing/balance") {
-        return {
-          ok: true,
-          json: async () => ({ credit_balance: statusReady ? 2750 : 0 }),
-        };
-      }
-      if (path.startsWith("billing/status")) {
-        statusReady = true;
-        return { ok: true, json: async () => ({ ready: true }) };
-      }
-      throw new Error(`chamada inesperada: ${path}`);
-    });
-
-    render(<CreditosPanel packages={PACKAGES} sessionId="cs_123" pollMs={0} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Comprar" })[0]);
 
     await waitFor(() =>
-      expect(screen.queryByText("Confirmando seu pagamento…")).not.toBeInTheDocument(),
+      expect(screen.getByText(/não foi possível iniciar o pagamento/i)).toBeInTheDocument(),
     );
-    await waitFor(() => expect(screen.getByText("2750 créditos")).toBeInTheDocument());
+    expect(screen.getAllByRole("button", { name: "Comprar" })[0]).not.toBeDisabled();
   });
 });

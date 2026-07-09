@@ -114,7 +114,7 @@ async def create_recompra_checkout_session(
                 "tenant_id": str(tenant_id),
                 "credit_package_id": str(credit_package_id),
             },
-            success_url=f"{settings.web_app_url}/creditos?session_id={{CHECKOUT_SESSION_ID}}",
+            success_url=f"{settings.web_app_url}/creditos/sucesso?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.web_app_url}/creditos",
         )
     except stripe.error.StripeError as exc:

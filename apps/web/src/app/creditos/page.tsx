@@ -13,18 +13,14 @@ async function getPackages(): Promise<CreditPackage[]> {
   }
 }
 
-export default async function CreditosPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ session_id?: string }>;
-}) {
-  const [packages, { session_id }] = await Promise.all([getPackages(), searchParams]);
+export default async function CreditosPage() {
+  const packages = await getPackages();
 
   return (
     <div className="flex h-screen overflow-hidden">
       <TenantNav active="creditos" />
       <main className="flex-1 overflow-y-auto bg-ground">
-        <CreditosPanel packages={packages} sessionId={session_id ?? null} />
+        <CreditosPanel packages={packages} />
       </main>
     </div>
   );

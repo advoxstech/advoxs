@@ -5,69 +5,21 @@ import { useEffect, useState } from "react";
 import { backendFetch } from "@/lib/client-api";
 import type { CreditPackage } from "@/lib/types";
 
-const MAX_ATTEMPTS = 8;
-
-export function CreditosPanel({
-  packages,
-  sessionId,
-  pollMs = 2000,
-}: {
-  packages: CreditPackage[];
-  sessionId: string | null;
-  pollMs?: number;
-}) {
+export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
   const [balance, setBalance] = useState<number | null>(null);
-  const [confirming, setConfirming] = useState(sessionId !== null);
-  const [attempts, setAttempts] = useState(0);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadBalance() {
-    const response = await backendFetch("billing/balance");
-    if (response.ok) {
-      const body = await response.json();
-      setBalance(body.credit_balance);
-    }
-  }
-
   useEffect(() => {
-    void loadBalance();
-  }, []);
-
-  async function checkStatus() {
-    if (!sessionId) return;
-    try {
-      const response = await backendFetch(
-        `billing/status?session_id=${encodeURIComponent(sessionId)}`,
-      );
+    async function loadBalance() {
+      const response = await backendFetch("billing/balance");
       if (response.ok) {
         const body = await response.json();
-        if (body.ready) {
-          setConfirming(false);
-          await loadBalance();
-          return;
-        }
+        setBalance(body.credit_balance);
       }
-    } catch {
-      // rede instável durante o polling — só tenta de novo no próximo ciclo
     }
-    setAttempts((prev) => prev + 1);
-  }
-
-  useEffect(() => {
-    void checkStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!sessionId || !confirming || attempts >= MAX_ATTEMPTS) {
-      if (attempts >= MAX_ATTEMPTS) setConfirming(false);
-      return;
-    }
-    const interval = setInterval(() => void checkStatus(), pollMs);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, confirming, attempts, pollMs]);
+    void loadBalance();
+  }, []);
 
   async function handleComprar(packageId: string) {
     setError(null);
@@ -102,12 +54,6 @@ export function CreditosPanel({
           {balance === null ? "…" : `${balance} créditos`}
         </p>
       </div>
-
-      {confirming && (
-        <p className="rounded-sm border border-line bg-surface px-4 py-3 text-sm text-muted">
-          Confirmando seu pagamento…
-        </p>
-      )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
 
