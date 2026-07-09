@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TenantContext, get_current_tenant
+from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.db import get_session
 from app.models import CreditTransaction, Tenant
 from app.schemas.billing import (
@@ -53,9 +53,12 @@ async def checkout(
 async def billing_status(
     session_id: str = Query(...),
     ctx: TenantContext = Depends(get_current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_tenant_session),
 ) -> BillingStatusOut:
     found = await session.scalar(
-        select(CreditTransaction.id).where(CreditTransaction.stripe_payment_id == session_id)
+        select(CreditTransaction.id).where(
+            CreditTransaction.tenant_id == ctx.tenant_id,
+            CreditTransaction.stripe_payment_id == session_id,
+        )
     )
     return BillingStatusOut(ready=found is not None)

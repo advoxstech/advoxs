@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.v1.billing as billing_module
-from app.api.deps import TenantContext, get_current_tenant
+from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.db import get_session
 from app.main import app
 from app.services.billing import InvalidPackageError, StripeApiError
@@ -29,6 +29,7 @@ def client(session):
 
     app.dependency_overrides[get_current_tenant] = override_tenant
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_tenant_session] = override_session
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -107,4 +108,29 @@ class TestStatus:
 
         response = client.get("/api/v1/billing/status", params={"session_id": "cs_123"})
 
+        assert response.json() == {"ready": False}
+
+    def test_query_filtra_por_tenant_id(self, client, session) -> None:
+        """Isolamento cross-tenant: a query precisa filtrar por tenant_id, não só
+        por stripe_payment_id — caso contrário um tenant autenticado descobrindo o
+        session_id de outro tenant conseguiria confirmar o pagamento dele."""
+        session.scalar.return_value = uuid.uuid4()
+
+        response = client.get("/api/v1/billing/status", params={"session_id": "cs_123"})
+
+        assert response.status_code == 200
+        query = session.scalar.call_args.args[0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "tenant_id" in compiled
+        assert TENANT_ID.hex in compiled.replace("-", "")
+
+    def test_not_ready_quando_transacao_e_de_outro_tenant(self, client, session) -> None:
+        """Simula o filtro por tenant_id não encontrando a transação porque ela
+        pertence a outro tenant (mesmo session_id, tenant diferente) — a rota deve
+        responder ready=False, e não vazar que o pagamento existe para outro tenant."""
+        session.scalar.return_value = None
+
+        response = client.get("/api/v1/billing/status", params={"session_id": "cs_de_outro_tenant"})
+
+        assert response.status_code == 200
         assert response.json() == {"ready": False}
