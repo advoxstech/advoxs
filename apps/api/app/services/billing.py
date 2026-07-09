@@ -83,8 +83,50 @@ async def create_checkout_session(
     return checkout_session.url
 
 
+async def create_recompra_checkout_session(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    credit_package_id: uuid.UUID,
+) -> str:
+    """Checkout de recompra — tenant já existe e está autenticado; o
+    tenant_id vem sempre do contexto autenticado (nunca do corpo da
+    requisição do cliente) e é gravado na metadata pelo servidor."""
+    package = await session.get(CreditPackage, credit_package_id)
+    if package is None or not package.active:
+        raise InvalidPackageError("Pacote de créditos inválido")
+
+    try:
+        checkout_session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
+            mode="payment",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "brl",
+                        "unit_amount": int(package.price_brl * 100),
+                        "product_data": {"name": f"Advoxs — {package.name}"},
+                    },
+                    "quantity": 1,
+                }
+            ],
+            metadata={
+                "flow": "recompra",
+                "tenant_id": str(tenant_id),
+                "credit_package_id": str(credit_package_id),
+            },
+            success_url=f"{settings.web_app_url}/creditos?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.web_app_url}/creditos",
+        )
+    except stripe.error.StripeError as exc:
+        logger.error("Falha ao criar sessão de recompra | erro=%s", exc)
+        raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc
+
+    return checkout_session.url
+
+
 async def process_checkout_completed(session: AsyncSession, stripe_session: dict) -> None:
-    """Cria tenant+user+credit_transaction a partir da metadata da sessão paga.
+    """Credita a compra (cadastro novo ou recompra de tenant existente) a
+    partir da metadata da sessão paga.
 
     Idempotente: uma sessão já processada (mesmo id) não cria duplicata.
     """
@@ -100,6 +142,15 @@ async def process_checkout_completed(session: AsyncSession, stripe_session: dict
     # .get(), só acesso via []/in — to_dict() normaliza pra dict puro.
     raw_metadata = stripe_session["metadata"] if "metadata" in stripe_session else {}
     metadata = raw_metadata.to_dict() if hasattr(raw_metadata, "to_dict") else dict(raw_metadata)
+
+    if metadata.get("flow") == "recompra":
+        await _process_recompra(session, session_id, metadata)
+        return
+
+    await _process_signup(session, session_id, metadata)
+
+
+async def _process_signup(session: AsyncSession, session_id: str, metadata: dict) -> None:
     tenant_name = metadata.get("tenant_name")
     email = metadata.get("email")
     password_hash = metadata.get("password_hash")
@@ -154,4 +205,52 @@ async def process_checkout_completed(session: AsyncSession, stripe_session: dict
             "(e-mail já existe?) | session=%s email=%s",
             session_id,
             email,
+        )
+
+
+async def _process_recompra(session: AsyncSession, session_id: str, metadata: dict) -> None:
+    tenant_id_raw = metadata.get("tenant_id")
+    credit_package_id = metadata.get("credit_package_id")
+    if not all([tenant_id_raw, credit_package_id]):
+        logger.error("Metadata incompleta na recompra | session=%s", session_id)
+        return
+
+    try:
+        tenant_id = uuid.UUID(tenant_id_raw)
+        package_id = uuid.UUID(credit_package_id)
+    except ValueError:
+        logger.error("tenant_id/credit_package_id malformado na recompra | session=%s", session_id)
+        return
+
+    package = await session.get(CreditPackage, package_id)
+    if package is None:
+        logger.error("Pacote não encontrado ao processar recompra | session=%s", session_id)
+        return
+
+    tenant = await session.get(Tenant, tenant_id)
+    if tenant is None:
+        logger.error("Tenant não encontrado ao processar recompra | session=%s", session_id)
+        return
+
+    tenant.credit_balance += package.credits_granted
+    session.add(
+        CreditTransaction(
+            tenant_id=tenant.id,
+            type="purchase",
+            amount_credits=package.credits_granted,
+            credit_package_id=package.id,
+            stripe_payment_id=session_id,
+            description=f"Compra do pacote {package.name}",
+        )
+    )
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        logger.critical(
+            "Pagamento de recompra aprovado mas não foi possível gravar a "
+            "transação | session=%s tenant_id=%s",
+            session_id,
+            tenant_id,
         )
