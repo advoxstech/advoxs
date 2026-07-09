@@ -22,6 +22,17 @@ describe("AdminNav", () => {
     expect(screen.getByText("Dashboard").closest("a")).toHaveAttribute("href", "/admin");
   });
 
+  it("renderiza todos os itens como links quando active=null (nenhum ativo)", () => {
+    render(<AdminNav active={null} />);
+
+    expect(screen.getByText("Dashboard").closest("a")).toHaveAttribute("href", "/admin");
+    expect(screen.getByText("Tenants").closest("a")).toHaveAttribute("href", "/admin/tenants");
+    expect(screen.getByText("Playground").closest("a")).toHaveAttribute(
+      "href",
+      "/admin/playground",
+    );
+  });
+
   it("renderiza o botão Sair", () => {
     render(<AdminNav active="tenants" />);
 

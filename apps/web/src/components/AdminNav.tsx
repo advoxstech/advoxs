@@ -10,7 +10,7 @@ const ITEMS: { key: AdminNavItem; href: string; label: string }[] = [
   { key: "playground", href: "/admin/playground", label: "Playground" },
 ];
 
-export function AdminNav({ active }: { active: AdminNavItem }) {
+export function AdminNav({ active }: { active?: AdminNavItem | null }) {
   return (
     <nav className="flex w-14 shrink-0 flex-col items-center justify-between bg-ink py-5">
       <div className="flex flex-col items-center gap-6">

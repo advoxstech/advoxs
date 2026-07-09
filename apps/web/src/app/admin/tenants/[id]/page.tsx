@@ -10,7 +10,7 @@ export default async function AdminTenantDetailPage({
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <AdminNav active="tenants" />
+      <AdminNav active={null} />
       <main className="flex-1 overflow-y-auto bg-ground">
         <AdminTenantDetail tenantId={id} />
       </main>
