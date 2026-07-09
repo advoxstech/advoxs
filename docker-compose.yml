@@ -67,6 +67,11 @@ services:
       DATABASE_NAME: advoxs_agents
       DATABASE_PASSWORD: ${AGENTS_DB_PASSWORD:-changeme}
       RAG_API_URL: http://api_rag:8000
+      # Debounce de rajada (services/concat_messages.py) — código legado do
+      # projeto standalone lê host/porta separados, não REDIS_URL (usado por
+      # api/worker). Sem isso, POST /messages falha com 503 (Redis indisponível).
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
     depends_on:
       - postgres
       - redis
