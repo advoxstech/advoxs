@@ -4,6 +4,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.billing import router as billing_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.credit_packages import router as credit_packages_router
+from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
 from app.api.v1.platform_admin.auth import router as platform_admin_auth_router
 from app.api.v1.platform_admin.dashboard import router as platform_admin_dashboard_router
@@ -20,6 +21,7 @@ api_router.include_router(auth_router)
 api_router.include_router(billing_router)
 api_router.include_router(conversations_router)
 api_router.include_router(credit_packages_router)
+api_router.include_router(dashboard_router)
 api_router.include_router(knowledge_base_router)
 api_router.include_router(platform_admin_auth_router)
 api_router.include_router(platform_admin_dashboard_router)
