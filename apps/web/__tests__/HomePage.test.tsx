@@ -32,5 +32,8 @@ describe("HomePage", () => {
     render(await HomePage());
 
     expect(screen.getByText("Advoxs")).toBeInTheDocument();
+    expect(
+      screen.getByText("Não foi possível carregar os planos agora. Tente recarregar a página em instantes."),
+    ).toBeInTheDocument();
   });
 });

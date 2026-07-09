@@ -33,7 +33,13 @@ export default async function HomePage() {
 
         <hr className="my-8 border-line" />
 
-        <SignupForm packages={packages} />
+        {packages.length > 0 ? (
+          <SignupForm packages={packages} />
+        ) : (
+          <p className="rounded-sm border border-line bg-surface px-4 py-3 text-sm text-muted">
+            Não foi possível carregar os planos agora. Tente recarregar a página em instantes.
+          </p>
+        )}
 
         <p className="mt-6 text-center text-sm text-muted">
           Já tem conta?{" "}
