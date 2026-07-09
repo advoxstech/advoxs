@@ -36,5 +36,10 @@ class Settings(BaseSettings):
     # URL pública do `web`, usada para montar success_url/cancel_url do Checkout.
     web_app_url: str = "http://localhost:3000"
 
+    # Platform admin (painel de administração da plataforma) — secret
+    # separado do JWT_SECRET dos tenants, defesa em profundidade: um
+    # segredo vazado nunca forja o outro tipo de token.
+    platform_jwt_secret: str = ""
+
 
 settings = Settings()

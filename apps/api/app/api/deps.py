@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.core.platform_security import decode_platform_token
 from app.core.security import decode_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -63,3 +64,24 @@ async def get_tenant_session(
         {"tenant_id": str(ctx.tenant_id)},
     )
     yield session
+
+
+class PlatformAdminContext(BaseModel):
+    admin_id: uuid.UUID
+    role: str
+
+
+async def get_current_platform_admin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> PlatformAdminContext:
+    """Decodifica o JWT do platform_admin — secret separado do de tenant."""
+    if credentials is None:
+        raise _NAO_AUTENTICADO
+    try:
+        payload = decode_platform_token(credentials.credentials)
+    except jwt.PyJWTError:
+        raise _NAO_AUTENTICADO
+    if payload.get("type") != "platform_access":
+        raise _NAO_AUTENTICADO
+
+    return PlatformAdminContext(admin_id=payload["sub"], role=payload["role"])
