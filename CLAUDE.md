@@ -298,6 +298,21 @@ Chat de teste para desenvolvedores conversarem com os agentes de qualquer tenant
 - Toda transação (compra ou consumo) é registrada em `credit_transactions` (auditoria por tenant).
 - ✅ **Cadastro self-service com pagamento implementado**: o escritório escolhe um pacote em `/` (ver seção Frontend) e o `api` (`POST /api/v1/signup/checkout`) cria uma Stripe Checkout Session (modo `payment`, sem assinatura recorrente) guardando os dados do cadastro (nome, e-mail, hash da senha, pacote) na `metadata` da sessão — **nada é persistido no banco antes do pagamento confirmar**. O webhook (`POST /api/v1/webhooks/stripe`, assinatura validada via `STRIPE_WEBHOOK_SECRET`) trata `checkout.session.completed`: cria `tenant`+`user`(`role=admin`)+`credit_transactions` (tipo `purchase`) numa única transação, e atualiza `tenants.credit_balance`. Idempotente pela `id` da Checkout Session (`stripe_payment_id`) — webhook duplicado (retry da Stripe) não duplica tenant/crédito. `GET /api/v1/signup/status` é consultado pelo front (`/cadastro/sucesso`) até a conta ficar pronta.
 
+### Configuração da Stripe — ✅ chaves de teste configuradas e testadas ponta a ponta
+
+- **Chave da API**: usar uma **Restricted API Key** (`rk_test_...`/`rk_live_...`), não a Secret Key completa (`sk_...`) — só com a permissão **Checkout Sessions: Write**, que é a única chamada que o `api` faz (`stripe.checkout.Session.create`). Criar em `dashboard.stripe.com/{test,}/apikeys` → "Create restricted key". Vai em `STRIPE_SECRET_KEY` no `.env` (nunca commitado — `.env` é ignorado pelo git).
+- **Sem `payment_method_types`**: o checkout **não** fixa `["card"]` — omitir esse parâmetro ativa os *dynamic payment methods* da própria Stripe (escolhe os métodos mais relevantes por transação: moeda, localização, valor; geridos direto no Dashboard, sem deploy). Nunca reintroduzir esse parâmetro (só é válido pra integrações Terminal/presencial).
+- **⚠️ Pegadinha do SDK `stripe-python`**: `event["data"]["object"]` (o payload do webhook) é um `StripeObject` de verdade, **não um dict** — não tem método `.get()` (só `[]`/`in`). Usar `.to_dict()` antes de chamar `.get()` em qualquer campo (`process_checkout_completed` em `app/services/billing.py` já faz isso). Os testes unitários mockam esse objeto como dict puro (mascara esse bug) — há um teste de regressão dedicado (`test_cria_tenant_com_stripe_session_real_nao_dict`) que constrói um `StripeObject` real pra pegar isso.
+
+**Ambiente local (dev)**: usar a [Stripe CLI](https://docs.stripe.com/stripe-cli) pra receber webhooks sem expor a máquina:
+```bash
+stripe login   # autentica com a conta Stripe (uma vez)
+stripe listen --forward-to localhost:8000/api/v1/webhooks/stripe
+```
+O comando imprime um `whsec_...` — copiar pra `STRIPE_WEBHOOK_SECRET` no `.env` e recriar o container `api` (`docker compose up -d api`). Esse `whsec_...` é efêmero por sessão do `stripe listen`; muda toda vez que o comando é reiniciado.
+
+**Produção**: não usar `stripe listen` (é só dev). Criar um endpoint de webhook real no Dashboard (`dashboard.stripe.com/webhooks` → "Add endpoint") apontando pra `https://<domínio via Cloudflare Tunnel>/api/v1/webhooks/stripe`, evento `checkout.session.completed`. O `whsec_...` gerado nesse endpoint (fixo, não expira) vai em `STRIPE_WEBHOOK_SECRET` do `.env` de produção. `STRIPE_SECRET_KEY` de produção é uma RAK separada em modo live (`rk_live_...`), nunca a mesma chave usada em teste.
+
 ### Pendências de billing
 - [ ] Definir a margem desejada sobre o custo do LLM para calibrar o N (tokens por crédito).
 - [ ] Definir custo fixo em créditos de cada tool (geração de documento, etc.).
