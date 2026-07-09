@@ -30,13 +30,13 @@ export function middleware(request: NextRequest) {
 
   if (pathname === "/") {
     if (hasSession) {
-      return NextResponse.redirect(new URL("/conversas", request.url));
+      return NextResponse.redirect(new URL("/inicio", request.url));
     }
     return NextResponse.next();
   }
 
   if (pathname === "/login" && hasSession) {
-    return NextResponse.redirect(new URL("/conversas", request.url));
+    return NextResponse.redirect(new URL("/inicio", request.url));
   }
 
   if (pathname !== "/login" && !hasSession) {
@@ -50,6 +50,7 @@ export const config = {
   matcher: [
     "/",
     "/login",
+    "/inicio/:path*",
     "/conversas/:path*",
     "/base-de-conhecimento/:path*",
     "/configuracoes/:path*",

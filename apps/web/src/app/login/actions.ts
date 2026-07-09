@@ -38,5 +38,5 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   setAuthCookies(await cookies(), tokens);
-  redirect("/conversas");
+  redirect("/inicio");
 }
