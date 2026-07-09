@@ -96,7 +96,10 @@ async def process_checkout_completed(session: AsyncSession, stripe_session: dict
         logger.info("Webhook duplicado, ignorando | session=%s", session_id)
         return
 
-    metadata = stripe_session.get("metadata") or {}
+    # stripe_session é um StripeObject real (não um dict): não implementa
+    # .get(), só acesso via []/in — to_dict() normaliza pra dict puro.
+    raw_metadata = stripe_session["metadata"] if "metadata" in stripe_session else {}
+    metadata = raw_metadata.to_dict() if hasattr(raw_metadata, "to_dict") else dict(raw_metadata)
     tenant_name = metadata.get("tenant_name")
     email = metadata.get("email")
     password_hash = metadata.get("password_hash")

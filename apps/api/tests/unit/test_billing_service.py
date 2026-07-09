@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import stripe
 
 import app.services.billing as billing
 from app.services.billing import (
@@ -101,6 +102,15 @@ class TestProcessCheckoutCompleted:
         metadata.update(metadata_overrides)
         return {"id": "cs_123", "metadata": metadata}
 
+    def _real_stripe_session(self, **metadata_overrides) -> "stripe.StripeObject":
+        """Constrói um StripeObject real (não um dict) — reproduz o formato
+        que `event['data']['object']` tem de verdade no webhook, onde `.get()`
+        não existe (só `[]`/`in`); pego pelo bug real corrigido nesta task."""
+        metadata = self._stripe_session(**metadata_overrides)["metadata"]
+        return stripe.StripeObject.construct_from(
+            {"id": "cs_123", "metadata": metadata}, "sk_test_fake"
+        )
+
     async def test_ja_processado_nao_faz_nada(self, session) -> None:
         session.scalar.return_value = uuid.uuid4()
 
@@ -133,6 +143,30 @@ class TestProcessCheckoutCompleted:
         assert user.tenant_id == tenant.id
         assert transaction.amount_credits == 2750
         assert transaction.stripe_payment_id == "cs_123"
+        session.commit.assert_awaited_once()
+
+    async def test_cria_tenant_com_stripe_session_real_nao_dict(self, session) -> None:
+        """Regressão: stripe_session é um StripeObject de verdade no webhook
+        (não um dict de teste) — .get() não existe nele nem em .metadata,
+        só []/in. Sem isso, o webhook real quebra com AttributeError('get')
+        mesmo com os testes com dict passando."""
+        session.scalar.return_value = None
+        session.get.return_value = _package()
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+
+        await process_checkout_completed(session, self._real_stripe_session())
+
+        assert len(added) == 3
+        tenant, _user, _transaction = added
+        assert tenant.name == "Escritório Teste"
         session.commit.assert_awaited_once()
 
     async def test_metadata_incompleta_nao_processa(self, session) -> None:
