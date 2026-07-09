@@ -24,6 +24,7 @@ class InboundContext:
     message_content: str
     phone_number_id: str
     access_token_encrypted: str
+    credit_balance: int
 
 
 async def process_inbound_message(
@@ -49,6 +50,17 @@ async def process_inbound_message(
             "Conversa em modo humano, agente não acionado | tenant=%s conversation=%s",
             tenant_id,
             conversation_id,
+        )
+        return
+
+    if inbound.credit_balance <= 0:
+        # Saldo esgotado: silêncio total pro cliente final — a mensagem só
+        # aparece no painel de conversas, aguardando um humano do escritório.
+        logger.info(
+            "Saldo esgotado, agente não acionado | tenant=%s conversation=%s saldo=%s",
+            tenant_id,
+            conversation_id,
+            inbound.credit_balance,
         )
         return
 
@@ -136,12 +148,21 @@ async def _load_context(
         logger.warning("Tenant sem número WhatsApp conectado | tenant=%s", tenant_id)
         return None
 
+    credit_balance = (
+        await session.execute(
+            select(tables.tenants.c.credit_balance).where(
+                tables.tenants.c.id == uuid.UUID(tenant_id)
+            )
+        )
+    ).scalar_one()
+
     return InboundContext(
         conversation_state=conversation.state,
         contact_phone_number=conversation.contact_phone_number,
         message_content=content,
         phone_number_id=number.phone_number_id,
         access_token_encrypted=number.access_token_encrypted,
+        credit_balance=credit_balance,
     )
 
 

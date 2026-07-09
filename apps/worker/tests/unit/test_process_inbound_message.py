@@ -24,13 +24,14 @@ def _ctx() -> dict:
     return {"session_factory": factory, "http": AsyncMock(), "job_try": 1}
 
 
-def _inbound(state: str = "agent") -> InboundContext:
+def _inbound(state: str = "agent", credit_balance: int = 1000) -> InboundContext:
     return InboundContext(
         conversation_state=state,
         contact_phone_number="5511888888888",
         message_content="Olá",
         phone_number_id="PNID",
         access_token_encrypted="token-cifrado",
+        credit_balance=credit_balance,
     )
 
 
@@ -95,6 +96,32 @@ async def test_human_state_skips_agent(patched) -> None:
 
     patched["send"].assert_not_awaited()
     patched["persist"].assert_not_awaited()
+
+
+async def test_saldo_esgotado_nao_chama_agente(patched) -> None:
+    patched["load"].return_value = _inbound(credit_balance=0)
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()
+    patched["persist"].assert_not_awaited()
+    patched["debitar"].assert_not_awaited()
+
+
+async def test_saldo_negativo_nao_chama_agente(patched) -> None:
+    patched["load"].return_value = _inbound(credit_balance=-50)
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()
+
+
+async def test_saldo_positivo_chama_agente_normalmente(patched) -> None:
+    patched["load"].return_value = _inbound(credit_balance=1)
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
 
 
 async def test_missing_context_returns_early(patched) -> None:
