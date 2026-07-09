@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     jwt_access_token_expires_minutes: int = 15
     jwt_refresh_token_expires_days: int = 30
     agents_service_url: str = "http://agents:8001"
+    # Auth de serviço com o agents (playground de admin — o worker usa a
+    # mesma env, mas cada serviço lê o próprio settings).
+    agents_api_key: str = ""
 
     # Webhook da Meta (WhatsApp Cloud API)
     meta_verify_token: str = "changeme"
