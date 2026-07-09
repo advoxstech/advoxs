@@ -9,9 +9,10 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/") {
-    return NextResponse.redirect(
-      new URL(hasSession ? "/conversas" : "/login", request.url),
-    );
+    if (hasSession) {
+      return NextResponse.redirect(new URL("/conversas", request.url));
+    }
+    return NextResponse.next();
   }
 
   if (pathname === "/login" && hasSession) {
