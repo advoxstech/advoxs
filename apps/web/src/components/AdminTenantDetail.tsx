@@ -30,6 +30,7 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -39,6 +40,8 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
           setNotFound(true);
         } else if (response.ok) {
           setTenant(await response.json());
+        } else {
+          setError(true);
         }
       } finally {
         setLoaded(true);
@@ -50,8 +53,13 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
   if (!loaded) {
     return <p className="p-8 text-sm text-muted">Carregando...</p>;
   }
-  if (notFound || !tenant) {
+  if (notFound) {
     return <p className="p-8 text-sm text-danger">Escritório não encontrado.</p>;
+  }
+  if (error || !tenant) {
+    return (
+      <p className="p-8 text-sm text-danger">Não foi possível carregar o escritório.</p>
+    );
   }
 
   return (

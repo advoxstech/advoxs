@@ -45,4 +45,16 @@ describe("AdminTenantsList", () => {
     expect(screen.getByText("ativo")).toBeInTheDocument();
     expect(screen.getByText("suspenso")).toBeInTheDocument();
   });
+
+  it("mostra mensagem de erro quando a resposta não é ok", async () => {
+    mockedFetch.mockResolvedValue({ ok: false, status: 500 });
+
+    render(<AdminTenantsList />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Não foi possível carregar os escritórios."),
+      ).toBeInTheDocument(),
+    );
+  });
 });

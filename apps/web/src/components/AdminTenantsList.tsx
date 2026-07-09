@@ -26,6 +26,7 @@ const STATUS_CLASS: Record<TenantListItem["status"], string> = {
 export function AdminTenantsList() {
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -33,6 +34,8 @@ export function AdminTenantsList() {
         const response = await adminBackendFetch("platform-admin/tenants");
         if (response.ok) {
           setTenants(await response.json());
+        } else {
+          setError(true);
         }
       } finally {
         setLoaded(true);
@@ -43,6 +46,11 @@ export function AdminTenantsList() {
 
   if (!loaded) {
     return <p className="p-8 text-sm text-muted">Carregando...</p>;
+  }
+  if (error) {
+    return (
+      <p className="p-8 text-sm text-danger">Não foi possível carregar os escritórios.</p>
+    );
   }
 
   return (

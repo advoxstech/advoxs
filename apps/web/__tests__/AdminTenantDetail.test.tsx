@@ -57,4 +57,16 @@ describe("AdminTenantDetail", () => {
       expect(screen.getByText("Escritório não encontrado.")).toBeInTheDocument(),
     );
   });
+
+  it("mostra mensagem de erro genérico quando a resposta não é ok nem 404", async () => {
+    mockedFetch.mockResolvedValue({ ok: false, status: 500 });
+
+    render(<AdminTenantDetail tenantId="t1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Não foi possível carregar o escritório."),
+      ).toBeInTheDocument(),
+    );
+  });
 });
