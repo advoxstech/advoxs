@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { adminBackendFetch } from "@/lib/admin-client-api";
 
@@ -44,7 +44,6 @@ export function AdminPlaygroundPanel() {
   const [currentAgent, setCurrentAgent] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const previousSession = useRef<{ tenantId: string; sessionId: string } | null>(null);
 
   useEffect(() => {
     async function loadTenants() {
@@ -61,26 +60,25 @@ export function AdminPlaygroundPanel() {
     void loadTenants();
   }, []);
 
-  function resetConversation(nextTenantId: string) {
-    if (previousSession.current) {
+  function resetConversation() {
+    if (tenantId) {
       void adminBackendFetch(
-        `platform-admin/playground/conversations/${previousSession.current.tenantId}/${previousSession.current.sessionId}`,
+        `platform-admin/playground/conversations/${tenantId}/${sessionId}`,
         { method: "DELETE" },
       );
     }
-    previousSession.current = { tenantId: nextTenantId, sessionId };
     setSessionId(newSessionId());
     setMessages([]);
     setCurrentAgent(null);
   }
 
   function handleTenantChange(nextTenantId: string) {
-    resetConversation(tenantId);
+    resetConversation();
     setTenantId(nextTenantId);
   }
 
   function handleNewConversation() {
-    resetConversation(tenantId);
+    resetConversation();
   }
 
   async function handleSend() {
@@ -159,7 +157,8 @@ export function AdminPlaygroundPanel() {
             id="tenant-select"
             value={tenantId}
             onChange={(event) => handleTenantChange(event.target.value)}
-            className="rounded-sm border border-line bg-surface px-3 py-1.5 text-sm"
+            disabled={sending}
+            className="rounded-sm border border-line bg-surface px-3 py-1.5 text-sm disabled:opacity-60"
           >
             {tenants.map((tenant) => (
               <option key={tenant.id} value={tenant.id}>
@@ -174,7 +173,8 @@ export function AdminPlaygroundPanel() {
         <button
           type="button"
           onClick={handleNewConversation}
-          className="rounded-sm border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface"
+          disabled={sending}
+          className="rounded-sm border border-line px-3 py-1.5 text-sm text-ink hover:bg-surface disabled:opacity-60"
         >
           Nova conversa
         </button>

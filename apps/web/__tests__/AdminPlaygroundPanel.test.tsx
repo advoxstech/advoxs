@@ -99,6 +99,73 @@ describe("AdminPlaygroundPanel", () => {
     expect(screen.getByText("oi")).toBeInTheDocument();
   });
 
+  it("mostra erro inline quando o fetch rejeita (exception), sem apagar o histórico", async () => {
+    mockedFetch.mockImplementation(async (path: string) => {
+      if (path === "platform-admin/tenants") {
+        return { ok: true, json: async () => TENANTS };
+      }
+      throw new Error("network error");
+    });
+
+    render(<AdminPlaygroundPanel />);
+    await waitFor(() => expect(screen.getByText("Escritório A")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Digite uma mensagem..."), {
+      target: { value: "oi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/não foi possível falar com o agente/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("oi")).toBeInTheDocument();
+  });
+
+  it("Nova conversa dispara DELETE com o tenant e a sessão atuais (não vazios/stale)", async () => {
+    mockTenantsThenMessage({ responses: [], tokens_used: null, current_agent: null, grouped: false });
+
+    render(<AdminPlaygroundPanel />);
+    await waitFor(() => expect(screen.getByText("Escritório A")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Nova conversa" }));
+
+    await waitFor(() => {
+      const deleteCall = mockedFetch.mock.calls.find(([, init]) => init?.method === "DELETE");
+      expect(deleteCall).toBeDefined();
+      const [path] = deleteCall as [string, RequestInit];
+      expect(path).toMatch(/^platform-admin\/playground\/conversations\/t1\/[0-9a-f-]{36}$/);
+    });
+  });
+
+  it("desabilita o select de tenant e o botão Nova conversa enquanto uma mensagem está em voo", async () => {
+    let resolveMessage: (value: unknown) => void = () => {};
+    mockedFetch.mockImplementation(async (path: string) => {
+      if (path === "platform-admin/tenants") {
+        return { ok: true, json: async () => TENANTS };
+      }
+      return new Promise((resolve) => {
+        resolveMessage = resolve;
+      });
+    });
+
+    render(<AdminPlaygroundPanel />);
+    await waitFor(() => expect(screen.getByText("Escritório A")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Digite uma mensagem..."), {
+      target: { value: "oi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Tenant" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Nova conversa" })).toBeDisabled();
+    });
+
+    resolveMessage({ ok: true, json: async () => ({ responses: [], tokens_used: null, current_agent: null, grouped: false }) });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Nova conversa" })).not.toBeDisabled());
+  });
+
   it("Nova conversa limpa o histórico e a tag volta pra Secretária", async () => {
     mockTenantsThenMessage({
       responses: ["oi!"],
