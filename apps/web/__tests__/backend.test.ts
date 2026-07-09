@@ -21,4 +21,8 @@ describe("isAllowedPath", () => {
   it("permite rotas de whatsapp", () => {
     expect(isAllowedPath(["whatsapp", "connection"])).toBe(true);
   });
+
+  it("permite rotas de signup", () => {
+    expect(isAllowedPath(["signup", "status"])).toBe(true);
+  });
 });

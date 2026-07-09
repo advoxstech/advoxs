@@ -18,3 +18,10 @@ export interface Message {
   media_type: string | null;
   created_at: string;
 }
+
+export interface CreditPackage {
+  id: string;
+  name: string;
+  price_brl: number;
+  credits_granted: number;
+}
