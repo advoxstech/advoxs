@@ -2,9 +2,10 @@ import Link from "next/link";
 
 import { logout } from "@/app/conversas/actions";
 
-type TenantNavItem = "conversas" | "base" | "config" | "creditos";
+type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "creditos";
 
 const ITEMS: { key: TenantNavItem; href: string; label: string }[] = [
+  { key: "inicio", href: "/inicio", label: "Início" },
   { key: "conversas", href: "/conversas", label: "Conversas" },
   { key: "base", href: "/base-de-conhecimento", label: "Base" },
   { key: "config", href: "/configuracoes/whatsapp", label: "Config" },

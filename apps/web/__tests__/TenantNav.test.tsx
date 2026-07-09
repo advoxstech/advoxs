@@ -7,6 +7,7 @@ describe("TenantNav", () => {
   it("renderiza o item ativo como texto (não link) e os demais como links", () => {
     render(<TenantNav active="conversas" />);
 
+    expect(screen.getByText("Início").closest("a")).toHaveAttribute("href", "/inicio");
     expect(screen.getByText("Conversas").closest("a")).toBeNull();
     expect(screen.getByText("Base").closest("a")).toHaveAttribute(
       "href",
@@ -17,6 +18,13 @@ describe("TenantNav", () => {
       "/configuracoes/whatsapp",
     );
     expect(screen.getByText("Créditos").closest("a")).toHaveAttribute("href", "/creditos");
+  });
+
+  it("marca inicio como ativo quando active='inicio'", () => {
+    render(<TenantNav active="inicio" />);
+
+    expect(screen.getByText("Início").closest("a")).toBeNull();
+    expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca creditos como ativo quando active='creditos'", () => {

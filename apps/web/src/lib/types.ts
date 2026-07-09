@@ -39,3 +39,17 @@ export interface AdminDashboard {
   whatsapp_connected: { connected: number; total: number };
   knowledge_base_usage: { total_files: number; total_size_bytes: number };
 }
+
+export interface TenantDashboard {
+  credit_balance: number;
+  whatsapp: { connected: boolean; display_phone_number: string | null };
+  conversations: { total: number; waiting_human: number };
+  usage_last_30_days: { agent_messages: number; credits_consumed: number };
+  knowledge_base: { ready: number; error: number };
+  recent_conversations: {
+    id: string;
+    contact_phone_number: string;
+    state: "agent" | "human";
+    last_message_at: string | null;
+  }[];
+}
