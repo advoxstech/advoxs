@@ -53,6 +53,7 @@ export const config = {
     "/conversas/:path*",
     "/base-de-conhecimento/:path*",
     "/configuracoes/:path*",
+    "/creditos/:path*",
     "/admin/:path*",
   ],
 };

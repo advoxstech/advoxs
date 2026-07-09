@@ -79,13 +79,15 @@ export function CreditosPanel({
       });
       if (!response.ok) {
         setError("Não foi possível iniciar o pagamento. Tente novamente.");
+        setPurchasingId(null);
         return;
       }
       const body = await response.json();
       window.location.href = body.checkout_url;
+      // Sem reset de purchasingId aqui — a navegação real vai destruir a página;
+      // manter o botão desabilitado evita um segundo clique nessa janela.
     } catch {
       setError("Não foi possível iniciar o pagamento. Tente novamente.");
-    } finally {
       setPurchasingId(null);
     }
   }

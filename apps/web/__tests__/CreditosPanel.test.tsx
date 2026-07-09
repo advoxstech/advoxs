@@ -63,6 +63,44 @@ describe("CreditosPanel", () => {
     );
   });
 
+  it("mantém o botão em 'Redirecionando…' após o sucesso e não dispara um segundo checkout", async () => {
+    let checkoutCalls = 0;
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "billing/balance") {
+        return { ok: true, json: async () => ({ credit_balance: 0 }) };
+      }
+      if (path === "billing/checkout") {
+        checkoutCalls += 1;
+        void init;
+        return { ok: true, json: async () => ({ checkout_url: "https://checkout.stripe.com/x" }) };
+      }
+      throw new Error(`chamada inesperada: ${path}`);
+    });
+
+    render(<CreditosPanel packages={PACKAGES} sessionId={null} />);
+    await waitFor(() => expect(screen.getByText("Growth")).toBeInTheDocument());
+
+    const buttons = screen.getAllByRole("button", { name: "Comprar" });
+    fireEvent.click(buttons[1]);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Redirecionando…" })).toBeInTheDocument(),
+    );
+
+    const redirectingButton = screen.getByRole("button", { name: "Redirecionando…" });
+    expect(redirectingButton).toBeDisabled();
+
+    // Um segundo clique (duplo-clique real, ou clique em outro botão) não deve
+    // disparar uma segunda chamada de checkout: o botão permanece desabilitado
+    // mesmo depois do primeiro await resolver, até a navegação de fato ocorrer.
+    fireEvent.click(redirectingButton);
+    const otherButton = screen.getAllByRole("button", { name: "Comprar" })[0];
+    fireEvent.click(otherButton);
+
+    expect(screen.getByRole("button", { name: "Redirecionando…" })).toBeDisabled();
+    expect(checkoutCalls).toBe(1);
+  });
+
   it("mostra 'Confirmando' enquanto o pagamento não é confirmado, com sessionId", async () => {
     mockedFetch.mockImplementation(async (path: string) => {
       if (path === "billing/balance") {
