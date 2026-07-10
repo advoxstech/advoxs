@@ -3,7 +3,9 @@ pro papel advoxs_app e que advoxs_system continua vendo todos os tenants.
 
 Só roda localmente (precisa de `docker compose up -d postgres` com a
 migration 0008 aplicada) — pula com `pytest.skip` se não conseguir
-conectar, não entra no CI.
+conectar. O CI invoca `uv run pytest tests/unit` explicitamente (ver
+.github/workflows/ci.yml), então esta pasta nunca é coletada lá — não
+dependa só do skip gracioso pra manter o CI seguro.
 """
 
 import uuid
@@ -75,9 +77,7 @@ class TestAdvoxsAppRoleEnforcaRLS:
                 text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT_A)}
             )
             result = await conn.execute(
-                text(
-                    "SELECT contact_phone_number FROM conversations WHERE tenant_id IN (:a, :b)"
-                ),
+                text("SELECT contact_phone_number FROM conversations WHERE tenant_id IN (:a, :b)"),
                 {"a": TENANT_A, "b": TENANT_B},
             )
             rows = [r[0] for r in result.fetchall()]
