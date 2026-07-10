@@ -128,7 +128,7 @@ async def receive(body: IncomingMessage):
                     result = await client.send_text_message(body.contact_phone_number, msg)
                     if not result.get("success"):
                         logger.warning(
-                            "Falha ao entregar mensagem via WhatsApp | thread_id={} indice={} erro={}",
+                            "Falha ao entregar mensagem via WhatsApp | thread_id={} índice={} erro={}",
                             thread_id, i, result.get("error"),
                         )
                         delivery_failures.append(i)
