@@ -19,13 +19,19 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
-function conversation(state: "agent" | "human"): Conversation {
+function conversation(
+  state: "agent" | "human",
+  summary: string | null = null,
+  summaryGeneratedAt: string | null = null,
+): Conversation {
   return {
     id: "c1",
     contact_phone_number: "5511999998888",
     state,
     last_message_at: null,
     created_at: new Date().toISOString(),
+    summary,
+    summary_generated_at: summaryGeneratedAt,
   };
 }
 
@@ -71,7 +77,7 @@ describe("ConversationThread", () => {
     expect(screen.getByText("Agente")).toBeInTheDocument();
   });
 
-  it("em modo agente, o campo de resposta fica desativado com orientação", async () => {
+  it("em modo agente, o campo de resposta fica desativado e o switch está ligado", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -84,10 +90,26 @@ describe("ConversationThread", () => {
 
     expect(screen.getByLabelText("Resposta")).toBeDisabled();
     expect(screen.getByText("Assuma a conversa para responder.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Assumir conversa" })).toBeInTheDocument();
+    const switchControl = screen.getByRole("switch", { name: "IA respondendo" });
+    expect(switchControl).toHaveAttribute("aria-checked", "true");
   });
 
-  it("assumir conversa envia PATCH e propaga a conversa atualizada", async () => {
+  it("em modo manual, o switch aparece desligado", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("human")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    const switchControl = screen.getByRole("switch", { name: "IA respondendo" });
+    expect(switchControl).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("acionar o switch envia PATCH e propaga a conversa atualizada", async () => {
     const updated = conversation("human");
     backendFetchMock.mockImplementation(async (path, init) => {
       if (init?.method === "PATCH") {
@@ -105,7 +127,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Assumir conversa" }));
+    fireEvent.click(screen.getByRole("switch", { name: "IA respondendo" }));
 
     await waitFor(() => {
       expect(onConversationUpdate).toHaveBeenCalledWith(updated);
@@ -179,6 +201,112 @@ describe("ConversationThread", () => {
       expect(
         screen.getByText("O WhatsApp não recebeu a mensagem. Tente novamente."),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("sem resumo, mostra o estado vazio e o botão 'Resumir conversa'", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse(messages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resumo da conversa"));
+
+    expect(screen.getByText("Nenhum resumo gerado ainda.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resumir conversa" })).toBeInTheDocument();
+  });
+
+  it("com resumo existente, começa expandido com o botão 'Atualizar resumo'", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse(messages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent", "Resumo anterior.", new Date().toISOString())}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(screen.getByText("Resumo anterior.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Atualizar resumo" })).toBeInTheDocument();
+  });
+
+  it("gera o resumo com sucesso e propaga a conversa atualizada", async () => {
+    const updated = conversation("agent", "Resumo novo gerado.", new Date().toISOString());
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "POST" && path === "conversations/c1/summary") {
+        return jsonResponse(updated);
+      }
+      return jsonResponse(messages);
+    });
+    const onConversationUpdate = vi.fn();
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={onConversationUpdate}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resumo da conversa"));
+    fireEvent.click(screen.getByRole("button", { name: "Resumir conversa" }));
+
+    await waitFor(() => {
+      expect(onConversationUpdate).toHaveBeenCalledWith(updated);
+    });
+  });
+
+  it("mostra aviso de saldo esgotado (402) com link para /creditos", async () => {
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "POST" && path === "conversations/c1/summary") {
+        return jsonResponse({ detail: "Saldo esgotado" }, 402);
+      }
+      return jsonResponse(messages);
+    });
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resumo da conversa"));
+    fireEvent.click(screen.getByRole("button", { name: "Resumir conversa" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Saldo de créditos esgotado — não é possível gerar o resumo."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "Comprar créditos" })).toHaveAttribute(
+      "href",
+      "/creditos",
+    );
+  });
+
+  it("desabilita o botão de resumo quando a conversa não tem mensagens", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resumo da conversa"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Resumir conversa" })).toBeDisabled();
     });
   });
 });

@@ -22,3 +22,14 @@ export function formatMessageTime(iso: string, now: Date = new Date()): string {
   const day = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
   return `${day} ${time}`;
 }
+
+/** Data e hora completas — usado no carimbo "resumo gerado em". */
+export function formatFullDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
-import { formatMessageTime, formatPhone } from "@/lib/format";
+import { formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 interface ConversationThreadProps {
@@ -18,12 +18,38 @@ export function ConversationThread({
   pollMs = 4000,
 }: ConversationThreadProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isManual = conversation.state === "human";
+
+  const [summaryExpanded, setSummaryExpanded] = useState(() => Boolean(conversation.summary));
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  const generateSummary = async () => {
+    setSummarizing(true);
+    setSummaryError(null);
+    try {
+      const response = await backendFetch(`conversations/${conversation.id}/summary`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        const updated: Conversation = await response.json();
+        onConversationUpdate(updated);
+        setSummaryExpanded(true);
+      } else if (response.status === 402) {
+        setSummaryError("Saldo de créditos esgotado — não é possível gerar o resumo.");
+      } else {
+        setSummaryError("Não foi possível gerar o resumo. Tente novamente.");
+      }
+    } finally {
+      setSummarizing(false);
+    }
+  };
 
   const loadMessages = useCallback(async () => {
     try {
@@ -35,6 +61,8 @@ export function ConversationThread({
       }
     } catch {
       // rede indisponível: tenta no próximo ciclo
+    } finally {
+      setMessagesLoaded(true);
     }
   }, [conversation.id]);
 
@@ -109,18 +137,79 @@ export function ConversationThread({
             </span>
           )}
         </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted">IA respondendo</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!isManual}
+            aria-label="IA respondendo"
+            onClick={() => void toggleState()}
+            className={`relative h-5 w-9 rounded-full transition-colors ${
+              !isManual ? "bg-accent" : "bg-line"
+            }`}
+          >
+            <span
+              aria-hidden
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
+                !isManual ? "translate-x-4" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      </header>
+
+      <section className="border-b border-line bg-surface px-6 py-3">
         <button
           type="button"
-          onClick={toggleState}
-          className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
-            isManual
-              ? "border-line text-muted hover:border-accent hover:text-accent"
-              : "border-brass text-brass hover:bg-brass-soft"
-          }`}
+          onClick={() => setSummaryExpanded((v) => !v)}
+          className="flex w-full items-center justify-between text-left text-xs font-medium uppercase tracking-[0.14em] text-muted"
         >
-          {isManual ? "Devolver ao agente" : "Assumir conversa"}
+          <span>Resumo da conversa</span>
+          <span aria-hidden>{summaryExpanded ? "▾" : "▸"}</span>
         </button>
-      </header>
+        {summaryExpanded ? (
+          <div className="mt-2">
+            {conversation.summary ? (
+              <>
+                <p className="text-sm leading-relaxed text-ink">{conversation.summary}</p>
+                {conversation.summary_generated_at ? (
+                  <p className="mt-1 text-xs text-muted">
+                    Gerado em {formatFullDateTime(conversation.summary_generated_at)}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="text-sm text-muted">Nenhum resumo gerado ainda.</p>
+            )}
+            {summaryError ? (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {summaryError}
+                {summaryError.startsWith("Saldo") ? (
+                  <>
+                    {" "}
+                    <a href="/creditos" className="underline">
+                      Comprar créditos
+                    </a>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void generateSummary()}
+              disabled={summarizing || (messagesLoaded && messages.length === 0)}
+              className="mt-2 rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              {summarizing
+                ? "Gerando…"
+                : conversation.summary
+                  ? "Atualizar resumo"
+                  : "Resumir conversa"}
+            </button>
+          </div>
+        ) : null}
+      </section>
 
       <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
         {messages.map((message) => (

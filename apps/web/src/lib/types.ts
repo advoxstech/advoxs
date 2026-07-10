@@ -6,6 +6,8 @@ export interface Conversation {
   state: ConversationState;
   last_message_at: string | null;
   created_at: string;
+  summary: string | null;
+  summary_generated_at: string | null;
 }
 
 export type SenderType = "agent" | "human" | "contact";

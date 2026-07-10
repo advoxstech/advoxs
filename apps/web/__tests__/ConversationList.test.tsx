@@ -11,6 +11,8 @@ const conversations: Conversation[] = [
     state: "agent",
     last_message_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
+    summary: null,
+    summary_generated_at: null,
   },
   {
     id: "c2",
@@ -18,6 +20,8 @@ const conversations: Conversation[] = [
     state: "human",
     last_message_at: null,
     created_at: new Date().toISOString(),
+    summary: null,
+    summary_generated_at: null,
   },
 ];
 
