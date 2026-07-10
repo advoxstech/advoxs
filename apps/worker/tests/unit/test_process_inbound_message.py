@@ -175,3 +175,16 @@ def test_decrypt_without_key_raises(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError):
         decrypt_access_token("qualquer")
+
+
+async def test_esgotadas_tentativas_vira_conversa_pra_human(patched) -> None:
+    patched["send"].side_effect = httpx.ConnectError("agents fora do ar")
+    ctx = _ctx()
+    ctx["job_try"] = 5
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    session.execute.assert_awaited()
+    session.commit.assert_awaited()
+    patched["persist"].assert_not_awaited()

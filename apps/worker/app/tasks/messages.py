@@ -16,6 +16,11 @@ from app.crypto import decrypt_access_token
 
 logger = logging.getLogger(__name__)
 
+# Na última tentativa, vira a conversa pra humano em vez de reagendar (o
+# default de max_tries do Arq também é 5 — manter em sincronia, mesmo padrão
+# já usado em apps/worker/app/tasks/knowledge_base.py).
+MAX_TRIES = 5
+
 
 @dataclass
 class InboundContext:
@@ -76,14 +81,33 @@ async def process_inbound_message(
             access_token=access_token,
         )
     except httpx.HTTPError as exc:
-        # Erro transiente (rede, 5xx): reagenda com backoff crescente.
-        logger.warning(
-            "Falha ao chamar agents, reagendando | tenant=%s conversation=%s erro=%s",
+        if ctx.get("job_try", 1) < MAX_TRIES:
+            # Erro transiente (rede, 5xx): reagenda com backoff crescente.
+            logger.warning(
+                "Falha ao chamar agents, reagendando | tenant=%s conversation=%s erro=%s",
+                tenant_id,
+                conversation_id,
+                exc,
+            )
+            raise Retry(defer=ctx.get("job_try", 1) * 10)
+        # Última tentativa: o agente não conseguiu processar. Vira a conversa
+        # pra humano (mesmo mecanismo do bloqueio por saldo esgotado) em vez
+        # de deixar o job desaparecer em silêncio depois do TTL do resultado.
+        logger.error(
+            "Esgotadas as tentativas de chamar agents, virando conversa pra human | "
+            "tenant=%s conversation=%s erro=%s",
             tenant_id,
             conversation_id,
             exc,
         )
-        raise Retry(defer=ctx.get("job_try", 1) * 10)
+        async with session_factory() as session:
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(state="human")
+            )
+            await session.commit()
+        return
 
     if result is None:
         # 202: debounce agrupou em execução já em andamento.
