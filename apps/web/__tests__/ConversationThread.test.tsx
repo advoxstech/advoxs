@@ -42,6 +42,7 @@ const messages: Message[] = [
     content: "Posso ajudar com o condomínio.",
     media_url: null,
     media_type: null,
+    delivery_status: null,
     created_at: new Date().toISOString(),
   },
   {
@@ -50,6 +51,7 @@ const messages: Message[] = [
     content: "Olá, tenho uma dúvida.",
     media_url: null,
     media_type: null,
+    delivery_status: null,
     created_at: new Date().toISOString(),
   },
 ];
@@ -145,6 +147,7 @@ describe("ConversationThread", () => {
       content: "Bom dia, aqui é o advogado.",
       media_url: null,
       media_type: null,
+      delivery_status: null,
       created_at: new Date().toISOString(),
     };
     backendFetchMock.mockImplementation(async (path, init) => {
@@ -335,5 +338,49 @@ describe("ConversationThread", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Resumir conversa" })).toBeDisabled();
     });
+  });
+
+  it("mostra o badge 'Não entregue' quando a mensagem falhou ao entregar", async () => {
+    const failedMessages: Message[] = [
+      {
+        id: "m3",
+        sender_type: "agent",
+        content: "Resposta que não chegou ao WhatsApp.",
+        media_url: null,
+        media_type: null,
+        delivery_status: "failed",
+        created_at: new Date().toISOString(),
+      },
+    ];
+    backendFetchMock.mockResolvedValue(jsonResponse(failedMessages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Não entregue")).toBeInTheDocument();
+    });
+  });
+
+  it("não mostra o badge quando a mensagem foi entregue", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse(messages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Posso ajudar com o condomínio.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Não entregue")).not.toBeInTheDocument();
   });
 });

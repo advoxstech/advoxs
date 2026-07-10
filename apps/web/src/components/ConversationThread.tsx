@@ -278,9 +278,16 @@ function MessageBubble({ message }: { message: Message }) {
         ) : null}
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
       </div>
-      <time className="mt-1 font-mono text-[10px] text-muted">
-        {formatMessageTime(message.created_at)}
-      </time>
+      <div className="mt-1 flex items-center gap-1.5">
+        {message.delivery_status === "failed" ? (
+          <span className="rounded-sm bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-danger">
+            Não entregue
+          </span>
+        ) : null}
+        <time className="font-mono text-[10px] text-muted">
+          {formatMessageTime(message.created_at)}
+        </time>
+      </div>
     </li>
   );
 }

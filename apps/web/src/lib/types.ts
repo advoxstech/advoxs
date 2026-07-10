@@ -18,6 +18,7 @@ export interface Message {
   content: string;
   media_url: string | null;
   media_type: string | null;
+  delivery_status: "sent" | "failed" | null;
   created_at: string;
 }
 
