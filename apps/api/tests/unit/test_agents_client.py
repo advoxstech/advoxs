@@ -41,3 +41,10 @@ class TestGenerateConversationSummary:
 
         with pytest.raises(AgentsNetworkError):
             await generate_conversation_summary([{"sender_type": "contact", "content": "oi"}])
+
+    async def test_resposta_sem_summary_levanta_agents_api_error(self, monkeypatch) -> None:
+        response = httpx.Response(200, json={"tokens_used": 10})
+        monkeypatch.setattr(httpx.AsyncClient, "post", AsyncMock(return_value=response))
+
+        with pytest.raises(AgentsApiError):
+            await generate_conversation_summary([{"sender_type": "contact", "content": "oi"}])

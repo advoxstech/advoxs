@@ -106,4 +106,6 @@ async def generate_conversation_summary(messages: list[dict]) -> dict:
         raise AgentsApiError(f"agents HTTP {response.status_code}")
 
     data = response.json()
+    if "summary" not in data:
+        raise AgentsApiError("agents retornou resposta sem 'summary'")
     return {"summary": data["summary"], "tokens_used": data.get("tokens_used", 0)}
