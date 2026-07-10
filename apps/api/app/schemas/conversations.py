@@ -13,6 +13,8 @@ class ConversationOut(BaseModel):
     state: Literal["agent", "human"]
     last_message_at: datetime | None
     created_at: datetime
+    summary: str | None
+    summary_generated_at: datetime | None
 
 
 class MessageOut(BaseModel):

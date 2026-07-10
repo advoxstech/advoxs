@@ -1,16 +1,19 @@
-"""Painel de conversas: listagem, histórico, takeover e resposta humana."""
+"""Painel de conversas: listagem, histórico, takeover, resposta humana e resumo sob demanda."""
 
+import math
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.clients.agents import AgentsApiError, AgentsNetworkError, generate_conversation_summary
 from app.clients.whatsapp import WhatsAppSendError, send_text_message
+from app.core.config import settings
 from app.core.crypto import decrypt_access_token
-from app.models import Conversation, Message, WhatsAppNumber
+from app.models import Conversation, CreditTransaction, Message, Tenant, WhatsAppNumber
 from app.schemas.conversations import (
     ConversationOut,
     ConversationStateUpdate,
@@ -121,6 +124,67 @@ async def send_message(
     await session.commit()
     await session.refresh(message)
     return MessageOut.model_validate(message)
+
+
+@router.post("/{conversation_id}/summary")
+async def generate_summary(
+    conversation_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConversationOut:
+    """Resumo sob demanda via LLM (agents service) — consome créditos do tenant."""
+    conversation = await _get_conversation(conversation_id, ctx, session)
+
+    tenant = await session.get(Tenant, ctx.tenant_id)
+    if tenant.credit_balance <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Saldo de créditos esgotado — não é possível gerar o resumo",
+        )
+
+    result = await session.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.asc())
+    )
+    history = result.scalars().all()
+    if not history:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conversa sem mensagens — nada para resumir",
+        )
+
+    try:
+        summary_result = await generate_conversation_summary(
+            [{"sender_type": m.sender_type, "content": m.content} for m in history]
+        )
+    except (AgentsNetworkError, AgentsApiError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    tokens_used = summary_result["tokens_used"]
+    credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
+
+    conversation.summary = summary_result["summary"]
+    conversation.summary_generated_at = datetime.now(UTC)
+
+    if credits:
+        session.add(
+            CreditTransaction(
+                tenant_id=ctx.tenant_id,
+                type="consumption",
+                amount_credits=-credits,
+                related_message_id=None,
+                description=f"Resumo de conversa gerado ({tokens_used} tokens)",
+            )
+        )
+        await session.execute(
+            update(Tenant)
+            .where(Tenant.id == ctx.tenant_id)
+            .values(credit_balance=Tenant.credit_balance - credits)
+        )
+
+    await session.commit()
+    return ConversationOut.model_validate(conversation)
 
 
 async def _get_conversation(

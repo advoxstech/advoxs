@@ -81,3 +81,29 @@ async def delete_playground_conversation(thread_id: str) -> None:
         logger.warning(
             "Falha ao apagar conversa do playground | thread_id=%s erro=%s", thread_id, exc
         )
+
+
+async def generate_conversation_summary(messages: list[dict]) -> dict:
+    """POST /summaries no agents — resumo sob demanda de uma conversa completa.
+
+    Retorna {"summary": str, "tokens_used": int}.
+    """
+    payload = {"messages": messages}
+    try:
+        async with httpx.AsyncClient(
+            base_url=settings.agents_service_url, timeout=_TIMEOUT_SECONDS
+        ) as client:
+            response = await client.post("/summaries", json=payload, headers=_auth_headers())
+    except httpx.HTTPError as exc:
+        raise AgentsNetworkError(f"Falha de rede ao chamar o agents: {exc}") from exc
+
+    if response.is_error:
+        logger.warning(
+            "agents retornou erro ao gerar resumo | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise AgentsApiError(f"agents HTTP {response.status_code}")
+
+    data = response.json()
+    return {"summary": data["summary"], "tokens_used": data.get("tokens_used", 0)}

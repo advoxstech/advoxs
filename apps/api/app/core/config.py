@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # Auth de serviço com o agents (playground de admin — o worker usa a
     # mesma env, mas cada serviço lê o próprio settings).
     agents_api_key: str = ""
+    # Conversão de consumo: 1 crédito = N tokens (mesma fórmula do worker,
+    # arredondamento sempre pra cima). Usado pelo débito de resumo de conversa.
+    credit_tokens_per_credit: int = 1000
 
     # Webhook da Meta (WhatsApp Cloud API)
     meta_verify_token: str = "changeme"

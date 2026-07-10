@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import app.api.v1.conversations as conversations_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.clients.agents import AgentsApiError, AgentsNetworkError
 from app.clients.whatsapp import WhatsAppSendError
 from app.main import app
 
@@ -15,7 +16,9 @@ TENANT_ID = uuid.uuid4()
 CONVERSATION_ID = uuid.uuid4()
 
 
-def _conversation(state: str = "agent") -> SimpleNamespace:
+def _conversation(
+    state: str = "agent", summary: str | None = None, summary_generated_at=None
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
         tenant_id=TENANT_ID,
@@ -23,6 +26,8 @@ def _conversation(state: str = "agent") -> SimpleNamespace:
         state=state,
         last_message_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
+        summary=summary,
+        summary_generated_at=summary_generated_at,
     )
 
 
@@ -198,3 +203,96 @@ class TestSendMessage:
         )
 
         assert response.status_code == 422
+
+
+class TestGenerateSummary:
+    def test_saldo_esgotado_retorna_402(self, client, session, monkeypatch) -> None:
+        session.scalar.return_value = _conversation(state="agent")
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=0))
+        summarize = AsyncMock()
+        monkeypatch.setattr(conversations_module, "generate_conversation_summary", summarize)
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 402
+        summarize.assert_not_awaited()
+
+    def test_conversa_sem_mensagens_retorna_409(self, client, session) -> None:
+        session.scalar.return_value = _conversation(state="agent")
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=100))
+        session.execute.return_value = _execute_returning([])
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 409
+
+    def test_gera_resumo_persiste_e_debita_creditos(self, client, session, monkeypatch) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.return_value = conversation
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=100))
+        history = [
+            SimpleNamespace(sender_type="contact", content="Oi, preciso de ajuda"),
+            SimpleNamespace(sender_type="agent", content="Claro, qual é a dúvida?"),
+        ]
+        session.execute.return_value = _execute_returning(history)
+        summarize = AsyncMock(return_value={"summary": "Resumo da conversa.", "tokens_used": 2500})
+        monkeypatch.setattr(conversations_module, "generate_conversation_summary", summarize)
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["summary"] == "Resumo da conversa."
+        assert conversation.summary == "Resumo da conversa."
+        assert conversation.summary_generated_at is not None
+        summarize.assert_awaited_once_with(
+            [
+                {"sender_type": "contact", "content": "Oi, preciso de ajuda"},
+                {"sender_type": "agent", "content": "Claro, qual é a dúvida?"},
+            ]
+        )
+        added = session.add.call_args.args[0]
+        assert added.tenant_id == TENANT_ID
+        assert added.type == "consumption"
+        assert added.amount_credits == -3  # ceil(2500 / 1000)
+        assert added.related_message_id is None
+        session.commit.assert_awaited_once()
+
+    def test_erro_no_agents_retorna_502(self, client, session, monkeypatch) -> None:
+        session.scalar.return_value = _conversation(state="agent")
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=100))
+        session.execute.return_value = _execute_returning(
+            [SimpleNamespace(sender_type="contact", content="oi")]
+        )
+        monkeypatch.setattr(
+            conversations_module,
+            "generate_conversation_summary",
+            AsyncMock(side_effect=AgentsApiError("agents HTTP 500")),
+        )
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 502
+
+    def test_falha_de_rede_no_agents_retorna_502(self, client, session, monkeypatch) -> None:
+        session.scalar.return_value = _conversation(state="agent")
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=100))
+        session.execute.return_value = _execute_returning(
+            [SimpleNamespace(sender_type="contact", content="oi")]
+        )
+        monkeypatch.setattr(
+            conversations_module,
+            "generate_conversation_summary",
+            AsyncMock(side_effect=AgentsNetworkError("timeout")),
+        )
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 502
+
+    def test_conversa_de_outro_tenant_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 404
