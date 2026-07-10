@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+import clients.whatsapp as whatsapp_module
 from clients.whatsapp import WhatsAppClient
 
 
@@ -16,6 +17,14 @@ def client():
 def no_sleep(monkeypatch):
     """Backoff real deixaria os testes lentos — tempo não é o que testamos aqui."""
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+
+@pytest.fixture(autouse=True)
+def rate_limit_sempre_libera(monkeypatch):
+    """Testes de retry não são sobre rate limit — sem isso, dependeriam de um
+    Redis real disponível e de um bucket compartilhado entre testes.
+    `TestSendTextMessageRateLimit` sobrescreve este mock nos seus próprios testes."""
+    monkeypatch.setattr(whatsapp_module, "acquire_rate_limit_slot", AsyncMock(return_value=True))
 
 
 class TestSendTextMessageRetry:
@@ -92,8 +101,6 @@ class TestSendTextMessageRetry:
 
 class TestSendTextMessageRateLimit:
     async def test_rate_limit_negado_uma_vez_ainda_tenta_de_novo(self, client, monkeypatch) -> None:
-        import clients.whatsapp as whatsapp_module
-
         ok_response = httpx.Response(200, json={"messages": [{"id": "wamid.4"}]})
         request_mock = AsyncMock(return_value=ok_response)
         monkeypatch.setattr(httpx.AsyncClient, "request", request_mock)
@@ -107,8 +114,6 @@ class TestSendTextMessageRateLimit:
         assert request_mock.await_count == 1
 
     async def test_rate_limit_negado_em_todas_as_tentativas_falha(self, client, monkeypatch) -> None:
-        import clients.whatsapp as whatsapp_module
-
         acquire_mock = AsyncMock(return_value=False)
         monkeypatch.setattr(whatsapp_module, "acquire_rate_limit_slot", acquire_mock)
         request_mock = AsyncMock()
