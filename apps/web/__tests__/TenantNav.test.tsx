@@ -1,9 +1,21 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { TenantNav } from "@/components/TenantNav";
+import { backendFetch } from "@/lib/client-api";
+
+vi.mock("@/lib/client-api", () => ({
+  backendFetch: vi.fn(),
+}));
+
+const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
 
 describe("TenantNav", () => {
+  beforeEach(() => {
+    mockedFetch.mockReset();
+    mockedFetch.mockResolvedValue({ ok: false });
+  });
+
   it("renderiza o item ativo como texto (não link) e os demais como links", () => {
     render(<TenantNav active="conversas" />);
 
@@ -55,5 +67,32 @@ describe("TenantNav", () => {
     render(<TenantNav active="conversas" />);
 
     expect(screen.getByRole("button", { name: "Sair" })).toBeInTheDocument();
+  });
+
+  it("mostra a logo quando o tenant tem uma (has_logo=true)", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ has_logo: true }) });
+
+    render(<TenantNav active="conversas" />);
+
+    await waitFor(() => expect(screen.getByAltText("Logo do escritório")).toBeInTheDocument());
+  });
+
+  it("mantém o monograma quando o tenant não tem logo", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ has_logo: false }) });
+
+    render(<TenantNav active="conversas" />);
+
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith("profile"));
+    expect(screen.queryByAltText("Logo do escritório")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Advoxs")).toBeInTheDocument();
+  });
+
+  it("mantém o monograma quando a busca de perfil falha (fail-safe)", async () => {
+    mockedFetch.mockRejectedValue(new Error("network error"));
+
+    render(<TenantNav active="conversas" />);
+
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
+    expect(screen.getByLabelText("Advoxs")).toBeInTheDocument();
   });
 });

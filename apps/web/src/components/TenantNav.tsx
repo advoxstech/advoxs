@@ -1,6 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { logout } from "@/app/conversas/actions";
+import { backendFetch } from "@/lib/client-api";
 
 type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "creditos" | "perfil";
 
@@ -14,12 +18,37 @@ const ITEMS: { key: TenantNavItem; href: string; label: string }[] = [
 ];
 
 export function TenantNav({ active }: { active: TenantNavItem | null }) {
+  const [hasLogo, setHasLogo] = useState(false);
+
+  useEffect(() => {
+    async function loadProfile() {
+      try {
+        const response = await backendFetch("profile");
+        if (response.ok) {
+          const body = await response.json();
+          setHasLogo(Boolean(body.has_logo));
+        }
+      } catch {
+        // fail-safe silencioso — mantém o monograma
+      }
+    }
+    void loadProfile();
+  }, []);
+
   return (
     <nav className="flex w-14 shrink-0 flex-col items-center justify-between bg-ink py-5">
       <div className="flex flex-col items-center gap-6">
-        <span className="font-display text-2xl font-semibold text-ground" aria-label="Advoxs">
-          A.
-        </span>
+        {hasLogo ? (
+          <img
+            src="/api/backend/profile/logo"
+            alt="Logo do escritório"
+            className="h-8 w-8 rounded-sm object-cover"
+          />
+        ) : (
+          <span className="font-display text-2xl font-semibold text-ground" aria-label="Advoxs">
+            A.
+          </span>
+        )}
         {ITEMS.map((item) =>
           item.key === active ? (
             <span
