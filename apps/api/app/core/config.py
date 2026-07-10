@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     rag_api_url: str = "http://api_rag:8000"
     rag_api_key: str = ""
 
+    # Logo do escritório — path fixo por tenant, sobrescrito a cada upload.
+    logo_upload_dir: str = "/data/logo_uploads"
+    logo_max_file_size_bytes: int = 2 * 1024 * 1024
+
     # Stripe (cadastro self-service — checkout de créditos, sem assinatura)
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

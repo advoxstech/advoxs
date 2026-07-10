@@ -17,6 +17,7 @@ volumes:
   redis_data:
   rag_uploads:
   kb_uploads:
+  logo_uploads:
 
 services:
   web:
@@ -47,6 +48,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - kb_uploads:/data/kb_uploads
+      - logo_uploads:/data/logo_uploads
     depends_on:
       - postgres
       - redis

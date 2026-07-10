@@ -113,3 +113,63 @@ class TestChangePasswordRoute:
             json={"current_password": "certa", "new_password": "curta"},
         )
         assert response.status_code == 422
+
+
+class TestUploadLogo:
+    def test_extensao_nao_suportada_retorna_400(self, client, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+
+        response = client.post(
+            "/api/v1/profile/logo",
+            files={"file": ("logo.gif", b"fake-gif-bytes", "image/gif")},
+        )
+
+        assert response.status_code == 400
+
+    def test_arquivo_grande_retorna_413(self, client, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+        monkeypatch.setattr(profile_module.settings, "logo_max_file_size_bytes", 10)
+
+        response = client.post(
+            "/api/v1/profile/logo",
+            files={"file": ("logo.png", b"0123456789ABC", "image/png")},
+        )
+
+        assert response.status_code == 413
+
+    def test_upload_valido_grava_o_arquivo_e_atualiza_o_tenant(
+        self, client, session, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+        tenant = _tenant()
+        session.get = AsyncMock(return_value=tenant)
+
+        response = client.post(
+            "/api/v1/profile/logo",
+            files={"file": ("logo.png", b"fake-png-bytes", "image/png")},
+        )
+
+        assert response.status_code == 200
+        assert tenant.logo_filename == f"{TENANT_ID}.png"
+        assert (tmp_path / f"{TENANT_ID}.png").read_bytes() == b"fake-png-bytes"
+        session.commit.assert_awaited_once()
+
+
+class TestGetLogo:
+    def test_sem_logo_retorna_404(self, client, session) -> None:
+        session.get = AsyncMock(return_value=_tenant(logo=None))
+
+        response = client.get("/api/v1/profile/logo")
+
+        assert response.status_code == 404
+
+    def test_com_logo_retorna_o_arquivo(self, client, session, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+        (tmp_path / f"{TENANT_ID}.png").write_bytes(b"fake-png-bytes")
+        session.get = AsyncMock(return_value=_tenant(logo=f"{TENANT_ID}.png"))
+
+        response = client.get("/api/v1/profile/logo")
+
+        assert response.status_code == 200
+        assert response.content == b"fake-png-bytes"
+        assert response.headers["content-type"] == "image/png"
