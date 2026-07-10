@@ -23,13 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 
 from app.core.crypto import encrypt_access_token
-from app.core.db import SessionLocal
+from app.core.db import SystemSessionLocal
 from app.core.security import hash_password
 from app.models import Tenant, User, WhatsAppNumber
 
 
 async def seed(args: argparse.Namespace) -> None:
-    async with SessionLocal() as session:
+    async with SystemSessionLocal() as session:
         user = await session.scalar(select(User).where(User.email == args.email))
         if user is not None:
             tenant = await session.get(Tenant, user.tenant_id)

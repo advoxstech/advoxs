@@ -4,7 +4,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Owner das tabelas — usada só pelo Alembic (DDL); a app não conecta
+    # mais com esse papel em runtime.
     database_url: str
+    # advoxs_app (RLS ativo) e advoxs_system (BYPASSRLS) — ver migration
+    # 0008 e app/core/db.py.
+    app_database_url: str
+    system_database_url: str
     redis_url: str
     jwt_secret: str
     jwt_access_token_expires_minutes: int = 15
