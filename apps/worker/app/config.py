@@ -4,7 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str
+    # advoxs_app (RLS ativo) — mesmo valor de APP_DATABASE_URL usado pelo
+    # api, ver migration 0008 no apps/api.
+    app_database_url: str
     redis_url: str
 
     # Agents service (chamada interna com credenciais do tenant)

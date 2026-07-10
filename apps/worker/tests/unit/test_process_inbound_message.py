@@ -188,3 +188,17 @@ async def test_esgotadas_tentativas_vira_conversa_pra_human(patched) -> None:
     session.execute.assert_awaited()
     session.commit.assert_awaited()
     patched["persist"].assert_not_awaited()
+
+
+async def test_load_context_seta_app_tenant_id(patched) -> None:
+    ctx = _ctx()
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    set_config_calls = [
+        call
+        for call in session.execute.await_args_list
+        if len(call.args) > 1 and call.args[1] == {"tenant_id": TENANT_ID}
+    ]
+    assert len(set_config_calls) >= 1

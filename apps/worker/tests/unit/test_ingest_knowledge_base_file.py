@@ -114,3 +114,22 @@ async def test_erro_definitivo_4xx_marca_error(patched, temp_file) -> None:
     args = patched["set_status"].await_args.args
     assert args[2] == "error"
     assert "400" in args[3]
+
+
+async def test_load_file_session_tem_tenant_id_setado(patched, temp_file) -> None:
+    ctx = _ctx()
+
+    await ingest_knowledge_base_file(ctx, TENANT_ID, FILE_ID)
+
+    set_config_calls = [
+        call
+        for call in ctx["_session"].execute.await_args_list
+        if len(call.args) > 1 and call.args[1] == {"tenant_id": TENANT_ID}
+    ]
+    assert len(set_config_calls) >= 1
+
+
+async def test_set_status_recebe_tenant_id(patched, temp_file) -> None:
+    await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[4] == TENANT_ID

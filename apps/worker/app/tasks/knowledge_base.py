@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import tables
 from app.clients.rag import ingest_document
 from app.config import settings
+from app.db import open_tenant_session
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
     session_factory = ctx["session_factory"]
     http: httpx.AsyncClient = ctx["rag_http"]
 
-    async with session_factory() as session:
+    async with open_tenant_session(session_factory, tenant_id) as session:
         row = await _load_file(session, file_id)
 
     if row is None or row.status != "processing":
@@ -36,7 +37,9 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
 
     path = Path(settings.kb_upload_dir) / tenant_id / file_id
     if not path.exists():
-        await _set_status(session_factory, file_id, "error", "Arquivo temporário não encontrado")
+        await _set_status(
+            session_factory, file_id, "error", "Arquivo temporário não encontrado", tenant_id
+        )
         return
 
     try:
@@ -56,16 +59,19 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
             file_id,
             "error",
             f"Falha na ingestão (HTTP {exc.response.status_code})",
+            tenant_id,
         )
         return
     except httpx.HTTPError as exc:
         if ctx.get("job_try", 1) < MAX_TRIES:
             logger.warning("api_rag indisponível, reagendando | file=%s erro=%s", file_id, exc)
             raise Retry(defer=ctx.get("job_try", 1) * 15)
-        await _set_status(session_factory, file_id, "error", "Serviço de ingestão indisponível")
+        await _set_status(
+            session_factory, file_id, "error", "Serviço de ingestão indisponível", tenant_id
+        )
         return
 
-    await _set_status(session_factory, file_id, "ready", None)
+    await _set_status(session_factory, file_id, "ready", None, tenant_id)
     path.unlink(missing_ok=True)
     logger.info("Arquivo ingerido | tenant=%s file=%s", tenant_id, file_id)
 
@@ -82,9 +88,9 @@ async def _load_file(session: AsyncSession, file_id: str):
 
 
 async def _set_status(
-    session_factory, file_id: str, status: str, error_message: str | None
+    session_factory, file_id: str, status: str, error_message: str | None, tenant_id: str
 ) -> None:
-    async with session_factory() as session:
+    async with open_tenant_session(session_factory, tenant_id) as session:
         await session.execute(
             update(tables.knowledge_base_files)
             .where(tables.knowledge_base_files.c.id == uuid.UUID(file_id))

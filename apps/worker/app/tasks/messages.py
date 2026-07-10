@@ -13,6 +13,7 @@ from app import tables
 from app.clients.agents import send_message_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
+from app.db import open_tenant_session
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ async def process_inbound_message(
     session_factory = ctx["session_factory"]
     http: httpx.AsyncClient = ctx["http"]
 
-    async with session_factory() as session:
+    async with open_tenant_session(session_factory, tenant_id) as session:
         inbound = await _load_context(session, tenant_id, conversation_id, message_id)
 
     if inbound is None:
@@ -102,7 +103,7 @@ async def process_inbound_message(
             conversation_id,
             exc,
         )
-        async with session_factory() as session:
+        async with open_tenant_session(session_factory, tenant_id) as session:
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
@@ -126,7 +127,7 @@ async def process_inbound_message(
     # 1 crédito = N tokens, sempre arredondando pra cima — nunca cobra fração.
     credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
 
-    async with session_factory() as session:
+    async with open_tenant_session(session_factory, tenant_id) as session:
         first_message_id = await _persist_agent_responses(
             session, tenant_id, conversation_id, responses, tokens_used, credits, delivery_failures
         )
