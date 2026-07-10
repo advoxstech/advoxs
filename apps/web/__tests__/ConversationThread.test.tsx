@@ -292,6 +292,33 @@ describe("ConversationThread", () => {
     );
   });
 
+  it("mostra erro genérico quando a chamada de resumo rejeita (falha de rede)", async () => {
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "POST" && path === "conversations/c1/summary") {
+        throw new Error("network error");
+      }
+      return jsonResponse(messages);
+    });
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Resumo da conversa"));
+    fireEvent.click(screen.getByRole("button", { name: "Resumir conversa" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Não foi possível gerar o resumo. Tente novamente."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Resumir conversa" })).not.toBeDisabled();
+  });
+
   it("desabilita o botão de resumo quando a conversa não tem mensagens", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 

@@ -46,6 +46,8 @@ export function ConversationThread({
       } else {
         setSummaryError("Não foi possível gerar o resumo. Tente novamente.");
       }
+    } catch {
+      setSummaryError("Não foi possível gerar o resumo. Tente novamente.");
     } finally {
       setSummarizing(false);
     }
