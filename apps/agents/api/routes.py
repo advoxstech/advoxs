@@ -114,6 +114,7 @@ async def receive(body: IncomingMessage):
             number_whatsapp=body.contact_phone_number,
         )
 
+        delivery_failures: list[int] = []
         if body.send_to_whatsapp:
             logger.info(
                 "Enviando {} resposta(s) via WhatsApp | thread_id={}",
@@ -123,19 +124,28 @@ async def receive(body: IncomingMessage):
             async with WhatsAppClient(
                 body.phone_number_id, body.access_token
             ) as client:
-                for msg in response:
-                    await client.send_text_message(body.contact_phone_number, msg)
+                for i, msg in enumerate(response):
+                    result = await client.send_text_message(body.contact_phone_number, msg)
+                    if not result.get("success"):
+                        logger.warning(
+                            "Falha ao entregar mensagem via WhatsApp | thread_id={} indice={} erro={}",
+                            thread_id, i, result.get("error"),
+                        )
+                        delivery_failures.append(i)
         else:
             logger.info(
                 "send_to_whatsapp=False — envio pulado | thread_id={}", thread_id
             )
 
-        # Devolve as respostas e os tokens da execução para o chamador
-        # (`worker`) persistir em `messages` e debitar os créditos.
+        # Devolve as respostas, os tokens da execução e as falhas de entrega
+        # para o chamador (`worker`) persistir em `messages` e debitar
+        # créditos — a cobrança independe da entrega ter funcionado (o custo
+        # do LLM já ocorreu).
         return {
             "responses": response,
             "tokens_used": tokens_used,
             "current_agent": current_agent,
+            "delivery_failures": delivery_failures,
         }
     except Exception:
         logger.exception("Erro ao chamar o agente | thread_id={}", thread_id)

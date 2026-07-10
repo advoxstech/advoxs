@@ -73,6 +73,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 1234,
         "current_agent": "agente_secretaria",
+        "delivery_failures": [],
     }
 
     # thread_id composto por tenant + telefone do contato
@@ -110,6 +111,7 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 1234,
         "current_agent": "agente_condominial",
+        "delivery_failures": [],
     }
     wa_cls.assert_not_called()
     wa_instance.send_text_message.assert_not_awaited()
@@ -194,3 +196,24 @@ def test_resumo_erro_interno_retorna_500(client, monkeypatch) -> None:
     )
 
     assert response.status_code == 500
+
+
+def test_falha_parcial_de_entrega_aparece_em_delivery_failures(client, monkeypatch) -> None:
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["resposta 1", "resposta 2"], 1234, "agente_secretaria")
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
+    wa_instance.send_text_message.side_effect = [
+        {"success": True},
+        {"success": False, "error": "HTTP 401: token inválido"},
+    ]
+
+    response = client.post("/messages", json=PAYLOAD)
+
+    assert response.status_code == 200
+    assert response.json()["delivery_failures"] == [1]
