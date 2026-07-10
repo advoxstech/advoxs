@@ -51,7 +51,7 @@ async function handle(
     response = await forward(newAccessToken);
   }
 
-  const payload = await response.text();
+  const payload = await response.arrayBuffer();
   return new NextResponse(payload, {
     status: response.status,
     headers: {

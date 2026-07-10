@@ -9,6 +9,7 @@ const ALLOWED_PREFIXES = [
   "signup",
   "billing",
   "dashboard",
+  "profile",
 ];
 
 /** Só rotas do painel passam pelo proxy — nunca auth ou webhooks. */
