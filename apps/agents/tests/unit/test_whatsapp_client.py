@@ -88,3 +88,34 @@ class TestSendTextMessageRetry:
 
         assert result["success"] is False
         assert request_mock.await_count == 3
+
+
+class TestSendTextMessageRateLimit:
+    async def test_rate_limit_negado_uma_vez_ainda_tenta_de_novo(self, client, monkeypatch) -> None:
+        import clients.whatsapp as whatsapp_module
+
+        ok_response = httpx.Response(200, json={"messages": [{"id": "wamid.4"}]})
+        request_mock = AsyncMock(return_value=ok_response)
+        monkeypatch.setattr(httpx.AsyncClient, "request", request_mock)
+        acquire_mock = AsyncMock(side_effect=[False, True])
+        monkeypatch.setattr(whatsapp_module, "acquire_rate_limit_slot", acquire_mock)
+
+        result = await client.send_text_message("5511999998888", "oi")
+
+        assert result["success"] is True
+        assert acquire_mock.await_count == 2
+        assert request_mock.await_count == 1
+
+    async def test_rate_limit_negado_em_todas_as_tentativas_falha(self, client, monkeypatch) -> None:
+        import clients.whatsapp as whatsapp_module
+
+        acquire_mock = AsyncMock(return_value=False)
+        monkeypatch.setattr(whatsapp_module, "acquire_rate_limit_slot", acquire_mock)
+        request_mock = AsyncMock()
+        monkeypatch.setattr(httpx.AsyncClient, "request", request_mock)
+
+        result = await client.send_text_message("5511999998888", "oi")
+
+        assert result["success"] is False
+        assert acquire_mock.await_count == 3
+        request_mock.assert_not_awaited()

@@ -5,6 +5,8 @@ import os
 import time
 from loguru import logger
 
+from clients.ratelimit import acquire_rate_limit_slot
+
 load_dotenv()
 
 GRAPH_API_BASE_URL = os.getenv("GRAPH_API_BASE_URL", "https://graph.facebook.com")
@@ -56,6 +58,18 @@ class WhatsAppClient:
         last_error: dict = {"success": False, "data": None, "error": "Erro desconhecido"}
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
+            acquired = await acquire_rate_limit_slot(self._phone_number_id)
+            if not acquired:
+                last_error = {
+                    "success": False,
+                    "data": None,
+                    "error": "Rate limit excedido — sem vaga liberada a tempo",
+                }
+                if attempt < _MAX_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
+                    continue
+                return last_error
+
             started_at = time.perf_counter()
             try:
                 logger.info(
