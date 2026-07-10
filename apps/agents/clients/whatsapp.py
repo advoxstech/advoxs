@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from dotenv import load_dotenv
 import os
@@ -8,6 +9,11 @@ load_dotenv()
 
 GRAPH_API_BASE_URL = os.getenv("GRAPH_API_BASE_URL", "https://graph.facebook.com")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v23.0")
+
+# Retry curto só para falha transitória (timeout/conexão/5xx) — 4xx nunca é
+# retried (não é transitório, retry só desperdiça tempo).
+_MAX_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = [0.5, 1]
 
 
 class WhatsAppClient:
@@ -46,58 +52,87 @@ class WhatsAppClient:
 
     # ---------- CORE SAFE REQUEST ----------
     async def _safe_request(self, method: str, url: str, **kwargs):
-        started_at = time.perf_counter()
         client = self._get_client()
-        try:
-            logger.info(
-                "Executando requisição à Graph API | method={} url={}", method, url
-            )
-            response = await client.request(method, url, **kwargs)
+        last_error: dict = {"success": False, "data": None, "error": "Erro desconhecido"}
 
-            if response.is_error:
-                logger.warning(
-                    "Resposta HTTP não OK | method={} url={} status={} body={}",
-                    method, url, response.status_code, response.text,
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            started_at = time.perf_counter()
+            try:
+                logger.info(
+                    "Executando requisição à Graph API | method={} url={} tentativa={}",
+                    method, url, attempt,
                 )
-                return {
+                response = await client.request(method, url, **kwargs)
+
+                if response.is_error:
+                    logger.warning(
+                        "Resposta HTTP não OK | method={} url={} status={} body={}",
+                        method, url, response.status_code, response.text,
+                    )
+                    last_error = {
+                        "success": False,
+                        "data": None,
+                        "error": f"HTTP {response.status_code}: {response.text}",
+                    }
+                    if response.status_code < 500:
+                        # 4xx não é transitório — falha imediata, sem retry.
+                        return last_error
+                    if attempt < _MAX_ATTEMPTS:
+                        await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
+                        continue
+                    return last_error
+
+                try:
+                    data = response.json()
+                except Exception:
+                    data = response.text
+
+                elapsed = round(time.perf_counter() - started_at, 3)
+                logger.info(
+                    "Requisição concluída | method={} url={} status={} elapsed={}s",
+                    method, url, response.status_code, elapsed,
+                )
+                return {"success": True, "data": data, "error": None}
+
+            except httpx.TimeoutException:
+                logger.error(
+                    "Timeout ao acessar Graph API | method={} url={} tentativa={}",
+                    method, url, attempt,
+                )
+                last_error = {
                     "success": False,
                     "data": None,
-                    "error": f"HTTP {response.status_code}: {response.text}",
+                    "error": "Timeout ao acessar Graph API",
                 }
+                if attempt < _MAX_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
+                    continue
+                return last_error
 
-            try:
-                data = response.json()
-            except Exception:
-                data = response.text
+            except httpx.ConnectError as e:
+                logger.error(
+                    "Erro de conexão com Graph API | method={} url={} error={} tentativa={}",
+                    method, url, e, attempt,
+                )
+                last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
+                if attempt < _MAX_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
+                    continue
+                return last_error
 
-            elapsed = round(time.perf_counter() - started_at, 3)
-            logger.info(
-                "Requisição concluída | method={} url={} status={} elapsed={}s",
-                method, url, response.status_code, elapsed,
-            )
-            return {"success": True, "data": data, "error": None}
+            except httpx.RequestError as e:
+                logger.error(
+                    "Erro de requisição à Graph API | method={} url={} error={}", method, url, e
+                )
+                return {"success": False, "data": None, "error": f"Erro de requisição: {e}"}
 
-        except httpx.TimeoutException:
-            logger.error("Timeout ao acessar Graph API | method={} url={}", method, url)
-            return {"success": False, "data": None, "error": "Timeout ao acessar Graph API"}
+            except Exception as e:
+                logger.exception(
+                    "Erro inesperado ao acessar Graph API | method={} url={}", method, url
+                )
+                return {"success": False, "data": None, "error": f"Erro inesperado: {e}"}
 
-        except httpx.ConnectError as e:
-            logger.error(
-                "Erro de conexão com Graph API | method={} url={} error={}", method, url, e
-            )
-            return {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
-
-        except httpx.RequestError as e:
-            logger.error(
-                "Erro de requisição à Graph API | method={} url={} error={}", method, url, e
-            )
-            return {"success": False, "data": None, "error": f"Erro de requisição: {e}"}
-
-        except Exception as e:
-            logger.exception(
-                "Erro inesperado ao acessar Graph API | method={} url={}", method, url
-            )
-            return {"success": False, "data": None, "error": f"Erro inesperado: {e}"}
+        return last_error
 
     # ---------- HEADERS ----------
     def _headers(self) -> dict:
