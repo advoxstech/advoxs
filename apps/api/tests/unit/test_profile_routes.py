@@ -142,7 +142,12 @@ class TestUploadLogo:
     ) -> None:
         monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
         tenant = _tenant()
-        session.get = AsyncMock(return_value=tenant)
+        user = _user()
+
+        async def fake_get(model, _id):
+            return tenant if model.__name__ == "Tenant" else user
+
+        session.get = fake_get
 
         response = client.post(
             "/api/v1/profile/logo",
@@ -150,9 +155,33 @@ class TestUploadLogo:
         )
 
         assert response.status_code == 200
+        assert response.json()["user_name"] == "Fulano"
         assert tenant.logo_filename == f"{TENANT_ID}.png"
         assert (tmp_path / f"{TENANT_ID}.png").read_bytes() == b"fake-png-bytes"
         session.commit.assert_awaited_once()
+
+    def test_upload_com_extensao_diferente_remove_o_arquivo_anterior(
+        self, client, session, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+        (tmp_path / f"{TENANT_ID}.png").write_bytes(b"logo-antiga")
+        tenant = _tenant(logo=f"{TENANT_ID}.png")
+        user = _user()
+
+        async def fake_get(model, _id):
+            return tenant if model.__name__ == "Tenant" else user
+
+        session.get = fake_get
+
+        response = client.post(
+            "/api/v1/profile/logo",
+            files={"file": ("logo.jpg", b"logo-nova", "image/jpeg")},
+        )
+
+        assert response.status_code == 200
+        assert tenant.logo_filename == f"{TENANT_ID}.jpg"
+        assert not (tmp_path / f"{TENANT_ID}.png").exists()
+        assert (tmp_path / f"{TENANT_ID}.jpg").read_bytes() == b"logo-nova"
 
 
 class TestGetLogo:

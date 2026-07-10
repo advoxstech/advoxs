@@ -86,12 +86,19 @@ async def upload_logo(
             detail=f"Arquivo maior que {limite_mb} MB",
         )
 
+    tenant = await session.get(Tenant, ctx.tenant_id)
+    previous_filename = tenant.logo_filename
+
     upload_dir = Path(settings.logo_upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     stored_filename = f"{ctx.tenant_id}{extension}"
     (upload_dir / stored_filename).write_bytes(data)
 
-    tenant = await session.get(Tenant, ctx.tenant_id)
+    if previous_filename and previous_filename != stored_filename:
+        # Upload anterior com outra extensão — remove o arquivo órfão em disco
+        # (sem versionamento, o novo upload substitui o anterior por completo).
+        (upload_dir / previous_filename).unlink(missing_ok=True)
+
     tenant.logo_filename = stored_filename
     await session.commit()
 
@@ -100,8 +107,8 @@ async def upload_logo(
         tenant_name=tenant.name,
         email_contato=tenant.email_contato,
         has_logo=True,
-        user_name=getattr(user, "name", ""),
-        user_email=getattr(user, "email", ""),
+        user_name=user.name,
+        user_email=user.email,
     )
 
 
