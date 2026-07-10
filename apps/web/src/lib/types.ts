@@ -53,3 +53,11 @@ export interface TenantDashboard {
     last_message_at: string | null;
   }[];
 }
+
+export interface Profile {
+  tenant_name: string;
+  email_contato: string;
+  has_logo: boolean;
+  user_name: string;
+  user_email: string;
+}

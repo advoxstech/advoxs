@@ -55,6 +55,7 @@ export const config = {
     "/base-de-conhecimento/:path*",
     "/configuracoes/:path*",
     "/creditos/:path*",
+    "/perfil/:path*",
     "/admin/:path*",
   ],
 };

@@ -18,6 +18,7 @@ describe("TenantNav", () => {
       "/configuracoes/whatsapp",
     );
     expect(screen.getByText("Créditos").closest("a")).toHaveAttribute("href", "/creditos");
+    expect(screen.getByText("Perfil").closest("a")).toHaveAttribute("href", "/perfil");
   });
 
   it("marca inicio como ativo quando active='inicio'", () => {
@@ -32,6 +33,13 @@ describe("TenantNav", () => {
 
     expect(screen.getByText("Créditos").closest("a")).toBeNull();
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
+  });
+
+  it("marca perfil como ativo quando active='perfil'", () => {
+    render(<TenantNav active="perfil" />);
+
+    expect(screen.getByText("Perfil").closest("a")).toBeNull();
+    expect(screen.getByText("Início").closest("a")).toHaveAttribute("href", "/inicio");
   });
 
   it("renderiza todos os itens como links quando active=null", () => {

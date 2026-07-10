@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { logout } from "@/app/conversas/actions";
 
-type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "creditos";
+type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "creditos" | "perfil";
 
 const ITEMS: { key: TenantNavItem; href: string; label: string }[] = [
   { key: "inicio", href: "/inicio", label: "Início" },
@@ -10,6 +10,7 @@ const ITEMS: { key: TenantNavItem; href: string; label: string }[] = [
   { key: "base", href: "/base-de-conhecimento", label: "Base" },
   { key: "config", href: "/configuracoes/whatsapp", label: "Config" },
   { key: "creditos", href: "/creditos", label: "Créditos" },
+  { key: "perfil", href: "/perfil", label: "Perfil" },
 ];
 
 export function TenantNav({ active }: { active: TenantNavItem | null }) {
