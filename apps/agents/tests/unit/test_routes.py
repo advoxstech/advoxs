@@ -153,3 +153,44 @@ def test_api_key_correta_passa(client, monkeypatch):
         "/messages", json=PAYLOAD, headers={"Authorization": "segredo"}
     )
     assert response.status_code == 202
+
+
+def test_resumo_sem_mensagens_retorna_400(client) -> None:
+    response = client.post("/summaries", json={"messages": []})
+    assert response.status_code == 400
+
+
+def test_resumo_chama_summarize_conversation_e_retorna_resultado(client, monkeypatch) -> None:
+    summarize = AsyncMock(return_value=("Resumo gerado.", 42))
+    monkeypatch.setattr(routes, "summarize_conversation", summarize)
+
+    response = client.post(
+        "/summaries",
+        json={
+            "messages": [
+                {"sender_type": "contact", "content": "Oi"},
+                {"sender_type": "agent", "content": "Olá, como posso ajudar?"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"summary": "Resumo gerado.", "tokens_used": 42}
+    summarize.assert_awaited_once_with(
+        [
+            {"sender_type": "contact", "content": "Oi"},
+            {"sender_type": "agent", "content": "Olá, como posso ajudar?"},
+        ]
+    )
+
+
+def test_resumo_erro_interno_retorna_500(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        routes, "summarize_conversation", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+
+    response = client.post(
+        "/summaries", json={"messages": [{"sender_type": "contact", "content": "oi"}]}
+    )
+
+    assert response.status_code == 500

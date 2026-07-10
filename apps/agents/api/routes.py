@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
 from services.concat_messages import debounce_messages
 from services.call_agent import run_agent, DB_URI
+from services.summarize import summarize_conversation
 from clients.whatsapp import WhatsAppClient
 from agents.registry import AGENTS_REGISTRY
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -44,6 +45,15 @@ class IncomingMessage(BaseModel):
     phone_number_id: str = ""
     access_token: str = ""
     send_to_whatsapp: bool = True
+
+
+class SummaryMessageIn(BaseModel):
+    sender_type: str
+    content: str
+
+
+class SummaryRequest(BaseModel):
+    messages: list[SummaryMessageIn]
 
 
 app = FastAPI()
@@ -149,3 +159,25 @@ async def delete_conversation(thread_id: str):
         )
     logger.info("Conversa deletada | thread_id={}", thread_id)
     return {"deleted": thread_id}
+
+
+@app.post("/summaries", dependencies=[Depends(verify_api_key)])
+async def summarize(body: SummaryRequest):
+    if not body.messages:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sem mensagens para resumir",
+        )
+
+    try:
+        summary, tokens_used = await summarize_conversation(
+            [{"sender_type": m.sender_type, "content": m.content} for m in body.messages]
+        )
+    except Exception:
+        logger.exception("Erro ao gerar resumo")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao gerar resumo.",
+        )
+
+    return {"summary": summary, "tokens_used": tokens_used}
