@@ -25,6 +25,7 @@ class MessageOut(BaseModel):
     content: str
     media_url: str | None
     media_type: str | None
+    delivery_status: Literal["sent", "failed"] | None
     created_at: datetime
 
 

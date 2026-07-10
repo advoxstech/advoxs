@@ -149,6 +149,19 @@ async def test_http_error_raises_retry(patched) -> None:
     patched["persist"].assert_not_awaited()
 
 
+async def test_delivery_failures_repassado_ao_persistir(patched) -> None:
+    patched["send"].return_value = {
+        "responses": ["resposta 1", "resposta 2"],
+        "tokens_used": 100,
+        "delivery_failures": [1],
+    }
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    persist_args = patched["persist"].await_args.args
+    assert persist_args[6] == {1}
+
+
 def test_decrypt_access_token_roundtrip(monkeypatch) -> None:
     key = Fernet.generate_key()
     monkeypatch.setattr(settings, "whatsapp_token_encryption_key", key.decode())

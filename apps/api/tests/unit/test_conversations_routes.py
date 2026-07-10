@@ -110,6 +110,7 @@ class TestListMessages:
             content="Olá",
             media_url=None,
             media_type=None,
+            delivery_status=None,
             created_at=datetime.now(UTC),
         )
         session.execute.return_value = _execute_returning([message])
@@ -164,6 +165,8 @@ class TestSendMessage:
         persisted = session.add.call_args.args[0]
         assert persisted.sender_type == "human"
         assert persisted.tenant_id == TENANT_ID
+        assert persisted.delivery_status == "sent"
+        assert response.json()["delivery_status"] == "sent"
         session.commit.assert_awaited_once()
 
     def test_conversa_em_modo_agente_retorna_409(self, client, session, whatsapp_send) -> None:

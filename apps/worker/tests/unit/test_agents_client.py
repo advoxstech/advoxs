@@ -27,7 +27,11 @@ async def test_returns_responses_and_tokens_on_200() -> None:
 
     result = await send_message_to_agents(http, **KWARGS)
 
-    assert result == {"responses": ["oi", "como posso ajudar?"], "tokens_used": 1234}
+    assert result == {
+        "responses": ["oi", "como posso ajudar?"],
+        "tokens_used": 1234,
+        "delivery_failures": [],
+    }
     body = http.post.await_args.kwargs["json"]
     assert body["tenant_id"] == "t-1"
     assert body["access_token"] == "token"
@@ -40,7 +44,21 @@ async def test_resposta_sem_tokens_usa_zero() -> None:
 
     result = await send_message_to_agents(http, **KWARGS)
 
-    assert result == {"responses": ["oi"], "tokens_used": 0}
+    assert result == {"responses": ["oi"], "tokens_used": 0, "delivery_failures": []}
+
+
+async def test_resposta_com_delivery_failures() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {
+        "responses": ["oi", "tudo bem?"],
+        "tokens_used": 500,
+        "delivery_failures": [1],
+    }
+    http = _http_returning(response)
+
+    result = await send_message_to_agents(http, **KWARGS)
+
+    assert result["delivery_failures"] == [1]
 
 
 async def test_returns_none_on_202_debounce() -> None:

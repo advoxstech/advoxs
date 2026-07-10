@@ -14,9 +14,10 @@ async def send_message_to_agents(
 ) -> dict | None:
     """Chama POST /messages do agents service.
 
-    Retorna {"responses": [...], "tokens_used": N}, ou None quando o agents
-    devolve 202 (a mensagem foi agrupada pelo debounce numa execução já em
-    andamento — as respostas virão pela execução que está rodando).
+    Retorna {"responses": [...], "tokens_used": N, "delivery_failures": [...]},
+    ou None quando o agents devolve 202 (a mensagem foi agrupada pelo debounce
+    numa execução já em andamento — as respostas virão pela execução que está
+    rodando).
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
     response = await http.post(
@@ -38,4 +39,5 @@ async def send_message_to_agents(
     return {
         "responses": data.get("responses", []),
         "tokens_used": data.get("tokens_used", 0),
+        "delivery_failures": data.get("delivery_failures", []),
     }

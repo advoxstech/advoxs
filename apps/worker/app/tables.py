@@ -33,6 +33,7 @@ messages = Table(
     Column("tenant_id", Uuid),
     Column("sender_type", String),
     Column("content", Text),
+    Column("delivery_status", String),
     Column("tokens_used", Integer),
     Column("credits_consumed", Numeric(12, 2)),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),

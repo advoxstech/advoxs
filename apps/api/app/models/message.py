@@ -25,6 +25,7 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         CheckConstraint("sender_type IN ('agent', 'human', 'contact')", name="sender_type"),
+        CheckConstraint("delivery_status IN ('sent', 'failed')", name="delivery_status"),
         # Queries do painel de conversas.
         Index("ix_messages_tenant_id_created_at", "tenant_id", "created_at"),
     )
@@ -38,6 +39,7 @@ class Message(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     sender_type: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    delivery_status: Mapped[str | None] = mapped_column(String)
     media_url: Mapped[str | None] = mapped_column(String)
     media_type: Mapped[str | None] = mapped_column(String)
     # wamid da Meta — dedup de retries do webhook (só mensagens de contato).

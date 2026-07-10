@@ -118,6 +118,7 @@ async def send_message(
         tenant_id=ctx.tenant_id,
         sender_type="human",
         content=body.content,
+        delivery_status="sent",
     )
     session.add(message)
     conversation.last_message_at = datetime.now(UTC)

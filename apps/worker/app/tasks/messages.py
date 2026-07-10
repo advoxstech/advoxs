@@ -96,12 +96,13 @@ async def process_inbound_message(
 
     responses = result["responses"]
     tokens_used = result.get("tokens_used", 0)
+    delivery_failures = set(result.get("delivery_failures", []))
     # 1 crédito = N tokens, sempre arredondando pra cima — nunca cobra fração.
     credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
 
     async with session_factory() as session:
         first_message_id = await _persist_agent_responses(
-            session, tenant_id, conversation_id, responses, tokens_used, credits
+            session, tenant_id, conversation_id, responses, tokens_used, credits, delivery_failures
         )
         if credits and first_message_id is not None:
             # Ledger + saldo na mesma transação das mensagens.
@@ -173,12 +174,17 @@ async def _persist_agent_responses(
     responses: list[str],
     tokens_used: int = 0,
     credits: int = 0,
+    delivery_failures: set[int] | None = None,
 ) -> uuid.UUID | None:
     """Insere as respostas do agente e retorna o id da primeira.
 
     O consumo da execução inteira (tokens/créditos) fica registrado na
     primeira mensagem — é a ela que o lançamento do ledger se vincula.
+    `delivery_failures` marca, por índice, quais respostas falharam ao
+    entregar ao WhatsApp — a cobrança acontece independente disso, porque o
+    custo do LLM já ocorreu.
     """
+    delivery_failures = delivery_failures or set()
     now = datetime.now(UTC)
     first_message_id: uuid.UUID | None = None
     for i, response in enumerate(responses):
@@ -187,6 +193,7 @@ async def _persist_agent_responses(
             "tenant_id": uuid.UUID(tenant_id),
             "sender_type": "agent",
             "content": response,
+            "delivery_status": "failed" if i in delivery_failures else "sent",
             "created_at": now,
         }
         if i == 0:
