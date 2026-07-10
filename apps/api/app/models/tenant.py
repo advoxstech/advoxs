@@ -19,6 +19,7 @@ class Tenant(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     cnpj: Mapped[str | None] = mapped_column(String, unique=True)
     email_contato: Mapped[str] = mapped_column(String, nullable=False)
+    logo_filename: Mapped[str | None] = mapped_column(String)
     # Cache do saldo — fonte da verdade é o ledger em credit_transactions,
     # atualizado na mesma transação de cada lançamento.
     credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))

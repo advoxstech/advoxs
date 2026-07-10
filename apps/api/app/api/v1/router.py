@@ -10,6 +10,7 @@ from app.api.v1.platform_admin.auth import router as platform_admin_auth_router
 from app.api.v1.platform_admin.dashboard import router as platform_admin_dashboard_router
 from app.api.v1.platform_admin.playground import router as platform_admin_playground_router
 from app.api.v1.platform_admin.tenants import router as platform_admin_tenants_router
+from app.api.v1.profile import router as profile_router
 from app.api.v1.signup import router as signup_router
 from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.whatsapp import router as whatsapp_webhook_router
@@ -27,6 +28,7 @@ api_router.include_router(platform_admin_auth_router)
 api_router.include_router(platform_admin_dashboard_router)
 api_router.include_router(platform_admin_playground_router)
 api_router.include_router(platform_admin_tenants_router)
+api_router.include_router(profile_router)
 api_router.include_router(signup_router)
 api_router.include_router(stripe_webhook_router)
 api_router.include_router(whatsapp_webhook_router)
