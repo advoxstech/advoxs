@@ -202,3 +202,4 @@ class TestGetLogo:
         assert response.status_code == 200
         assert response.content == b"fake-png-bytes"
         assert response.headers["content-type"] == "image/png"
+        assert response.headers["cache-control"] == "no-store"

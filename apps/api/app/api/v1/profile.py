@@ -124,4 +124,10 @@ async def get_logo(
     path = Path(settings.logo_upload_dir) / tenant.logo_filename
     extension = path.suffix.lower()
     content_type = ALLOWED_LOGO_EXTENSIONS.get(extension, "application/octet-stream")
-    return Response(content=path.read_bytes(), media_type=content_type)
+    return Response(
+        content=path.read_bytes(),
+        media_type=content_type,
+        # Sem cache: o path fixo por tenant é reutilizado a cada novo upload
+        # (sem versionamento), então uma resposta cacheada mostraria a logo antiga.
+        headers={"Cache-Control": "no-store"},
+    )
