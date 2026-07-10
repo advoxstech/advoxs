@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.core.queue import get_arq_pool
 from app.main import app
 
@@ -60,7 +60,7 @@ def client(fake_session, arq_pool):
     async def override_arq():
         return arq_pool
 
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     app.dependency_overrides[get_arq_pool] = override_arq
     with TestClient(app) as test_client:
         yield test_client

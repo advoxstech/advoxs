@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.models import CreditTransaction, Tenant
 from app.schemas.billing import (
     BillingBalanceOut,
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 @router.get("/balance")
 async def get_balance(
     ctx: TenantContext = Depends(get_current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> BillingBalanceOut:
     tenant = await session.get(Tenant, ctx.tenant_id)
     return BillingBalanceOut(credit_balance=tenant.credit_balance)
@@ -35,7 +35,7 @@ async def get_balance(
 async def checkout(
     body: BillingCheckoutRequest,
     ctx: TenantContext = Depends(get_current_tenant),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> BillingCheckoutUrlOut:
     try:
         checkout_url = await create_recompra_checkout_session(

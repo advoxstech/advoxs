@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.main import app
 
 
@@ -28,7 +28,7 @@ def test_lista_so_pacotes_ativos() -> None:
     async def override_session():
         yield session
 
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     try:
         response = TestClient(app).get("/api/v1/credit-packages")
     finally:

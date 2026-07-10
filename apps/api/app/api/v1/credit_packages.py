@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.models import CreditPackage
 from app.schemas.signup import CreditPackageOut
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/credit-packages", tags=["signup"])
 
 @router.get("")
 async def list_credit_packages(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> list[CreditPackageOut]:
     result = await session.execute(
         select(CreditPackage)

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password
 from app.main import app
@@ -52,7 +52,7 @@ def client(session, redis):
     async def override_redis():
         return redis
 
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     app.dependency_overrides[get_redis] = override_redis
     yield TestClient(app)
     app.dependency_overrides.clear()

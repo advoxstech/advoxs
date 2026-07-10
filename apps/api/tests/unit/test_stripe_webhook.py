@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.v1.webhooks.stripe as stripe_webhook_module
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.main import app
 
 
@@ -18,7 +18,7 @@ def client(session):
     async def override_session():
         yield session
 
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     yield TestClient(app)
     app.dependency_overrides.clear()
 

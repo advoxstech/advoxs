@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_current_platform_admin, get_current_tenant
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.core.platform_security import create_platform_access_token
 from app.core.redis import get_redis
 from app.core.security import create_access_token, hash_password
@@ -47,7 +47,7 @@ def client(session, redis):
     async def override_redis():
         return redis
 
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     app.dependency_overrides[get_redis] = override_redis
     yield TestClient(app)
     app.dependency_overrides.clear()

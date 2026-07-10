@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.core.redis import get_redis
 from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
 from app.services import auth as auth_service
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login")
 async def login(
     body: LoginRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> TokenPair:
     access_token, refresh_token = await auth_service.login(body.email, body.password, session)
     return TokenPair(access_token=access_token, refresh_token=refresh_token)
@@ -22,7 +22,7 @@ async def login(
 @router.post("/refresh")
 async def refresh(
     body: RefreshRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
     redis: Redis = Depends(get_redis),
 ) -> TokenPair:
     access_token, refresh_token = await auth_service.refresh(body.refresh_token, session, redis)

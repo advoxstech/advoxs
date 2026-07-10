@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.models import CreditTransaction
 from app.schemas.signup import CheckoutUrlOut, SignupCheckoutRequest, SignupStatusOut
 from app.services.billing import (
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/signup", tags=["signup"])
 @router.post("/checkout")
 async def checkout(
     body: SignupCheckoutRequest,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> CheckoutUrlOut:
     try:
         checkout_url = await create_checkout_session(
@@ -39,7 +39,7 @@ async def checkout(
 @router.get("/status")
 async def signup_status(
     session_id: str = Query(...),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> SignupStatusOut:
     found = await session.scalar(
         select(CreditTransaction.id).where(CreditTransaction.stripe_payment_id == session_id)

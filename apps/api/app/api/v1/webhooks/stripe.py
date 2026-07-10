@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.services.billing import process_checkout_completed
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/webhooks/stripe", tags=["webhooks"])
 async def receive_webhook(
     request: Request,
     stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> dict:
     raw_body = await request.body()
     try:

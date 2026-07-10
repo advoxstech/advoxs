@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 import app.api.v1.platform_admin.tenants as tenants_module
 from app.api.deps import PlatformAdminContext, get_current_platform_admin
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.main import app
 
 TENANT_ID = uuid.uuid4()
@@ -19,7 +19,7 @@ def _client(monkeypatch):
         yield AsyncMock()
 
     app.dependency_overrides[get_current_platform_admin] = override_admin
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     return TestClient(app)
 
 

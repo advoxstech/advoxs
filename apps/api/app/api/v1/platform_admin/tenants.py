@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import PlatformAdminContext, get_current_platform_admin
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.schemas.admin_tenants import TenantDetailOut, TenantListItemOut
 from app.services.admin_tenants import get_tenant_detail, list_tenants
 
@@ -16,7 +16,7 @@ async def list_tenants_route(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     admin: PlatformAdminContext = Depends(get_current_platform_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> list[TenantListItemOut]:
     return await list_tenants(session, limit, offset)
 
@@ -25,7 +25,7 @@ async def list_tenants_route(
 async def get_tenant_route(
     tenant_id: uuid.UUID,
     admin: PlatformAdminContext = Depends(get_current_platform_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> TenantDetailOut:
     detail = await get_tenant_detail(session, tenant_id, admin.admin_id)
     if detail is None:

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import PlatformAdminContext, get_current_platform_admin
 from app.clients.agents import AgentsApiError, AgentsNetworkError
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.schemas.playground import PlaygroundMessageOut, PlaygroundMessageRequest
 from app.services.playground import TenantNotFoundError, delete_conversation, send_message
 
@@ -18,7 +18,7 @@ _AGENTS_ERROR_DETAIL = "Não foi possível falar com o agente agora."
 async def send_playground_message_route(
     body: PlaygroundMessageRequest,
     admin: PlatformAdminContext = Depends(get_current_platform_admin),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
 ) -> PlaygroundMessageOut:
     try:
         return await send_message(session, body.tenant_id, body.session_id, body.message)

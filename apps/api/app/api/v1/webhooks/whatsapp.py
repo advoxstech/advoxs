@@ -8,7 +8,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.core.queue import get_arq_pool
 from app.services.whatsapp_inbound import handle_meta_webhook
 
@@ -35,7 +35,7 @@ async def verify_webhook(
 async def receive_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_system_session),
     arq: ArqRedis = Depends(get_arq_pool),
 ) -> dict:
     raw_body = await request.body()

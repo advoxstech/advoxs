@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 import app.api.v1.platform_admin.dashboard as dashboard_module
 from app.api.deps import PlatformAdminContext, get_current_platform_admin
-from app.core.db import get_session
+from app.core.db import get_system_session
 from app.main import app
 from app.schemas.admin_dashboard import (
     AdminDashboardOut,
@@ -48,7 +48,7 @@ def test_com_token_retorna_o_dashboard(monkeypatch) -> None:
         dashboard_module, "build_dashboard", AsyncMock(return_value=_dummy_dashboard())
     )
     app.dependency_overrides[get_current_platform_admin] = override_admin
-    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_system_session] = override_session
     try:
         response = TestClient(app).get("/api/v1/platform-admin/dashboard")
     finally:
