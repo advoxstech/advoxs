@@ -90,9 +90,11 @@ async def process_inbound_message(
                 exc,
             )
             raise Retry(defer=ctx.get("job_try", 1) * 10)
-        # Última tentativa: o agente não conseguiu processar. Vira a conversa
-        # pra humano (mesmo mecanismo do bloqueio por saldo esgotado) em vez
-        # de deixar o job desaparecer em silêncio depois do TTL do resultado.
+        # Última tentativa: o agente não conseguiu processar. Diferente do
+        # bloqueio por saldo esgotado (que só retorna em silêncio, sem mudar
+        # o estado), aqui vira a conversa pra humano de propósito — alerta o
+        # escritório, em vez de deixar o job desaparecer em silêncio depois
+        # do TTL do resultado.
         logger.error(
             "Esgotadas as tentativas de chamar agents, virando conversa pra human | "
             "tenant=%s conversation=%s erro=%s",
