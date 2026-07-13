@@ -78,6 +78,14 @@ async def agente_secretaria(state: dict) -> dict:
 
 
 async def agente_condominial(state: dict) -> Command:
+    billing = state.get("end_customer_billing") or {}
+    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
+        logger.info(
+            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
+            "agente_condominial",
+        )
+        return Command(update={"current_specialist": None}, goto="agente_secretaria")
+
     is_first_run = state.get("receptive_message_specialist", False)
     logger.info(
         "agente_condominial chamado | mensagens={} | histórico={} | first_run={}",
@@ -127,6 +135,14 @@ async def agente_condominial(state: dict) -> Command:
 
 
 async def agente_contratos(state: dict) -> Command:
+    billing = state.get("end_customer_billing") or {}
+    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
+        logger.info(
+            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
+            "agente_contratos",
+        )
+        return Command(update={"current_specialist": None}, goto="agente_secretaria")
+
     is_first_run = state.get("receptive_message_specialist", False)
     logger.info(
         "agente_contratos chamado | mensagens={} | histórico={} | first_run={}",
@@ -167,6 +183,14 @@ async def agente_contratos(state: dict) -> Command:
 
 
 async def agente_direito_consumidor(state: dict) -> Command:
+    billing = state.get("end_customer_billing") or {}
+    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
+        logger.info(
+            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
+            "agente_direito_consumidor",
+        )
+        return Command(update={"current_specialist": None}, goto="agente_secretaria")
+
     is_first_run = state.get("receptive_message_specialist", False)
     logger.info(
         "agente_direito_consumidor chamado | mensagens={} | histórico={} | first_run={}",

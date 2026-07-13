@@ -279,6 +279,26 @@ async def test_condominial_nao_first_run_nao_inclui_flag_no_update():
 
 
 @pytest.mark.asyncio
+async def test_condominial_bloqueado_por_saldo_esgotado_devolve_para_secretaria():
+    """Saldo esgotado no meio da conversa (não só na transferência inicial) deve
+    redirecionar pra secretária em vez de deixar o especialista responder de graça."""
+    from agents.nodes import agente_condominial
+
+    fake_model = mock_model(ai_response("não devia nem chegar aqui"))
+    with patch("agents.nodes.model", fake_model):
+        result = await agente_condominial(
+            base_state(
+                receptive_message_specialist=False,
+                end_customer_billing={"enabled": True, "balance": 0, "packages": []},
+            )
+        )
+
+    assert result.goto == "agente_secretaria"
+    assert result.update == {"current_specialist": None}
+    fake_model.bind_tools.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_condominial_transfer_sem_content_injeta_despedida():
     from agents.nodes import agente_condominial
     fake = ai_with_tool_call(
@@ -318,6 +338,41 @@ async def test_contratos_com_tool_call_vai_para_tool_node():
         result = await agente_contratos(base_state(receptive_message_specialist=False))
 
     assert result.goto == "tool_node"
+
+
+@pytest.mark.asyncio
+async def test_contratos_bloqueado_por_saldo_esgotado_devolve_para_secretaria():
+    from agents.nodes import agente_contratos
+
+    fake_model = mock_model(ai_response("não devia nem chegar aqui"))
+    with patch("agents.nodes.model", fake_model):
+        result = await agente_contratos(
+            base_state(
+                receptive_message_specialist=False,
+                end_customer_billing={"enabled": True, "balance": 0, "packages": []},
+            )
+        )
+
+    assert result.goto == "agente_secretaria"
+    assert result.update == {"current_specialist": None}
+    fake_model.bind_tools.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_contratos_com_saldo_positivo_nao_bloqueia_e_chama_llm():
+    """Billing habilitado mas com saldo positivo não deve bloquear — fluxo normal."""
+    from agents.nodes import agente_contratos
+
+    with patch("agents.nodes.model", mock_model(ai_response("Analisando seu contrato."))):
+        result = await agente_contratos(
+            base_state(
+                receptive_message_specialist=False,
+                end_customer_billing={"enabled": True, "balance": 500, "packages": []},
+            )
+        )
+
+    assert result.goto == END
+    assert result.update["messages"][0].content == "Analisando seu contrato."
 
 
 @pytest.mark.asyncio
@@ -363,6 +418,37 @@ async def test_direito_consumidor_com_tool_call_vai_para_tool_node():
         result = await agente_direito_consumidor(base_state(receptive_message_specialist=False))
 
     assert result.goto == "tool_node"
+
+
+@pytest.mark.asyncio
+async def test_direito_consumidor_bloqueado_por_saldo_esgotado_devolve_para_secretaria():
+    from agents.nodes import agente_direito_consumidor
+
+    fake_model = mock_model(ai_response("não devia nem chegar aqui"))
+    with patch("agents.nodes.model", fake_model):
+        result = await agente_direito_consumidor(
+            base_state(
+                receptive_message_specialist=False,
+                end_customer_billing={"enabled": True, "balance": 0, "packages": []},
+            )
+        )
+
+    assert result.goto == "agente_secretaria"
+    assert result.update == {"current_specialist": None}
+    fake_model.bind_tools.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_direito_consumidor_sem_billing_nao_bloqueia_e_chama_llm():
+    """Sem end_customer_billing no state (fluxo normal de escritório, sem cobrança
+    de cliente final), o especialista deve seguir chamando o LLM normalmente."""
+    from agents.nodes import agente_direito_consumidor
+
+    with patch("agents.nodes.model", mock_model(ai_response("Vou orientar sobre seus direitos."))):
+        result = await agente_direito_consumidor(base_state(receptive_message_specialist=False))
+
+    assert result.goto == END
+    assert result.update["messages"][0].content == "Vou orientar sobre seus direitos."
 
 
 @pytest.mark.asyncio
