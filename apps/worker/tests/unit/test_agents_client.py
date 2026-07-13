@@ -75,3 +75,26 @@ async def test_raises_on_5xx() -> None:
 
     with pytest.raises(HTTPStatusError):
         await send_message_to_agents(http, **KWARGS)
+
+
+async def test_inclui_end_customer_billing_quando_presente() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+    billing = {"enabled": True, "balance": 0, "packages": [{"id": "p-1", "name": "Básico"}]}
+
+    await send_message_to_agents(http, **KWARGS, end_customer_billing=billing)
+
+    body = http.post.await_args.kwargs["json"]
+    assert body["end_customer_billing"] == billing
+
+
+async def test_omite_end_customer_billing_quando_none() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+
+    await send_message_to_agents(http, **KWARGS)
+
+    body = http.post.await_args.kwargs["json"]
+    assert "end_customer_billing" not in body

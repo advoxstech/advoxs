@@ -11,6 +11,7 @@ async def send_message_to_agents(
     message: str,
     phone_number_id: str,
     access_token: str,
+    end_customer_billing: dict | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
 
@@ -18,20 +19,24 @@ async def send_message_to_agents(
     ou None quando o agents devolve 202 (a mensagem foi agrupada pelo debounce
     numa execução já em andamento — as respostas virão pela execução que está
     rodando).
+
+    `end_customer_billing` (quando não None) leva {"enabled", "balance",
+    "packages"} do cliente final — nenhum dado sensível, a secret key da
+    Stripe do tenant nunca sai do api.
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
-    response = await http.post(
-        "/messages",
-        json={
-            "tenant_id": tenant_id,
-            "contact_phone_number": contact_phone_number,
-            "message": message,
-            "attachments": [],
-            "phone_number_id": phone_number_id,
-            "access_token": access_token,
-        },
-        headers=headers,
-    )
+    payload = {
+        "tenant_id": tenant_id,
+        "contact_phone_number": contact_phone_number,
+        "message": message,
+        "attachments": [],
+        "phone_number_id": phone_number_id,
+        "access_token": access_token,
+    }
+    if end_customer_billing is not None:
+        payload["end_customer_billing"] = end_customer_billing
+
+    response = await http.post("/messages", json=payload, headers=headers)
     if response.status_code == 202:
         return None
     response.raise_for_status()
