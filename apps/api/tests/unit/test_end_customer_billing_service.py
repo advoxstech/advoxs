@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -11,6 +12,7 @@ from app.services.end_customer_billing import (
     InvalidPackageError,
     StripeApiError,
     create_end_customer_checkout_session,
+    process_end_customer_checkout_completed,
 )
 
 TENANT_ID = uuid.uuid4()
@@ -113,3 +115,132 @@ class TestCreateEndCustomerCheckoutSession:
 
         with pytest.raises(StripeApiError):
             await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+
+def _conversation(**overrides):
+    row = SimpleNamespace(
+        id=uuid.uuid4(), tenant_id=TENANT_ID, contact_phone_number=CONTACT,
+        last_message_at=None,
+    )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
+
+
+def _number(**overrides):
+    row = SimpleNamespace(
+        tenant_id=TENANT_ID, phone_number_id="PNID", access_token_encrypted="cifrado",
+        status="connected",
+    )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
+
+
+def _checkout_session(**metadata_overrides) -> dict:
+    metadata = {
+        "tenant_id": str(TENANT_ID),
+        "contact_phone_number": CONTACT,
+        "package_id": str(PACKAGE_ID),
+        "kind": "end_customer_purchase",
+    }
+    metadata.update(metadata_overrides)
+    return {"id": "cs_end_999", "metadata": metadata}
+
+
+class TestProcessEndCustomerCheckoutCompleted:
+    async def test_ja_processado_nao_faz_nada(self, session) -> None:
+        session.scalar = AsyncMock(return_value=uuid.uuid4())
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+
+        session.add.assert_not_called()
+
+    async def test_metadata_sem_kind_correto_e_ignorada(self, session) -> None:
+        session.scalar = AsyncMock(return_value=None)
+
+        await process_end_customer_checkout_completed(
+            session, TENANT_ID, _checkout_session(kind="outra_coisa")
+        )
+
+        session.add.assert_not_called()
+
+    async def test_metadata_sem_contact_phone_number_nao_processa(self, session) -> None:
+        session.scalar = AsyncMock(return_value=None)
+
+        await process_end_customer_checkout_completed(
+            session, TENANT_ID, _checkout_session(contact_phone_number=None)
+        )
+
+        session.add.assert_not_called()
+
+    async def test_metadata_sem_package_id_nao_processa(self, session) -> None:
+        session.scalar = AsyncMock(return_value=None)
+
+        await process_end_customer_checkout_completed(
+            session, TENANT_ID, _checkout_session(package_id=None)
+        )
+
+        session.add.assert_not_called()
+
+    async def test_pacote_nao_encontrado_nao_processa(self, session) -> None:
+        session.scalar = AsyncMock(side_effect=[None, None])
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+
+        session.add.assert_not_called()
+
+    async def test_credita_saldo_novo_e_manda_confirmacao(self, session, monkeypatch) -> None:
+        package = _package()
+        conversation = _conversation()
+        number = _number()
+        session.scalar = AsyncMock(
+            side_effect=[None, package, None, conversation, number]
+        )
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        session.flush = AsyncMock()
+        send = AsyncMock()
+        monkeypatch.setattr(service, "send_text_message", send)
+        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+
+        balance, transaction, message = added
+        assert balance.credit_balance == package.credits_granted
+        assert transaction.type == "purchase"
+        assert transaction.amount_credits == package.credits_granted
+        assert transaction.stripe_payment_id == "cs_end_999"
+        assert message.sender_type == "system"
+        send.assert_awaited_once()
+        assert send.await_args.kwargs["to"] == CONTACT
+        session.commit.assert_awaited()
+
+    async def test_credita_saldo_existente_soma(self, session, monkeypatch) -> None:
+        package = _package()
+        existing_balance = SimpleNamespace(
+            tenant_id=TENANT_ID, contact_phone_number=CONTACT, credit_balance=100,
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        session.scalar = AsyncMock(side_effect=[None, package, existing_balance, None, None])
+        session.add = MagicMock()
+        monkeypatch.setattr(service, "send_text_message", AsyncMock())
+        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+
+        assert existing_balance.credit_balance == 100 + package.credits_granted
+
+    async def test_falha_ao_confirmar_via_whatsapp_nao_impede_credito(
+        self, session, monkeypatch
+    ) -> None:
+        package = _package()
+        session.scalar = AsyncMock(side_effect=[None, package, None, None, None])
+        session.add = MagicMock()
+        monkeypatch.setattr(
+            service, "send_text_message", AsyncMock(side_effect=RuntimeError("falhou"))
+        )
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+
+        session.commit.assert_awaited()
