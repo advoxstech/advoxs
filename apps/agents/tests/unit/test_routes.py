@@ -217,3 +217,32 @@ def test_falha_parcial_de_entrega_aparece_em_delivery_failures(client, monkeypat
 
     assert response.status_code == 200
     assert response.json()["delivery_failures"] == [1]
+
+
+def test_end_customer_billing_e_repassado_ao_run_agent(client, monkeypatch):
+    debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
+    run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    _mock_whatsapp_client(monkeypatch)
+
+    billing = {"enabled": True, "balance": 0, "packages": [{"id": "p-1", "name": "Básico"}]}
+    payload = {**PAYLOAD, "end_customer_billing": billing}
+
+    response = client.post("/messages", json=payload)
+
+    assert response.status_code == 200
+    assert run_agent.call_args.kwargs["end_customer_billing"] == billing
+
+
+def test_sem_end_customer_billing_repassa_none(client, monkeypatch):
+    debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
+    run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    _mock_whatsapp_client(monkeypatch)
+
+    response = client.post("/messages", json=PAYLOAD)
+
+    assert response.status_code == 200
+    assert run_agent.call_args.kwargs["end_customer_billing"] is None

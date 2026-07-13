@@ -14,6 +14,7 @@ class State(TypedDict):
     num_before_messages: int
     current_specialist: str | None = None
     receptive_message_specialist: bool = False
+    end_customer_billing: dict | None = None
 
 graph = StateGraph(State)
 
