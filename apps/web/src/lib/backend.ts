@@ -10,6 +10,7 @@ const ALLOWED_PREFIXES = [
   "billing",
   "dashboard",
   "profile",
+  "end-customer-billing",
 ];
 
 /** Só rotas do painel passam pelo proxy — nunca auth ou webhooks. */
