@@ -48,3 +48,13 @@ class EndCustomerCreditPackageUpdate(BaseModel):
     price_brl: Decimal | None = Field(default=None, gt=0)
     credits_granted: int | None = Field(default=None, gt=0)
     active: bool | None = None
+
+
+class InternalCheckoutRequest(BaseModel):
+    tenant_id: uuid.UUID
+    contact_phone_number: str = Field(min_length=1)
+    package_id: uuid.UUID
+
+
+class CheckoutUrlOut(BaseModel):
+    checkout_url: str
