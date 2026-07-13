@@ -1,6 +1,7 @@
 from langchain.tools import tool
 from langgraph.types import Command
 from clients.retrieval import retrieval_sistema, retrieval_usuario, retrieval_escritorio
+from clients.billing import criar_link_pagamento
 from loguru import logger
 import requests
 import tempfile
@@ -199,6 +200,28 @@ async def buscar_base_conhecimento_escritorio(query: str, conversation_id: str) 
     """
     return await retrieval_escritorio(conversation_id, query)
 
+@tool("gerar_link_pagamento_cliente")
+async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) -> str:
+    """Gera o link de pagamento (Stripe) pro cliente comprar um pacote de créditos.
+
+    Use quando o cliente não tiver saldo suficiente pra continuar sendo
+    atendido por um especialista, ou quando ele pedir explicitamente pra
+    comprar mais créditos. Escolha o package_id entre os pacotes informados
+    no seu contexto — nunca invente um id.
+
+    Args:
+        package_id: id do pacote escolhido (vem da lista de pacotes disponíveis).
+        conversation_id: preenchido automaticamente pelo sistema.
+    """
+    tenant_id, _, contact_phone_number = str(conversation_id).partition(":")
+    checkout_url = await criar_link_pagamento(tenant_id, contact_phone_number, package_id)
+    if checkout_url is None:
+        return (
+            "Não foi possível gerar o link de pagamento agora — peça pro cliente "
+            "tentar de novo em instantes."
+        )
+    return f"Link de pagamento gerado: {checkout_url}"
+
 @tool("transfer_to_specialist")
 def transfer_to_specialist(current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"]) -> str:
     """
@@ -223,5 +246,6 @@ tools = [
     bucar_base_conhecimento_direito_consumidor,
     bucar_base_conhecimento_usuario,
     buscar_base_conhecimento_escritorio,
+    gerar_link_pagamento_cliente,
     transfer_to_specialist,
 ]
