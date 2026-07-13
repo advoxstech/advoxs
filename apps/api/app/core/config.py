@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # URL pública do `web`, usada para montar success_url/cancel_url do Checkout.
     web_app_url: str = "http://localhost:3000"
 
+    # Stripe por tenant (cobrança do cliente final) — chave própria, separada
+    # da usada pelo billing tenant->plataforma.
+    tenant_stripe_key_encryption_key: str = ""
+    # Auth de serviço interno: agents -> api (direção oposta de AGENTS_API_KEY).
+    internal_service_key: str = ""
+
     # Platform admin (painel de administração da plataforma) — secret
     # separado do JWT_SECRET dos tenants, defesa em profundidade: um
     # segredo vazado nunca forja o outro tipo de token.

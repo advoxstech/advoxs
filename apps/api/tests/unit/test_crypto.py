@@ -2,7 +2,12 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
-from app.core.crypto import decrypt_access_token, encrypt_access_token
+from app.core.crypto import (
+    decrypt_access_token,
+    decrypt_tenant_secret,
+    encrypt_access_token,
+    encrypt_tenant_secret,
+)
 
 
 def test_roundtrip(monkeypatch) -> None:
@@ -19,3 +24,20 @@ def test_sem_chave_configurada_levanta_erro(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError):
         encrypt_access_token("token")
+
+
+def test_tenant_secret_roundtrip(monkeypatch) -> None:
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(settings, "tenant_stripe_key_encryption_key", key)
+
+    encrypted = encrypt_tenant_secret("sk_test_do_tenant")
+
+    assert encrypted != "sk_test_do_tenant"
+    assert decrypt_tenant_secret(encrypted) == "sk_test_do_tenant"
+
+
+def test_tenant_secret_sem_chave_configurada_levanta_erro(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "tenant_stripe_key_encryption_key", "")
+
+    with pytest.raises(RuntimeError):
+        encrypt_tenant_secret("sk_test")
