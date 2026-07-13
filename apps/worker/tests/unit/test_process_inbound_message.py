@@ -32,6 +32,10 @@ def _inbound(state: str = "agent", credit_balance: int = 1000) -> InboundContext
         phone_number_id="PNID",
         access_token_encrypted="token-cifrado",
         credit_balance=credit_balance,
+        end_customer_billing_enabled=False,
+        end_customer_tokens_per_credit=None,
+        end_customer_balance=0,
+        end_customer_packages=[],
     )
 
 

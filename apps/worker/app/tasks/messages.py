@@ -31,6 +31,10 @@ class InboundContext:
     phone_number_id: str
     access_token_encrypted: str
     credit_balance: int
+    end_customer_billing_enabled: bool
+    end_customer_tokens_per_credit: int | None
+    end_customer_balance: int
+    end_customer_packages: list[dict]
 
 
 async def process_inbound_message(
@@ -184,6 +188,55 @@ async def _load_context(
         )
     ).scalar_one()
 
+    billing_settings = (
+        await session.execute(
+            select(
+                tables.tenant_billing_settings.c.enabled,
+                tables.tenant_billing_settings.c.end_customer_tokens_per_credit,
+            ).where(tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id))
+        )
+    ).one_or_none()
+
+    end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
+    end_customer_tokens_per_credit = (
+        billing_settings.end_customer_tokens_per_credit if billing_settings else None
+    )
+    end_customer_balance = 0
+    end_customer_packages: list[dict] = []
+
+    if end_customer_billing_enabled:
+        balance = (
+            await session.execute(
+                select(tables.end_customer_balances.c.credit_balance).where(
+                    tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
+                    tables.end_customer_balances.c.contact_phone_number
+                    == conversation.contact_phone_number,
+                )
+            )
+        ).scalar_one_or_none()
+        end_customer_balance = balance or 0
+
+        packages_result = await session.execute(
+            select(
+                tables.end_customer_credit_packages.c.id,
+                tables.end_customer_credit_packages.c.name,
+                tables.end_customer_credit_packages.c.price_brl,
+                tables.end_customer_credit_packages.c.credits_granted,
+            ).where(
+                tables.end_customer_credit_packages.c.tenant_id == uuid.UUID(tenant_id),
+                tables.end_customer_credit_packages.c.active.is_(True),
+            )
+        )
+        end_customer_packages = [
+            {
+                "id": str(row.id),
+                "name": row.name,
+                "price_brl": str(row.price_brl),
+                "credits_granted": row.credits_granted,
+            }
+            for row in packages_result
+        ]
+
     return InboundContext(
         conversation_state=conversation.state,
         contact_phone_number=conversation.contact_phone_number,
@@ -191,6 +244,10 @@ async def _load_context(
         phone_number_id=number.phone_number_id,
         access_token_encrypted=number.access_token_encrypted,
         credit_balance=credit_balance,
+        end_customer_billing_enabled=end_customer_billing_enabled,
+        end_customer_tokens_per_credit=end_customer_tokens_per_credit,
+        end_customer_balance=end_customer_balance,
+        end_customer_packages=end_customer_packages,
     )
 
 
