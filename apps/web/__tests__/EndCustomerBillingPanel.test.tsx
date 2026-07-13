@@ -100,4 +100,168 @@ describe("EndCustomerBillingPanel", () => {
       expect(screen.getByText(/configure a secret key/i)).toBeInTheDocument(),
     );
   });
+
+  it("lista os pacotes já cadastrados", async () => {
+    mockLoad(
+      {
+        enabled: true,
+        billing_mode: "credits",
+        stripe_secret_key_configured: true,
+        stripe_webhook_secret_configured: true,
+        end_customer_tokens_per_credit: 500,
+      },
+      [{ id: "p-1", name: "Básico", price_brl: "49.90", credits_granted: 500, active: true }],
+    );
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByText("Básico")).toBeInTheDocument());
+  });
+
+  it("cria um pacote novo", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/packages" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ id: "p-2", name: "Growth", price_brl: "99.90", credits_granted: 1000, active: true }),
+        };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: true,
+            billing_mode: "credits",
+            stripe_secret_key_configured: true,
+            stripe_webhook_secret_configured: true,
+            end_customer_tokens_per_credit: 500,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") {
+        return { ok: true, json: async () => [] };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByLabelText(/nome do pacote/i)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/nome do pacote/i), { target: { value: "Growth" } });
+    fireEvent.change(screen.getByLabelText(/preço/i), { target: { value: "99.90" } });
+    fireEvent.change(screen.getByLabelText(/créditos/i), { target: { value: "1000" } });
+    fireEvent.click(screen.getByRole("button", { name: /adicionar pacote/i }));
+
+    await waitFor(() => expect(screen.getByText("Growth")).toBeInTheDocument());
+  });
+
+  it("exclui um pacote após confirmação", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/packages/p-1" && init?.method === "DELETE") {
+        return { ok: true, json: async () => null };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: true,
+            billing_mode: "credits",
+            stripe_secret_key_configured: true,
+            stripe_webhook_secret_configured: true,
+            end_customer_tokens_per_credit: 500,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") {
+        return {
+          ok: true,
+          json: async () => [{ id: "p-1", name: "Básico", price_brl: "49.90", credits_granted: 500, active: true }],
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByText("Básico")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /excluir/i }));
+
+    await waitFor(() => expect(screen.queryByText("Básico")).not.toBeInTheDocument());
+    confirmSpy.mockRestore();
+  });
+
+  it("mostra erro quando a criação de pacote falha", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/packages" && init?.method === "POST") {
+        return { ok: false, json: async () => ({ detail: "Nome do pacote já existe" }) };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: true,
+            billing_mode: "credits",
+            stripe_secret_key_configured: true,
+            stripe_webhook_secret_configured: true,
+            end_customer_tokens_per_credit: 500,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") {
+        return { ok: true, json: async () => [] };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByLabelText(/nome do pacote/i)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/nome do pacote/i), { target: { value: "Growth" } });
+    fireEvent.change(screen.getByLabelText(/preço/i), { target: { value: "99.90" } });
+    fireEvent.change(screen.getByLabelText(/créditos/i), { target: { value: "1000" } });
+    fireEvent.click(screen.getByRole("button", { name: /adicionar pacote/i }));
+
+    await waitFor(() => expect(screen.getByText(/nome do pacote já existe/i)).toBeInTheDocument());
+    expect(screen.queryByText("Growth")).not.toBeInTheDocument();
+  });
+
+  it("mostra erro quando a exclusão de pacote falha", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/packages/p-1" && init?.method === "DELETE") {
+        return { ok: false, json: async () => ({ detail: "Pacote em uso — não é possível excluir" }) };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: true,
+            billing_mode: "credits",
+            stripe_secret_key_configured: true,
+            stripe_webhook_secret_configured: true,
+            end_customer_tokens_per_credit: 500,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") {
+        return {
+          ok: true,
+          json: async () => [{ id: "p-1", name: "Básico", price_brl: "49.90", credits_granted: 500, active: true }],
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByText("Básico")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /excluir/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/pacote em uso — não é possível excluir/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Básico")).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
 });

@@ -21,6 +21,16 @@ const EMPTY_SETTINGS: Settings = {
   end_customer_tokens_per_credit: null,
 };
 
+type Package = {
+  id: string;
+  name: string;
+  price_brl: string;
+  credits_granted: number;
+  active: boolean;
+};
+
+const EMPTY_PACKAGE_FORM = { name: "", price_brl: "", credits_granted: "" };
+
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
@@ -38,15 +48,24 @@ export function EndCustomerBillingPanel() {
   const [tokensPerCredit, setTokensPerCredit] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [packageForm, setPackageForm] = useState(EMPTY_PACKAGE_FORM);
+  const [creatingPackage, setCreatingPackage] = useState(false);
 
   async function load() {
     try {
-      const response = await backendFetch("end-customer-billing/settings");
-      if (response.ok) {
-        const body: Settings = await response.json();
+      const [settingsResponse, packagesResponse] = await Promise.all([
+        backendFetch("end-customer-billing/settings"),
+        backendFetch("end-customer-billing/packages"),
+      ]);
+      if (settingsResponse.ok) {
+        const body: Settings = await settingsResponse.json();
         setSettings(body);
         setEnabled(body.enabled);
         setTokensPerCredit(body.end_customer_tokens_per_credit?.toString() ?? "");
+      }
+      if (packagesResponse.ok) {
+        setPackages(await packagesResponse.json());
       }
     } finally {
       setLoaded(true);
@@ -83,6 +102,50 @@ export function EndCustomerBillingPanel() {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCreatePackage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedback(null);
+    setCreatingPackage(true);
+    try {
+      const response = await backendFetch("end-customer-billing/packages", {
+        method: "POST",
+        body: JSON.stringify({
+          name: packageForm.name,
+          price_brl: packageForm.price_brl,
+          credits_granted: Number(packageForm.credits_granted),
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFeedback(extractErrorDetail(body, "Falha ao criar pacote — tente novamente."));
+        return;
+      }
+      setPackages([...packages, body]);
+      setPackageForm(EMPTY_PACKAGE_FORM);
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    } finally {
+      setCreatingPackage(false);
+    }
+  }
+
+  async function handleDeletePackage(pkg: Package) {
+    if (!window.confirm(`Excluir o pacote "${pkg.name}"?`)) return;
+    try {
+      const response = await backendFetch(`end-customer-billing/packages/${pkg.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(extractErrorDetail(body, "Falha ao excluir — tente novamente."));
+        return;
+      }
+      setPackages(packages.filter((p) => p.id !== pkg.id));
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
     }
   }
 
@@ -155,6 +218,71 @@ export function EndCustomerBillingPanel() {
             className="rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
           >
             {saving ? "Salvando..." : "Salvar configuração"}
+          </button>
+        </form>
+
+        <hr className="my-6 border-line" />
+
+        <h2 className="font-display text-lg font-semibold text-ink">Pacotes de crédito</h2>
+        <ul className="mt-4 max-w-md">
+          {packages.length === 0 && (
+            <li className="py-4 text-sm text-muted">Nenhum pacote cadastrado ainda.</li>
+          )}
+          {packages.map((pkg) => (
+            <li key={pkg.id} className="flex items-center justify-between border-b border-line py-3">
+              <div>
+                <p className="font-medium text-ink">{pkg.name}</p>
+                <p className="text-xs text-muted">
+                  R$ {pkg.price_brl} · {pkg.credits_granted} créditos
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDeletePackage(pkg)}
+                className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
+              >
+                Excluir
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <form onSubmit={handleCreatePackage} className="mt-4 flex max-w-md flex-col gap-4">
+          <label className="flex flex-col gap-1 text-sm text-ink">
+            Nome do pacote
+            <input
+              required
+              value={packageForm.name}
+              onChange={(event) => setPackageForm({ ...packageForm, name: event.target.value })}
+              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-ink">
+            Preço (R$)
+            <input
+              required
+              value={packageForm.price_brl}
+              onChange={(event) => setPackageForm({ ...packageForm, price_brl: event.target.value })}
+              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-ink">
+            Créditos
+            <input
+              required
+              type="number"
+              min={1}
+              value={packageForm.credits_granted}
+              onChange={(event) => setPackageForm({ ...packageForm, credits_granted: event.target.value })}
+              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={creatingPackage}
+            className="rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
+          >
+            {creatingPackage ? "Adicionando..." : "Adicionar pacote"}
           </button>
         </form>
       </div>
