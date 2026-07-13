@@ -272,3 +272,49 @@ async def test_tool_node_injeta_conversation_id_do_estado(monkeypatch) -> None:
     await tool_node(state)
 
     retrieval.assert_awaited_once_with("tenant-real:5511999998888", "regimento")
+
+
+@pytest.mark.asyncio
+async def test_tool_node_injeta_saldo_do_cliente_final_em_transfer_to_specialist() -> None:
+    from agents.nodes import tool_node
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "transfer_to_specialist",
+                # O LLM tentou passar saldo positivo — deve ser ignorado.
+                "args": {
+                    "current_specialist": "agente_condominial",
+                    "end_customer_balance": 9999,
+                },
+                "id": "call-1",
+            }
+        ],
+    )
+    state = {
+        "messages": [message],
+        "conversation_id": "tenant-1:5511999998888",
+        "end_customer_billing": {"enabled": True, "balance": 0, "packages": []},
+    }
+
+    result = await tool_node(state)
+
+    assert "bloqueada" in result["messages"][0].content.lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_node_sem_end_customer_billing_no_state_nao_bloqueia() -> None:
+    from agents.nodes import tool_node
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "transfer_to_specialist", "args": {"current_specialist": "agente_contratos"}, "id": "call-1"}
+        ],
+    )
+    state = {"messages": [message], "conversation_id": "tenant-1:5511999998888"}
+
+    result = await tool_node(state)
+
+    assert result.get("current_specialist") == "agente_contratos"

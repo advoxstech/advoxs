@@ -14,7 +14,13 @@ model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
 # o tenant_id vive dentro dele (isolamento multi-tenant).
-STATE_SCOPED_TOOLS = {"bucar_base_conhecimento_usuario", "buscar_base_conhecimento_escritorio"}
+STATE_SCOPED_TOOLS = {
+    "bucar_base_conhecimento_usuario",
+    "buscar_base_conhecimento_escritorio",
+    "gerar_link_pagamento_cliente",
+}
+# Saldo/enabled do cliente final: nunca confiar em valor vindo do LLM.
+BILLING_GATED_TOOLS = {"transfer_to_specialist"}
 
 
 async def agente_secretaria(state: dict) -> dict:
@@ -201,6 +207,10 @@ async def tool_node(state: dict) -> dict:
         args = dict(tool_call["args"])
         if tool_call["name"] in STATE_SCOPED_TOOLS:
             args["conversation_id"] = state["conversation_id"]
+        if tool_call["name"] in BILLING_GATED_TOOLS:
+            billing = state.get("end_customer_billing") or {}
+            args["end_customer_billing_enabled"] = bool(billing.get("enabled"))
+            args["end_customer_balance"] = billing.get("balance", 0)
 
         logger.info("Executando ferramenta | tool={} | args={}", tool_call["name"], args)
         observation = await tool.ainvoke(args)

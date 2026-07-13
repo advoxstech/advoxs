@@ -223,14 +223,25 @@ async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) ->
     return f"Link de pagamento gerado: {checkout_url}"
 
 @tool("transfer_to_specialist")
-def transfer_to_specialist(current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"]) -> str:
+def transfer_to_specialist(
+    current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"],
+    end_customer_billing_enabled: bool = False,
+    end_customer_balance: int = 0,
+) -> str:
     """
     Atualiza o estado do agente para transferir a conversa para um especialista.
 
     Args:
         current_specialist: Nome do especialista a ser transferido.
-        receptive_message_specialist: Indica se o agente recebe a mensagem do especialista.
+        end_customer_billing_enabled: preenchido automaticamente pelo sistema.
+        end_customer_balance: preenchido automaticamente pelo sistema.
     """
+    if end_customer_billing_enabled and end_customer_balance <= 0:
+        return (
+            "Transferência bloqueada: o cliente ainda não tem créditos disponíveis. "
+            "Ofereça os pacotes de crédito e gere o link de pagamento antes de "
+            "transferir para um especialista."
+        )
     return Command(
         update={
             "current_specialist": current_specialist,

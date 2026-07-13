@@ -42,6 +42,41 @@ def test_transfer_todos_especialistas_validos(specialist):
     assert result.update["current_specialist"] == specialist
 
 
+def test_transfer_bloqueada_sem_saldo_retorna_string():
+    result = transfer_to_specialist.invoke(
+        {
+            "current_specialist": "agente_condominial",
+            "end_customer_billing_enabled": True,
+            "end_customer_balance": 0,
+        }
+    )
+    assert isinstance(result, str)
+    assert "bloqueada" in result.lower()
+
+
+def test_transfer_liberada_com_saldo_positivo():
+    result = transfer_to_specialist.invoke(
+        {
+            "current_specialist": "agente_condominial",
+            "end_customer_billing_enabled": True,
+            "end_customer_balance": 100,
+        }
+    )
+    assert isinstance(result, Command)
+    assert result.update["current_specialist"] == "agente_condominial"
+
+
+def test_transfer_sem_billing_habilitado_ignora_saldo():
+    result = transfer_to_specialist.invoke(
+        {
+            "current_specialist": "agente_condominial",
+            "end_customer_billing_enabled": False,
+            "end_customer_balance": 0,
+        }
+    )
+    assert isinstance(result, Command)
+
+
 # ──────────────────────────────────────────────
 # bucar_base_conhecimento_condominial
 # ──────────────────────────────────────────────
