@@ -8,9 +8,9 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 Este repositório está em fase de transição entre planejamento e implementação:
 
-- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**, a **autenticação JWT** e a **gestão da base de conhecimento**: modelo de dados completo (migrations Alembic `0001`+`0002`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação), `/api/v1/knowledge-base/files` (upload/listagem/exclusão, ver seção Frontend), `/api/v1/whatsapp/{connect,connection,disconnect}` (conexão manual do número, ver seção Integração WhatsApp Business), o **cadastro self-service com pagamento** — `/api/v1/credit-packages` (listagem pública), `/api/v1/signup/{checkout,status}` e `/api/v1/webhooks/stripe` (ver seção Billing / Créditos) — o **painel de administração da plataforma** — `/api/v1/platform-admin/{auth/*,dashboard,tenants}` — o **playground de agentes** — `/api/v1/platform-admin/playground/{messages,conversations}` (ver seção Painel de Administração da Plataforma) — a **recompra de créditos** — `/api/v1/billing/{balance,checkout,status}` (ver seção Billing / Créditos) — e o **dashboard do escritório** — `/api/v1/dashboard` (agregado tenant-scoped, ver seção Frontend/`/inicio`) — o **perfil do escritório** — `/api/v1/profile` (perfil, troca de senha, logo, ver seção Frontend/`/perfil`) — e o **resumo de conversa sob demanda** — `POST /api/v1/conversations/{id}/summary` (resumo sob demanda, consumindo créditos). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta (o cadastro self-service é a via preferida agora pra criar um tenant, mas o seed ainda serve pra debug local); `scripts/seed_platform_admin.py` cria um `platform_admin` de back-office. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
-- `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. `ingest_knowledge_base_file` lê o arquivo do volume compartilhado `kb_uploads`, envia ao `api_rag` (`doc_id` = id do registro, `conversation_id="kb"`) e atualiza `status` (`ready`/`error`, com retry com backoff em erro transiente). Mesmos comandos de teste/lint do `api`.
-- `apps/web` implementa **login, o painel de conversas e a gestão da base de conhecimento**: `/login` (server action → cookies httpOnly com os tokens do `api`), middleware de proteção de rotas, proxy autenticado (`/api/backend/*` → `api`, com suporte a multipart/DELETE e refresh transparente do access token no 401), `/conversas` (lista com polling, thread, toggle de takeover e resposta manual), `/base-de-conhecimento` (upload PDF/DOCX/TXT até 20 MB/arquivo e 500 MB/tenant, listagem com status `processando`/`pronto`/`erro` via polling condicional, exclusão com confirmação; nome duplicado → erro 409 exibido), o **cadastro self-service** (`/`, `/cadastro/{sucesso,cancelado}`) e o **painel de administração da plataforma** (`/admin/*`, sessão totalmente isolada da de tenant, incluindo o playground de agentes em `/admin/playground` — ver seção Painel de Administração da Plataforma) a **recompra de créditos** (`/creditos`, ver seção Frontend), o **dashboard do escritório** (`/inicio`, página inicial pós-login — ver seção Frontend) e o **perfil do escritório** (`/perfil`, ver seção Frontend). Design tokens em `globals.css`/`tailwind.config.ts` (papel frio + verde-tinta + latão para o estado manual; fontes Spectral/IBM Plex via `next/font`). Comandos: `pnpm test`, `pnpm lint`, `pnpm build` (dentro de `apps/web`).
+- `apps/api` já implementa o **fluxo de mensagem entrante do WhatsApp**, a **autenticação JWT** e a **gestão da base de conhecimento**: modelo de dados completo (migrations Alembic `0001`+`0002`, todas as tabelas da seção "Modelo de Dados" + RLS), webhook da Meta (`GET`/`POST /api/v1/webhooks/whatsapp`, com validação de `X-Hub-Signature-256` quando `META_APP_SECRET` setado), resolução de tenant via `phone_number_id`, persistência em `conversations`/`messages` (dedup por `wa_message_id`), enfileiramento no Arq, auth completa (`/api/v1/auth/{login,refresh,logout}`, ver seção Autenticação), `/api/v1/knowledge-base/files` (upload/listagem/exclusão, ver seção Frontend), `/api/v1/whatsapp/{connect,connection,disconnect}` (conexão manual do número, ver seção Integração WhatsApp Business), o **cadastro self-service com pagamento** — `/api/v1/credit-packages` (listagem pública), `/api/v1/signup/{checkout,status}` e `/api/v1/webhooks/stripe` (ver seção Billing / Créditos) — o **painel de administração da plataforma** — `/api/v1/platform-admin/{auth/*,dashboard,tenants}` — o **playground de agentes** — `/api/v1/platform-admin/playground/{messages,conversations}` (ver seção Painel de Administração da Plataforma) — a **recompra de créditos** — `/api/v1/billing/{balance,checkout,status}` (ver seção Billing / Créditos) — e o **dashboard do escritório** — `/api/v1/dashboard` (agregado tenant-scoped, ver seção Frontend/`/inicio`) — o **perfil do escritório** — `/api/v1/profile` (perfil, troca de senha, logo, ver seção Frontend/`/perfil`) — e o **resumo de conversa sob demanda** — `POST /api/v1/conversations/{id}/summary` (resumo sob demanda, consumindo créditos) — e a **cobrança do cliente final** — `/api/v1/end-customer-billing/{settings,packages}`, `/api/v1/internal/end-customer-billing/checkout` e `/api/v1/webhooks/stripe/tenant/{tenant_id}` (ver seção Billing / Créditos). Há um seed de dev (`scripts/seed_dev.py`) que cria tenant + usuário + número WhatsApp cifrado para exercitar o fluxo ponta a ponta (o cadastro self-service é a via preferida agora pra criar um tenant, mas o seed ainda serve pra debug local); `scripts/seed_platform_admin.py` cria um `platform_admin` de back-office. Comandos: `uv run pytest tests/unit`, `uv run ruff check .`, `uv run alembic upgrade head` (dentro de `apps/api`).
+- `apps/worker` implementa `process_inbound_message`: checa o estado da conversa (`agent`|`human`), descriptografa o access token do tenant (Fernet, env `WHATSAPP_TOKEN_ENCRYPTION_KEY`), chama o `agents` via `POST /messages` (retry com backoff em erro transiente; 202 = debounce agrupou) e persiste as respostas do agente em `messages`. Quando a **cobrança do cliente final** está habilitada pro tenant, também lê o saldo/pacotes do cliente final antes da chamada (mesmo lugar onde já lê o `credit_balance` do tenant) e debita o consumo do cliente final na mesma transação do débito do tenant (ver seção Billing / Créditos). `ingest_knowledge_base_file` lê o arquivo do volume compartilhado `kb_uploads`, envia ao `api_rag` (`doc_id` = id do registro, `conversation_id="kb"`) e atualiza `status` (`ready`/`error`, com retry com backoff em erro transiente). Mesmos comandos de teste/lint do `api`.
+- `apps/web` implementa **login, o painel de conversas e a gestão da base de conhecimento**: `/login` (server action → cookies httpOnly com os tokens do `api`), middleware de proteção de rotas, proxy autenticado (`/api/backend/*` → `api`, com suporte a multipart/DELETE e refresh transparente do access token no 401), `/conversas` (lista com polling, thread, toggle de takeover e resposta manual), `/base-de-conhecimento` (upload PDF/DOCX/TXT até 20 MB/arquivo e 500 MB/tenant, listagem com status `processando`/`pronto`/`erro` via polling condicional, exclusão com confirmação; nome duplicado → erro 409 exibido), o **cadastro self-service** (`/`, `/cadastro/{sucesso,cancelado}`) e o **painel de administração da plataforma** (`/admin/*`, sessão totalmente isolada da de tenant, incluindo o playground de agentes em `/admin/playground` — ver seção Painel de Administração da Plataforma) a **recompra de créditos** (`/creditos`, ver seção Frontend), o **dashboard do escritório** (`/inicio`, página inicial pós-login — ver seção Frontend), o **perfil do escritório** (`/perfil`, ver seção Frontend) e a **cobrança do cliente final** (`/configuracoes/cobranca-clientes` e a página pública `/pagamento-confirmado`, ver seção Billing / Créditos). Design tokens em `globals.css`/`tailwind.config.ts` (papel frio + verde-tinta + latão para o estado manual; fontes Spectral/IBM Plex via `next/font`). Comandos: `pnpm test`, `pnpm lint`, `pnpm build` (dentro de `apps/web`).
 - `apps/agents` e `apps/api_rag` **já existem como código real**: são dois projetos standalone, construídos anteriormente para um único escritório/cliente (fora deste monorepo), agora trazidos para cá para se tornarem o coração da plataforma (execução de agentes e RAG, respectivamente). Ambos são FastAPI + Python 3.13, gerenciados por `uv`, com `Dockerfile`/`docker-compose.yml` próprios.
 - **Ambos foram construídos single-tenant** (sem noção de `tenant_id`) — ver seções "Agents Service" e "RAG Service" abaixo para o detalhamento de features e o que precisa ser adaptado para multi-tenancy antes de irem para produção nesta plataforma.
 - Os `README.md` desses dois projetos estão vazios; a documentação real está em `apps/agents/API_AGENTS.md` e `apps/api_rag/API.md` — são a fonte da verdade sobre o comportamento atual de cada serviço e devem ser consultados (e mantidos atualizados) sempre que o código deles mudar.
@@ -146,7 +146,7 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `id` (uuid, PK)
 - `conversation_id` (FK → `conversations`)
 - `tenant_id` (FK → `tenants`, denormalizado — facilita filtro/RLS direto na tabela sem join)
-- `sender_type` (`agent` | `human` | `contact`)
+- `sender_type` (`agent` | `human` | `contact` | `system` — `system` é usado só pra confirmação de pagamento do cliente final, ver seção Billing / Créditos)
 - `content` (text)
 - `delivery_status` (nullable — `sent`|`failed`; só significativo pra `sender_type` `agent`/`human`; `NULL` pra mensagens de contato e mensagens anteriores a esta feature)
 - `media_url` (nullable — hoje guarda o media ID da Meta; download da mídia é pendência)
@@ -184,6 +184,45 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `description`
 - `created_at`
 
+### `tenant_billing_settings` (tenant-scoped, 1:1 com tenant)
+> Configuração da cobrança do cliente final — cada tenant usa a própria conta Stripe para vender créditos aos próprios clientes (ver seção Billing / Créditos).
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`, `UNIQUE`)
+- `enabled` (bool, default `false` — opt-in)
+- `billing_mode` (`credits` — único valor suportado por ora; hook de extensibilidade pra modos futuros como assinatura/por conversa)
+- `stripe_secret_key_encrypted` (nullable, cifrado — Fernet, chave própria `TENANT_STRIPE_KEY_ENCRYPTION_KEY`, nunca a mesma do WhatsApp)
+- `stripe_webhook_secret_encrypted` (nullable, cifrado — mesma chave)
+- `end_customer_tokens_per_credit` (nullable, integer — conversão de consumo, definida por tenant)
+- `created_at`, `updated_at`
+
+### `end_customer_credit_packages` (tenant-scoped)
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`)
+- `name`
+- `price_brl` (numeric)
+- `credits_granted` (integer)
+- `active` (bool)
+
+### `end_customer_balances` (tenant-scoped)
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`)
+- `contact_phone_number`
+- `credit_balance` (integer, default `0`)
+- `created_at`, `updated_at`
+- `UNIQUE (tenant_id, contact_phone_number)`
+
+### `end_customer_credit_transactions` (tenant-scoped — ledger/auditoria)
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`)
+- `contact_phone_number`
+- `type` (`purchase` | `consumption`)
+- `amount_credits` (integer — positivo em `purchase`, negativo em `consumption`)
+- `end_customer_credit_package_id` (FK → `end_customer_credit_packages`, nullable — preenchido em `purchase`)
+- `related_message_id` (FK → `messages`, nullable — preenchido em `consumption`)
+- `stripe_payment_id` (nullable, unique — idempotência do webhook)
+- `description`
+- `created_at`
+
 ### Relacionamentos (resumo)
 ```
 tenants 1───N users
@@ -191,8 +230,13 @@ tenants 1───1 whatsapp_numbers
 tenants 1───N knowledge_base_files
 tenants 1───N conversations 1───N messages
 tenants 1───N credit_transactions
+tenants 1───1 tenant_billing_settings
+tenants 1───N end_customer_credit_packages
+tenants 1───N end_customer_balances
+tenants 1───N end_customer_credit_transactions
 credit_packages 1───N credit_transactions (quando type = purchase)
 messages 1───N credit_transactions (quando type = consumption, via related_message_id)
+end_customer_credit_packages 1───N end_customer_credit_transactions (quando type = purchase)
 ```
 
 ### Migrations
@@ -303,6 +347,25 @@ Chat de teste para desenvolvedores conversarem com os agentes de qualquer tenant
 - ✅ **Cadastro self-service com pagamento implementado**: o escritório escolhe um pacote em `/` (ver seção Frontend) e o `api` (`POST /api/v1/signup/checkout`) cria uma Stripe Checkout Session (modo `payment`, sem assinatura recorrente) guardando os dados do cadastro (nome, e-mail, hash da senha, pacote) na `metadata` da sessão — **nada é persistido no banco antes do pagamento confirmar**. O webhook (`POST /api/v1/webhooks/stripe`, assinatura validada via `STRIPE_WEBHOOK_SECRET`) trata `checkout.session.completed`: cria `tenant`+`user`(`role=admin`)+`credit_transactions` (tipo `purchase`) numa única transação, e atualiza `tenants.credit_balance`. Idempotente pela `id` da Checkout Session (`stripe_payment_id`) — webhook duplicado (retry da Stripe) não duplica tenant/crédito. `GET /api/v1/signup/status` é consultado pelo front (`/cadastro/sucesso`) até a conta ficar pronta.
 - ✅ **Recompra de créditos implementada** (`/creditos`, escritório já cadastrado): mesmo webhook único (`POST /api/v1/webhooks/stripe`), mas a metadata da sessão carrega `flow="recompra"` em vez dos dados de cadastro — o `tenant_id` vem do JWT do tenant autenticado no momento de criar o checkout (`POST /api/v1/billing/checkout`), nunca do corpo da requisição, e é gravado na metadata pelo servidor. `process_checkout_completed` ramifica por esse campo: `flow="recompra"` credita um `tenant` já existente (soma em `credit_balance`, lança `credit_transactions` tipo `purchase`) **sem criar** `user`/`tenant` novos; ausência do campo (formato do cadastro self-service, já em produção) continua indo pro fluxo antigo, sem nenhuma mudança de comportamento. Mesma idempotência por `stripe_payment_id`, compartilhada entre os dois fluxos.
 
+### Cobrança do cliente final — ✅ implementada (segunda camada, independente do billing acima)
+
+Além do billing tenant→plataforma (acima), cada tenant pode cobrar os **próprios clientes finais** pelo uso dos agentes no WhatsApp, usando a **conta Stripe do próprio tenant** — completamente independente da Stripe da plataforma. Mesmo modelo de créditos, mas dois ledgers/saldos separados: o consumo de uma execução do agente sempre debita o crédito do *tenant* com a plataforma (regra acima, inalterada) e, quando essa feature está habilitada, **também** debita o crédito do *cliente final* com o tenant.
+
+- **Opt-in por tenant**: toggle `enabled` em `tenant_billing_settings` — sem configurar, o agente responde de graça como hoje, pra todo tenant existente (nenhuma mudança de comportamento).
+- **Painel** (`/configuracoes/cobranca-clientes`): o tenant cola a secret key e o webhook secret da própria Stripe, define a conversão de tokens por crédito e cadastra os próprios pacotes de crédito (CRUD completo — `/api/v1/end-customer-billing/packages`). A tela mostra a **URL do webhook** (`https://<api>/api/v1/webhooks/stripe/tenant/{tenant_id}`) que o tenant precisa colar no Dashboard da própria conta Stripe, evento `checkout.session.completed`.
+- **Checkout gerado dinamicamente**: quando o cliente final decide comprar créditos, a secretária (tool `gerar_link_pagamento_cliente`, ver seção Agents Service) chama um endpoint interno do `api` (`POST /api/v1/internal/end-customer-billing/checkout`, autenticado por `INTERNAL_SERVICE_KEY` — chave de serviço própria, direção oposta da `AGENTS_API_KEY`) que cria a Checkout Session **com a secret key do tenant** (`api_key=` explícito em cada chamada — nunca `stripe.api_key` global, que vazaria entre tenants concorrentes) e devolve só a URL; a secret key nunca chega no `agents`.
+- **Webhook por tenant** (`POST /api/v1/webhooks/stripe/tenant/{tenant_id}`): o `tenant_id` na URL é só roteamento pra achar o webhook secret certo antes de validar a assinatura (não dá pra "tentar" o secret de todos os tenants contra um payload); tenant inexistente ou assinatura inválida devolvem o mesmo `400` genérico (sem oráculo de enumeração de tenant). Credita `end_customer_balances`, lança `end_customer_credit_transactions` (idempotente por `stripe_payment_id`) e manda uma mensagem de confirmação via WhatsApp (`messages.sender_type="system"`) — best-effort: uma falha ao mandar a confirmação não desfaz o crédito, que já foi commitado antes.
+- **Gate técnico no grafo do `agents`**: sem saldo (feature habilitada + `balance <= 0`), a tool `transfer_to_specialist` recusa a transferência e a secretária oferece os pacotes cadastrados/gera o link em vez de transferir. Esse saldo é **re-checado a cada turno dentro dos 3 nós de especialista também**, não só na transferência inicial — sem isso, uma vez transferida a conversa fica fixada no especialista (`current_specialist` no checkpoint), então um cliente que comprasse um pacote pequeno ganharia atendimento gratuito ilimitado depois de esgotar o saldo. Quando bloqueado, o especialista devolve a conversa pra secretária (`current_specialist=None`) em vez de responder.
+- **Débito do cliente final**: o `worker` lê o saldo/pacotes antes de chamar o `agents` e, se havia saldo positivo **antes** da chamada, debita `ceil(tokens_used / end_customer_tokens_per_credit)` na mesma transação do débito do tenant — saldo já zerado não gera débito (a interação foi só a secretária oferecendo pacotes, custeada normalmente pelo crédito do tenant com a plataforma).
+- **`/pagamento-confirmado`**: página pública e estática do `web` (sem sessão, sem polling) — destino do `success_url`/`cancel_url` do checkout do cliente final; a confirmação de fato chega pelo WhatsApp via o webhook acima.
+
+⚠️ **Segredos obrigatórios em produção**: `TENANT_STRIPE_KEY_ENCRYPTION_KEY` (Fernet própria) precisa estar setada, senão salvar a secret key de um tenant quebra com `RuntimeError`. `INTERNAL_SERVICE_KEY` precisa ser o **mesmo valor** no `.env` do `api` e do `agents` — se não setada, a verificação do endpoint interno é **pulada** (mesmo padrão já existente do `AGENTS_API_KEY`), então tratar como obrigatória antes de ir ao ar (hoje falha aberto, não fechado).
+
+#### Pendências da cobrança do cliente final
+- [ ] Nenhuma validação impede habilitar a cobrança sem nenhum pacote ativo cadastrado — o cliente final fica sem saldo e sem nada pra comprar até o tenant cadastrar ao menos 1 pacote.
+- [ ] `success_url`/`cancel_url` do checkout do cliente final apontam pra mesma página (`/pagamento-confirmado`) — sem distinção visual entre pagamento concluído e cancelado.
+- [ ] Sem custo fixo em créditos por tool (mesma pendência da seção "Regra de consumo" acima, replicada aqui porque agora existem dois lados consumindo).
+
 ### Configuração da Stripe — ✅ chaves de teste configuradas e testadas ponta a ponta
 
 - **Chave da API**: usar uma **Restricted API Key** (`rk_test_...`/`rk_live_...`), não a Secret Key completa (`sk_...`) — só com a permissão **Checkout Sessions: Write**, que é a única chamada que o `api` faz (`stripe.checkout.Session.create`). Criar em `dashboard.stripe.com/{test,}/apikeys` → "Create restricted key". Vai em `STRIPE_SECRET_KEY` no `.env` (nunca commitado — `.env` é ignorado pelo git).
@@ -361,6 +424,7 @@ O comando imprime um `whsec_...` — copiar pra `STRIPE_WEBHOOK_SECRET` no `.env
 - Grafo composto por uma **secretária de triagem** (`agente_secretaria`) + três **especialistas fixos**: `agente_condominial`, `agente_contratos`, `agente_direito_consumidor`. A secretária faz a triagem inicial e transfere para o especialista certo via tool `transfer_to_specialist`; a partir daí a conversa fica fixada nesse especialista (persistido no checkpoint).
 - Estado da conversa (histórico de mensagens, especialista fixado) persistido em **Postgres** via `AsyncPostgresSaver` do LangGraph — o `thread_id` do checkpoint é hoje o `conversation_id` do Chatwoot.
 - Tools de RAG (`bucar_base_conhecimento_condominial/contratos/direito_consumidor`, `bucar_base_conhecimento_usuario`, `buscar_base_conhecimento_escritorio`) chamam o `api_rag` via HTTP (`RAG_API_URL`) para buscar na base do sistema (por categoria), na base de documentos do próprio usuário/conversa, ou na base de conhecimento do escritório (`conversation_id` reservado `"kb"` — ver seção RAG Service e "Frontend"/`/base-de-conhecimento`). Bindada aos 4 agentes (secretária + 3 especialistas). O `tool_node` injeta o `conversation_id` do estado do grafo nas tools escopadas por tenant (`STATE_SCOPED_TOOLS`), **nunca** confiando no valor gerado pelo LLM — isolamento multi-tenant.
+- ✅ **Cobrança do cliente final** (ver seção Billing / Créditos): tool `gerar_link_pagamento_cliente` (bindada à secretária) chama um endpoint interno do `api` pra gerar o link de pagamento — nunca vê a secret key da Stripe do tenant. Gate técnico em `transfer_to_specialist` **e** nos 3 nós de especialista (helper compartilhado `is_billing_blocked`, pra nunca divergir entre os dois pontos): sem saldo, a transferência/continuidade é recusada e a secretária oferece os pacotes cadastrados pelo tenant. O saldo/pacotes chegam no `state["end_customer_billing"]` (propagado desde o `POST /messages`) e são injetados nos argumentos da tool pelo `tool_node` (`STATE_SCOPED_TOOLS`/injeção equivalente) — nunca confiando em valor que o LLM tente passar.
 - Sanitização de histórico (`strip_messages`) antes de cada chamada ao LLM: fecha `tool_calls` pendentes (evita erro da OpenAI) e recorta às últimas N mensagens sem quebrar um bloco de tool no meio.
 - Observabilidade via **Langfuse** (tracing) + **Loguru** (log estruturado, rotação em arquivo se `LOG_FILE` setado).
 - Endpoints: `POST /` (webhook), `GET /agents` (lista agentes/tools disponíveis, para dashboards), `DELETE /conversations/{thread_id}` (apaga histórico de uma conversa), `POST /summaries` (resumo de conversa sob demanda, chamada direta ao LLM sem grafo — usado pelo `api` na feature de resumo do painel de conversas).
@@ -524,4 +588,4 @@ Os dois microserviços já existem (ver seções "Agents Service" e "RAG Service
 - [x] ~~Instrumentar consumo de créditos por tokens~~ (feito — `agents` devolve `tokens_used`, `worker` debita; ver "Regra de consumo"). Falta: custo fixo por tool e consumo do `api_rag` (ingestão/retrieval).
 - [ ] Rotacionar os segredos reais presentes nos `.env` trazidos junto com esses dois projetos.
 
-(Ver também "Pendências específicas do WhatsApp", "Pendências de billing", "Pendências do modelo de dados" e "Pendências de CI/CD e testes" nas seções acima.)
+(Ver também "Pendências específicas do WhatsApp", "Pendências de billing", "Pendências da cobrança do cliente final", "Pendências do modelo de dados" e "Pendências de CI/CD e testes" nas seções acima.)
