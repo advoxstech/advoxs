@@ -31,10 +31,29 @@ async def agente_secretaria(state: dict) -> dict:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, buscar_base_conhecimento_escritorio])
+    model_with_tools = model.bind_tools(
+        [transfer_to_specialist, buscar_base_conhecimento_escritorio, gerar_link_pagamento_cliente]
+    )
 
     with open("agents/prompts/secretaria.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
+
+    billing = state.get("end_customer_billing") or {}
+    billing_blocks_transfer = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
+    if billing_blocks_transfer:
+        packages_text = "\n".join(
+            f"- {p['name']}: R$ {p['price_brl']} = {p['credits_granted']} créditos "
+            f"(package_id: {p['id']})"
+            for p in billing.get("packages", [])
+        )
+        prompt += (
+            "\n\n---\n"
+            "**Instrução:** Este cliente está sem créditos disponíveis. Antes de "
+            "transferir para um especialista, explique que é necessário comprar "
+            "créditos e ofereça os pacotes abaixo. Quando o cliente escolher um, "
+            "use a tool gerar_link_pagamento_cliente com o package_id correspondente.\n\n"
+            f"Pacotes disponíveis:\n{packages_text}"
+        )
 
     response = await model_with_tools.ainvoke([
         SystemMessage(content=prompt),
@@ -45,7 +64,7 @@ async def agente_secretaria(state: dict) -> dict:
         tool_name = response.tool_calls[0]["name"]
         logger.info("Ferramenta selecionada | tool={}", tool_name)
 
-        if tool_name == "transfer_to_specialist" and not response.content:
+        if tool_name == "transfer_to_specialist" and not response.content and not billing_blocks_transfer:
             specialist = response.tool_calls[0]["args"].get("current_specialist", "especialista")
             label = specialist.replace("agente_", "").replace("_", " ")
             farewell = f"um momento... vou te passar pro especialista de {label} agora."

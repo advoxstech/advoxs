@@ -81,6 +81,146 @@ async def test_secretaria_tool_call_mantem_tool_calls_na_mensagem():
     assert ai_msg.tool_calls[0]["name"] == "transfer_to_specialist"
 
 
+@pytest.mark.asyncio
+async def test_secretaria_bind_inclui_gerar_link_pagamento(monkeypatch) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agente_secretaria(base_state(end_customer_billing={"enabled": False, "balance": 0, "packages": []}))
+
+    bound_tools = model.bind_tools.call_args.args[0]
+    tool_names = {t.name for t in bound_tools}
+    assert "gerar_link_pagamento_cliente" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_secretaria_injeta_pacotes_no_prompt_quando_sem_saldo(monkeypatch) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(
+        end_customer_billing={
+            "enabled": True,
+            "balance": 0,
+            "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+        }
+    )
+    await agente_secretaria(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Básico" in prompt_arg.content
+    assert "p-1" in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_secretaria_nao_injeta_pacotes_quando_billing_desabilitado(monkeypatch) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(
+        end_customer_billing={
+            "enabled": False,
+            "balance": 0,
+            "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+        }
+    )
+    await agente_secretaria(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Básico" not in prompt_arg.content
+    assert "Pacotes disponíveis" not in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_secretaria_nao_injeta_pacotes_com_saldo_positivo(monkeypatch) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(
+        end_customer_billing={
+            "enabled": True,
+            "balance": 500,
+            "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+        }
+    )
+    await agente_secretaria(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Básico" not in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_secretaria_transfer_sem_content_pula_despedida_quando_bloqueado():
+    """Quando a transferência vai ser bloqueada (sem saldo), não injeta despedida de
+    transferência — o tool_node ainda vai rodar e transfer_to_specialist vai recusar,
+    então a despedida ("vou te passar pro especialista agora") ficaria contraditória."""
+    from agents.nodes import agente_secretaria
+    fake = ai_with_tool_call(
+        "transfer_to_specialist",
+        {"current_specialist": "agente_condominial"},
+        content="",
+    )
+
+    with patch("agents.nodes.model", mock_model(fake)):
+        result = await agente_secretaria(
+            base_state(end_customer_billing={"enabled": True, "balance": 0, "packages": []})
+        )
+
+    ai_msg = result.update["messages"][0]
+    assert ai_msg.content == ""
+    assert ai_msg.tool_calls, "tool_calls devem ser preservados mesmo sem despedida"
+    assert result.goto == "tool_node"
+
+
+@pytest.mark.asyncio
+async def test_secretaria_transfer_sem_content_injeta_despedida_quando_billing_desabilitado():
+    """Sem billing habilitado (fluxo de escritório normal), a despedida continua sendo injetada."""
+    from agents.nodes import agente_secretaria
+    fake = ai_with_tool_call(
+        "transfer_to_specialist",
+        {"current_specialist": "agente_condominial"},
+        content="",
+    )
+
+    with patch("agents.nodes.model", mock_model(fake)):
+        result = await agente_secretaria(
+            base_state(end_customer_billing={"enabled": False, "balance": 0, "packages": []})
+        )
+
+    ai_msg = result.update["messages"][0]
+    assert ai_msg.content != ""
+    assert "condominial" in ai_msg.content.lower() or "especialista" in ai_msg.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_secretaria_transfer_sem_content_injeta_despedida_quando_billing_com_saldo():
+    """Com billing habilitado mas saldo positivo, a transferência não será bloqueada —
+    a despedida deve continuar sendo injetada normalmente."""
+    from agents.nodes import agente_secretaria
+    fake = ai_with_tool_call(
+        "transfer_to_specialist",
+        {"current_specialist": "agente_condominial"},
+        content="",
+    )
+
+    with patch("agents.nodes.model", mock_model(fake)):
+        result = await agente_secretaria(
+            base_state(end_customer_billing={"enabled": True, "balance": 500, "packages": []})
+        )
+
+    ai_msg = result.update["messages"][0]
+    assert ai_msg.content != ""
+    assert "condominial" in ai_msg.content.lower() or "especialista" in ai_msg.content.lower()
+
+
 # ──────────────────────────────────────────────
 # agente_condominial
 # ──────────────────────────────────────────────
