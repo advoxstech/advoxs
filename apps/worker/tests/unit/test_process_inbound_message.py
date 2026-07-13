@@ -206,3 +206,96 @@ async def test_load_context_seta_app_tenant_id(patched) -> None:
         if len(call.args) > 1 and call.args[1] == {"tenant_id": TENANT_ID}
     ]
     assert len(set_config_calls) >= 1
+
+
+def _inbound_com_billing(balance: int, tokens_per_credit: int = 500) -> InboundContext:
+    return InboundContext(
+        conversation_state="agent",
+        contact_phone_number="5511888888888",
+        message_content="Olá",
+        phone_number_id="PNID",
+        access_token_encrypted="token-cifrado",
+        credit_balance=1000,
+        end_customer_billing_enabled=True,
+        end_customer_tokens_per_credit=tokens_per_credit,
+        end_customer_balance=balance,
+        end_customer_packages=[
+            {"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}
+        ],
+    )
+
+
+async def test_billing_habilitado_com_saldo_debita_cliente_final(monkeypatch) -> None:
+    mocks = {
+        "load": AsyncMock(return_value=_inbound_com_billing(balance=1000)),
+        "decrypt": MagicMock(return_value="token-claro"),
+        "send": AsyncMock(return_value={"responses": ["oi"], "tokens_used": 2000}),
+        "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
+        "debitar": AsyncMock(),
+        "debitar_cliente_final": AsyncMock(),
+    }
+    monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
+    monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
+    monkeypatch.setattr(messages_task, "send_message_to_agents", mocks["send"])
+    monkeypatch.setattr(messages_task, "_persist_agent_responses", mocks["persist"])
+    monkeypatch.setattr(messages_task, "_debitar_creditos", mocks["debitar"])
+    monkeypatch.setattr(
+        messages_task, "_debitar_creditos_cliente_final", mocks["debitar_cliente_final"]
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    mocks["send"].assert_awaited_once()
+    assert mocks["send"].await_args.kwargs["end_customer_billing"]["balance"] == 1000
+    mocks["debitar_cliente_final"].assert_awaited_once()
+    assert mocks["debitar_cliente_final"].await_args.args[4] == 2000  # tokens_used
+    assert mocks["debitar_cliente_final"].await_args.args[5] == 4  # ceil(2000/500)
+
+
+async def test_billing_habilitado_sem_saldo_nao_debita_cliente_final(monkeypatch) -> None:
+    mocks = {
+        "load": AsyncMock(return_value=_inbound_com_billing(balance=0)),
+        "decrypt": MagicMock(return_value="token-claro"),
+        "send": AsyncMock(return_value={"responses": ["oi"], "tokens_used": 2000}),
+        "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
+        "debitar": AsyncMock(),
+        "debitar_cliente_final": AsyncMock(),
+    }
+    monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
+    monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
+    monkeypatch.setattr(messages_task, "send_message_to_agents", mocks["send"])
+    monkeypatch.setattr(messages_task, "_persist_agent_responses", mocks["persist"])
+    monkeypatch.setattr(messages_task, "_debitar_creditos", mocks["debitar"])
+    monkeypatch.setattr(
+        messages_task, "_debitar_creditos_cliente_final", mocks["debitar_cliente_final"]
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    mocks["send"].assert_awaited_once()
+    assert mocks["send"].await_args.kwargs["end_customer_billing"]["balance"] == 0
+    mocks["debitar_cliente_final"].assert_not_awaited()
+
+
+async def test_billing_desabilitado_nao_manda_bloco_e_nao_debita(monkeypatch) -> None:
+    mocks = {
+        "load": AsyncMock(return_value=_inbound()),  # helper já existente, sem billing habilitado
+        "decrypt": MagicMock(return_value="token-claro"),
+        "send": AsyncMock(return_value={"responses": ["oi"], "tokens_used": 2000}),
+        "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
+        "debitar": AsyncMock(),
+        "debitar_cliente_final": AsyncMock(),
+    }
+    monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
+    monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
+    monkeypatch.setattr(messages_task, "send_message_to_agents", mocks["send"])
+    monkeypatch.setattr(messages_task, "_persist_agent_responses", mocks["persist"])
+    monkeypatch.setattr(messages_task, "_debitar_creditos", mocks["debitar"])
+    monkeypatch.setattr(
+        messages_task, "_debitar_creditos_cliente_final", mocks["debitar_cliente_final"]
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert "end_customer_billing" not in mocks["send"].await_args.kwargs
+    mocks["debitar_cliente_final"].assert_not_awaited()

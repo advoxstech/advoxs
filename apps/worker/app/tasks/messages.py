@@ -76,6 +76,14 @@ async def process_inbound_message(
 
     access_token = decrypt_access_token(inbound.access_token_encrypted)
 
+    extra_kwargs: dict = {}
+    if inbound.end_customer_billing_enabled:
+        extra_kwargs["end_customer_billing"] = {
+            "enabled": True,
+            "balance": inbound.end_customer_balance,
+            "packages": inbound.end_customer_packages,
+        }
+
     try:
         result = await send_message_to_agents(
             http,
@@ -84,6 +92,7 @@ async def process_inbound_message(
             message=inbound.message_content,
             phone_number_id=inbound.phone_number_id,
             access_token=access_token,
+            **extra_kwargs,
         )
     except httpx.HTTPError as exc:
         if ctx.get("job_try", 1) < MAX_TRIES:
@@ -138,6 +147,25 @@ async def process_inbound_message(
         if credits and first_message_id is not None:
             # Ledger + saldo na mesma transação das mensagens.
             await _debitar_creditos(session, tenant_id, first_message_id, tokens_used, credits)
+
+        if (
+            inbound.end_customer_billing_enabled
+            and inbound.end_customer_balance > 0
+            and tokens_used
+            and inbound.end_customer_tokens_per_credit
+            and first_message_id is not None
+        ):
+            end_customer_credits = math.ceil(tokens_used / inbound.end_customer_tokens_per_credit)
+            if end_customer_credits:
+                await _debitar_creditos_cliente_final(
+                    session,
+                    tenant_id,
+                    inbound.contact_phone_number,
+                    first_message_id,
+                    tokens_used,
+                    end_customer_credits,
+                )
+
         await session.commit()
 
 
@@ -319,4 +347,35 @@ async def _debitar_creditos(
         update(tables.tenants)
         .where(tables.tenants.c.id == uuid.UUID(tenant_id))
         .values(credit_balance=tables.tenants.c.credit_balance - credits)
+    )
+
+
+async def _debitar_creditos_cliente_final(
+    session: AsyncSession,
+    tenant_id: str,
+    contact_phone_number: str,
+    message_id: uuid.UUID,
+    tokens_used: int,
+    credits: int,
+) -> None:
+    """Débito do saldo do CLIENTE FINAL com o tenant — independente do débito
+    do tenant com a plataforma (_debitar_creditos), mesma transação."""
+    await session.execute(
+        insert(tables.end_customer_credit_transactions).values(
+            tenant_id=uuid.UUID(tenant_id),
+            contact_phone_number=contact_phone_number,
+            type="consumption",
+            amount_credits=-credits,
+            related_message_id=message_id,
+            description=f"Consumo do agente ({tokens_used} tokens)",
+            created_at=datetime.now(UTC),
+        )
+    )
+    await session.execute(
+        update(tables.end_customer_balances)
+        .where(
+            tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
+            tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
+        )
+        .values(credit_balance=tables.end_customer_balances.c.credit_balance - credits)
     )
