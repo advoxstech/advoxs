@@ -21,9 +21,12 @@ from app.schemas.end_customer_billing import (
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
 
-def _to_settings_out(settings_row: TenantBillingSettings | None) -> TenantBillingSettingsOut:
+def _to_settings_out(
+    tenant_id: uuid.UUID, settings_row: TenantBillingSettings | None
+) -> TenantBillingSettingsOut:
     if settings_row is None:
         return TenantBillingSettingsOut(
+            tenant_id=tenant_id,
             enabled=False,
             billing_mode="credits",
             stripe_secret_key_configured=False,
@@ -31,6 +34,7 @@ def _to_settings_out(settings_row: TenantBillingSettings | None) -> TenantBillin
             end_customer_tokens_per_credit=None,
         )
     return TenantBillingSettingsOut(
+        tenant_id=tenant_id,
         enabled=settings_row.enabled,
         billing_mode=settings_row.billing_mode,
         stripe_secret_key_configured=settings_row.stripe_secret_key_encrypted is not None,
@@ -52,7 +56,7 @@ async def get_settings(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> TenantBillingSettingsOut:
-    return _to_settings_out(await _get_settings_row(ctx, session))
+    return _to_settings_out(ctx.tenant_id, await _get_settings_row(ctx, session))
 
 
 @router.patch("/settings")
@@ -91,7 +95,7 @@ async def update_settings(
         row.enabled = body.enabled
 
     await session.commit()
-    return _to_settings_out(row)
+    return _to_settings_out(ctx.tenant_id, row)
 
 
 @router.get("/packages")

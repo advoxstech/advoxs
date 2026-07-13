@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { backendFetch } from "@/lib/client-api";
 
 type Settings = {
+  tenant_id: string;
   enabled: boolean;
   billing_mode: string;
   stripe_secret_key_configured: boolean;
@@ -14,12 +15,18 @@ type Settings = {
 };
 
 const EMPTY_SETTINGS: Settings = {
+  tenant_id: "",
   enabled: false,
   billing_mode: "credits",
   stripe_secret_key_configured: false,
   stripe_webhook_secret_configured: false,
   end_customer_tokens_per_credit: null,
 };
+
+function webhookUrlFor(tenantId: string): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
+  return `${apiUrl}/api/v1/webhooks/stripe/tenant/${tenantId}`;
+}
 
 type Package = {
   id: string;
@@ -192,6 +199,18 @@ export function EndCustomerBillingPanel() {
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
           </label>
+          {settings.tenant_id && (
+            <div className="flex flex-col gap-1 text-sm text-ink">
+              URL do webhook
+              <code className="break-all rounded border border-line bg-surface px-3 py-2 text-xs text-muted">
+                {webhookUrlFor(settings.tenant_id)}
+              </code>
+              <p className="text-xs text-muted">
+                Crie um endpoint com essa URL no Dashboard da sua conta Stripe (evento{" "}
+                <code>checkout.session.completed</code>) e cole o Webhook Secret gerado abaixo.
+              </p>
+            </div>
+          )}
           <label className="flex flex-col gap-1 text-sm text-ink">
             Webhook Secret {settings.stripe_webhook_secret_configured && "(configurado)"}
             <input

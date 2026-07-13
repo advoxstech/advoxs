@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TenantBillingSettingsOut(BaseModel):
+    tenant_id: uuid.UUID
     enabled: bool
     billing_mode: str
     stripe_secret_key_configured: bool

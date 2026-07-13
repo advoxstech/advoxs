@@ -58,6 +58,14 @@ def test_get_sem_configuracao_retorna_default(client, session) -> None:
     assert body["stripe_webhook_secret_configured"] is False
 
 
+def test_get_retorna_tenant_id_para_montar_url_do_webhook(client, session) -> None:
+    session.scalar.return_value = None
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    assert response.json()["tenant_id"] == str(TENANT_ID)
+
+
 def test_get_com_configuracao_nao_revela_secrets(client, session) -> None:
     session.scalar.return_value = _settings_row(
         stripe_secret_key_encrypted="cifrado", stripe_webhook_secret_encrypted="cifrado-2"
