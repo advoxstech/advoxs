@@ -1,14 +1,22 @@
 """Configuração da cobrança do cliente final (Stripe própria do tenant) e
 pacotes de crédito que o tenant vende aos próprios clientes."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.crypto import encrypt_tenant_secret
-from app.models import TenantBillingSettings
-from app.schemas.end_customer_billing import TenantBillingSettingsOut, TenantBillingSettingsUpdate
+from app.models import EndCustomerCreditPackage, EndCustomerCreditTransaction, TenantBillingSettings
+from app.schemas.end_customer_billing import (
+    EndCustomerCreditPackageIn,
+    EndCustomerCreditPackageOut,
+    EndCustomerCreditPackageUpdate,
+    TenantBillingSettingsOut,
+    TenantBillingSettingsUpdate,
+)
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -84,3 +92,79 @@ async def update_settings(
 
     await session.commit()
     return _to_settings_out(row)
+
+
+@router.get("/packages")
+async def list_packages(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[EndCustomerCreditPackageOut]:
+    result = await session.execute(
+        select(EndCustomerCreditPackage).where(
+            EndCustomerCreditPackage.tenant_id == ctx.tenant_id
+        )
+    )
+    return [EndCustomerCreditPackageOut.model_validate(p) for p in result.scalars().all()]
+
+
+@router.post("/packages", status_code=status.HTTP_201_CREATED)
+async def create_package(
+    body: EndCustomerCreditPackageIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> EndCustomerCreditPackageOut:
+    package = EndCustomerCreditPackage(tenant_id=ctx.tenant_id, **body.model_dump())
+    session.add(package)
+    await session.commit()
+    await session.refresh(package)
+    return EndCustomerCreditPackageOut.model_validate(package)
+
+
+async def _get_package(
+    package_id: uuid.UUID, ctx: TenantContext, session: AsyncSession
+) -> EndCustomerCreditPackage:
+    package = await session.scalar(
+        select(EndCustomerCreditPackage).where(
+            EndCustomerCreditPackage.id == package_id,
+            EndCustomerCreditPackage.tenant_id == ctx.tenant_id,
+        )
+    )
+    if package is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pacote não encontrado")
+    return package
+
+
+@router.patch("/packages/{package_id}")
+async def update_package(
+    package_id: uuid.UUID,
+    body: EndCustomerCreditPackageUpdate,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> EndCustomerCreditPackageOut:
+    package = await _get_package(package_id, ctx, session)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(package, field, value)
+    await session.commit()
+    await session.refresh(package)
+    return EndCustomerCreditPackageOut.model_validate(package)
+
+
+@router.delete("/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_package(
+    package_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    package = await _get_package(package_id, ctx, session)
+    used = await session.scalar(
+        select(EndCustomerCreditTransaction.id).where(
+            EndCustomerCreditTransaction.end_customer_credit_package_id == package_id
+        )
+    )
+    if used is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pacote já usado em compras — desative em vez de excluir",
+        )
+    await session.delete(package)
+    await session.commit()
