@@ -21,7 +21,7 @@ class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    sender_type: Literal["agent", "human", "contact"]
+    sender_type: Literal["agent", "human", "contact", "system"]
     content: str
     media_url: str | None
     media_type: str | None

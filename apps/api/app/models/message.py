@@ -24,7 +24,10 @@ class Message(Base):
 
     __tablename__ = "messages"
     __table_args__ = (
-        CheckConstraint("sender_type IN ('agent', 'human', 'contact')", name="sender_type"),
+        CheckConstraint(
+            "sender_type IN ('agent', 'human', 'contact', 'system')",
+            name="sender_type",
+        ),
         CheckConstraint("delivery_status IN ('sent', 'failed')", name="delivery_status"),
         # Queries do painel de conversas.
         Index("ix_messages_tenant_id_created_at", "tenant_id", "created_at"),

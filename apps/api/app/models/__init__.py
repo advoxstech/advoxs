@@ -2,6 +2,12 @@ from app.models.admin_audit_log import AdminAuditLog
 from app.models.base import Base
 from app.models.billing import CreditPackage, CreditTransaction
 from app.models.conversation import Conversation
+from app.models.end_customer_billing import (
+    EndCustomerBalance,
+    EndCustomerCreditPackage,
+    EndCustomerCreditTransaction,
+    TenantBillingSettings,
+)
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
 from app.models.platform_admin import PlatformAdmin
@@ -15,10 +21,14 @@ __all__ = [
     "CreditPackage",
     "CreditTransaction",
     "Conversation",
+    "EndCustomerBalance",
+    "EndCustomerCreditPackage",
+    "EndCustomerCreditTransaction",
     "KnowledgeBaseFile",
     "Message",
     "PlatformAdmin",
     "Tenant",
+    "TenantBillingSettings",
     "User",
     "WhatsAppNumber",
 ]
