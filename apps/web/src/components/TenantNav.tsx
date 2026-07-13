@@ -6,13 +6,14 @@ import { useEffect, useState } from "react";
 import { logout } from "@/app/conversas/actions";
 import { backendFetch } from "@/lib/client-api";
 
-type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "creditos" | "perfil";
+type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "cobranca" | "creditos" | "perfil";
 
 const ITEMS: { key: TenantNavItem; href: string; label: string }[] = [
   { key: "inicio", href: "/inicio", label: "Início" },
   { key: "conversas", href: "/conversas", label: "Conversas" },
   { key: "base", href: "/base-de-conhecimento", label: "Base" },
   { key: "config", href: "/configuracoes/whatsapp", label: "Config" },
+  { key: "cobranca", href: "/configuracoes/cobranca-clientes", label: "Cobrança" },
   { key: "creditos", href: "/creditos", label: "Créditos" },
   { key: "perfil", href: "/perfil", label: "Perfil" },
 ];

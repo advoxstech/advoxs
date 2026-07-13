@@ -29,6 +29,10 @@ describe("TenantNav", () => {
       "href",
       "/configuracoes/whatsapp",
     );
+    expect(screen.getByText("Cobrança").closest("a")).toHaveAttribute(
+      "href",
+      "/configuracoes/cobranca-clientes",
+    );
     expect(screen.getByText("Créditos").closest("a")).toHaveAttribute("href", "/creditos");
     expect(screen.getByText("Perfil").closest("a")).toHaveAttribute("href", "/perfil");
   });
@@ -44,6 +48,13 @@ describe("TenantNav", () => {
     render(<TenantNav active="creditos" />);
 
     expect(screen.getByText("Créditos").closest("a")).toBeNull();
+    expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
+  });
+
+  it("marca cobranca como ativo quando active='cobranca'", () => {
+    render(<TenantNav active="cobranca" />);
+
+    expect(screen.getByText("Cobrança").closest("a")).toBeNull();
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
