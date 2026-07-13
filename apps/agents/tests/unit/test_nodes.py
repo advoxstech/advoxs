@@ -82,7 +82,27 @@ async def test_secretaria_tool_call_mantem_tool_calls_na_mensagem():
 
 
 @pytest.mark.asyncio
-async def test_secretaria_bind_inclui_gerar_link_pagamento(monkeypatch) -> None:
+async def test_secretaria_bind_inclui_gerar_link_pagamento_quando_billing_habilitado(monkeypatch) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agente_secretaria(base_state(end_customer_billing={"enabled": True, "balance": 500, "packages": []}))
+
+    bound_tools = model.bind_tools.call_args.args[0]
+    tool_names = {t.name for t in bound_tools}
+    assert "gerar_link_pagamento_cliente" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_secretaria_bind_nao_inclui_gerar_link_pagamento_quando_billing_desabilitado(
+    monkeypatch,
+) -> None:
+    """A mera presença da tool no bind_tools já muda o comportamento de
+    function-calling do modelo (visto num teste de integração real) — por
+    isso ela só entra na lista quando a feature está de fato ligada pro
+    tenant, nunca incondicionalmente."""
     from agents.nodes import agente_secretaria
 
     model = mock_model(ai_response("oi"))
@@ -92,7 +112,23 @@ async def test_secretaria_bind_inclui_gerar_link_pagamento(monkeypatch) -> None:
 
     bound_tools = model.bind_tools.call_args.args[0]
     tool_names = {t.name for t in bound_tools}
-    assert "gerar_link_pagamento_cliente" in tool_names
+    assert "gerar_link_pagamento_cliente" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_secretaria_bind_nao_inclui_gerar_link_pagamento_sem_end_customer_billing_no_state(
+    monkeypatch,
+) -> None:
+    from agents.nodes import agente_secretaria
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agente_secretaria(base_state())
+
+    bound_tools = model.bind_tools.call_args.args[0]
+    tool_names = {t.name for t in bound_tools}
+    assert "gerar_link_pagamento_cliente" not in tool_names
 
 
 @pytest.mark.asyncio

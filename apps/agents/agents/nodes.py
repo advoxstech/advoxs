@@ -31,15 +31,24 @@ async def agente_secretaria(state: dict) -> dict:
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools(
-        [transfer_to_specialist, buscar_base_conhecimento_escritorio, gerar_link_pagamento_cliente]
-    )
+
+    billing = state.get("end_customer_billing") or {}
+    billing_enabled = bool(billing.get("enabled"))
+    billing_blocks_transfer = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
+
+    # gerar_link_pagamento_cliente só é bindada quando a cobrança do cliente
+    # final está de fato habilitada pro tenant — do contrário, a mera presença
+    # da tool na lista já muda o comportamento de function-calling do modelo
+    # (verificado num teste de integração real: a secretária passou a pedir
+    # uma pergunta de esclarecimento antes de transferir mesmo sem a feature
+    # habilitada, só por ter uma tool a mais disponível).
+    tools_secretaria = [transfer_to_specialist, buscar_base_conhecimento_escritorio]
+    if billing_enabled:
+        tools_secretaria.append(gerar_link_pagamento_cliente)
+    model_with_tools = model.bind_tools(tools_secretaria)
 
     with open("agents/prompts/secretaria.md", "r", encoding="utf-8") as arquivo:
         prompt = arquivo.read()
-
-    billing = state.get("end_customer_billing") or {}
-    billing_blocks_transfer = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
     if billing_blocks_transfer:
         packages_text = "\n".join(
             f"- {p['name']}: R$ {p['price_brl']} = {p['credits_granted']} créditos "
