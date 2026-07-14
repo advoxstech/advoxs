@@ -18,7 +18,26 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd /opt/advoxs
             docker compose pull
+
+            # Derruba tudo (containers + rede do compose) antes de recriar —
+            # evita containers presos numa rede antiga/desanexada (visto em
+            # produção: postgres/redis sem nenhuma rede Docker anexada depois
+            # de um `docker compose run` isolado). Volumes nomeados
+            # (postgres_data etc.) não são afetados por `down` sem `-v`.
+            docker compose down
+
+            # Sobe só a infra primeiro, com tempo pro Postgres aceitar
+            # conexões antes da migration.
+            docker compose up -d postgres redis qdrant
+            for i in $(seq 1 15); do
+              docker compose exec -T postgres pg_isready -U advoxs && break
+              echo "Aguardando Postgres ficar pronto... ($i/15)"
+              sleep 2
+            done
+
             docker compose run --rm api uv run alembic upgrade head
             docker compose up -d
+            docker compose ps

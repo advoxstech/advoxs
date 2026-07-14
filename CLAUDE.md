@@ -517,9 +517,9 @@ Pipeline em **GitHub Actions**, pensado para o monorepo com múltiplos apps/cont
 2. Push para um registry (ex: GitHub Container Registry — `ghcr.io`), taggeado com o SHA do commit (+ `latest` na main).
 
 ### `deploy.yml`
-1. Conecta ao servidor (SSH action) — **VPS próprio, Ubuntu Linux**, onde o `docker-compose.yml` de produção está.
-2. Faz `docker compose pull` (novas imagens) + `docker compose up -d` (recria só os serviços que mudaram).
-3. Roda migrations do Postgres (Alembic) como step antes de subir o `api`.
+1. Conecta ao servidor (SSH action) — **VPS próprio, Ubuntu Linux**, onde o `docker-compose.yml` de produção está. ⚠️ VPS compartilhado com outros projetos (várias redes Docker de outros stacks já presentes — `n8n`, `dockge`, `portainer`, protótipos, etc.), não é dedicado só à Advoxs.
+2. `docker compose pull` (novas imagens) → **`docker compose down`** (derruba todos os containers + a rede do compose — não afeta os volumes nomeados, `postgres_data` etc. persistem) → `docker compose up -d postgres redis qdrant` (sobe só a infra, recriando a rede do zero) → espera o Postgres aceitar conexões (`pg_isready`, retry) → roda a migration (Alembic) → `docker compose up -d` (sobe o resto).
+3. **Derruba tudo a cada deploy (breve indisponibilidade), de propósito**: um `docker compose run` isolado anterior deixou `postgres`/`redis` presos sem nenhuma rede Docker anexada (`{}` em `NetworkSettings.Networks`), causando `socket.gaierror: Temporary failure in name resolution` em cascata (`worker`→redis, `api_rag`→postgres, ambos em loop de restart). Recriar tudo do zero a cada deploy é a forma simples de garantir que a rede nunca fica num estado parcial/desanexado — mais seguro que tentar recriar seletivamente só quem mudou.
 
 > Nota: esse é um ponto de partida simples e direto pra funcionar com a stack em Docker Compose que já definimos, rodando num único VPS. Se o projeto crescer (múltiplos servidores, necessidade de zero-downtime, auto-scaling), vale reavaliar — mas isso é decisão futura, não bloqueia o início.
 
