@@ -21,6 +21,13 @@ jobs:
             set -e
             cd /opt/advoxs
 
+            # Sem isso, o deploy usa o docker-compose.yml (e qualquer outro
+            # arquivo) parado na versão que estava em /opt/advoxs desde o
+            # último clone/sync manual — mudanças no repo (ex: namespace do
+            # ghcr.io) nunca chegavam de fato no VPS.
+            git fetch origin main
+            git reset --hard origin/main
+
             # Pacotes do GHCR são privados por padrão — sem login o pull
             # falha com "denied" pras 5 imagens da aplicação (postgres/redis/
             # qdrant vêm do Docker Hub público, não precisam disso).
