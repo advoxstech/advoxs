@@ -16,7 +16,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        app: [web, api, agents, worker]
+        app: [web, api, agents, worker, api_rag]
     steps:
       - uses: actions/checkout@v4
 

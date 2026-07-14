@@ -513,8 +513,8 @@ Pipeline em **GitHub Actions**, pensado para o monorepo com múltiplos apps/cont
 3. Falha o PR se qualquer etapa falhar.
 
 ### `build-images.yml` (merge na `main` ou tag)
-1. Build da imagem Docker de cada app alterado (`web`, `api`, `agents`, `worker`).
-2. Push para um registry (ex: GitHub Container Registry — `ghcr.io`), taggeado com o SHA do commit (+ `latest` na main).
+1. Build da imagem Docker de cada app do monorepo (`web`, `api`, `agents`, `worker`, `api_rag`) — não filtra por app alterado hoje, builda os 5 a cada push na `main`.
+2. Push pro GitHub Container Registry (`ghcr.io/advoxstech/{app}` — **`advoxstech`, o dono real do repo no GitHub, não `advoxs`**; `docker-compose.yml` precisa referenciar exatamente esse namespace, senão o `docker compose pull` falha com `denied` em produção), taggeado com o SHA do commit (+ `latest` na main).
 
 ### `deploy.yml`
 1. Conecta ao servidor (SSH action) — **VPS próprio, Ubuntu Linux**, onde o `docker-compose.yml` de produção está. ⚠️ VPS compartilhado com outros projetos (várias redes Docker de outros stacks já presentes — `n8n`, `dockge`, `portainer`, protótipos, etc.), não é dedicado só à Advoxs.

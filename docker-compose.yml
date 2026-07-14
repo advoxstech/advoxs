@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    image: ghcr.io/advoxs/web:${TAG:-latest}
+    image: ghcr.io/advoxstech/web:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
     environment:
@@ -39,7 +39,7 @@ services:
   api:
     build:
       context: apps/api
-    image: ghcr.io/advoxs/api:${TAG:-latest}
+    image: ghcr.io/advoxstech/api:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
     environment:
@@ -58,7 +58,7 @@ services:
   agents:
     build:
       context: apps/agents
-    image: ghcr.io/advoxs/agents:${TAG:-latest}
+    image: ghcr.io/advoxstech/agents:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
     environment:
@@ -83,7 +83,7 @@ services:
   api_rag:
     build:
       context: apps/api_rag
-    image: ghcr.io/advoxs/api-rag:${TAG:-latest}
+    image: ghcr.io/advoxstech/api_rag:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
     environment:
@@ -110,7 +110,7 @@ services:
   worker:
     build:
       context: apps/worker
-    image: ghcr.io/advoxs/worker:${TAG:-latest}
+    image: ghcr.io/advoxstech/worker:${TAG:-latest}
     restart: unless-stopped
     env_file: *default-env-file
     environment:
