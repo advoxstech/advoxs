@@ -1,0 +1,94 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "elements": [
+    {"type":"text","id":"title","x":470,"y":30,"width":700,"height":45,"text":"Fluxo de mensagem entrante — WhatsApp","originalText":"Fluxo de mensagem entrante — WhatsApp","fontSize":32,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e40af"},
+    {"type":"text","id":"subtitle","x":470,"y":82,"width":750,"height":25,"text":"advoxs · webhook Meta → api → worker (Arq/Redis) → agents","originalText":"advoxs · webhook Meta → api → worker (Arq/Redis) → agents","fontSize":16,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#3b82f6"},
+
+    {"type":"rectangle","id":"meta_hdr","x":60,"y":150,"width":180,"height":60,"backgroundColor":"#fed7aa","strokeColor":"#c2410c","strokeWidth":2,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"meta_hdr_t","type":"text"}]},
+    {"type":"text","id":"meta_hdr_t","x":70,"y":165,"width":160,"height":30,"text":"Meta\nWhatsApp Cloud API","originalText":"Meta\nWhatsApp Cloud API","fontSize":15,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#374151","containerId":"meta_hdr"},
+
+    {"type":"rectangle","id":"api_hdr","x":460,"y":150,"width":180,"height":60,"backgroundColor":"#3b82f6","strokeColor":"#1e3a5f","strokeWidth":2,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"api_hdr_t","type":"text"}]},
+    {"type":"text","id":"api_hdr_t","x":470,"y":170,"width":160,"height":20,"text":"api","originalText":"api","fontSize":18,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#ffffff","containerId":"api_hdr"},
+
+    {"type":"rectangle","id":"worker_hdr","x":860,"y":150,"width":180,"height":60,"backgroundColor":"#60a5fa","strokeColor":"#1e3a5f","strokeWidth":2,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"worker_hdr_t","type":"text"}]},
+    {"type":"text","id":"worker_hdr_t","x":870,"y":170,"width":160,"height":20,"text":"worker","originalText":"worker","fontSize":18,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#ffffff","containerId":"worker_hdr"},
+
+    {"type":"rectangle","id":"agents_hdr","x":1260,"y":150,"width":180,"height":60,"backgroundColor":"#ddd6fe","strokeColor":"#6d28d9","strokeWidth":2,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"agents_hdr_t","type":"text"}]},
+    {"type":"text","id":"agents_hdr_t","x":1270,"y":163,"width":160,"height":34,"text":"agents\n(LangGraph)","originalText":"agents\n(LangGraph)","fontSize":15,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#374151","containerId":"agents_hdr"},
+
+    {"type":"arrow","id":"conn1","x":240,"y":180,"width":220,"height":0,"points":[[0,0],[220,0]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+    {"type":"arrow","id":"conn2","x":640,"y":180,"width":220,"height":0,"points":[[0,0],[220,0]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+    {"type":"arrow","id":"conn3","x":1040,"y":180,"width":220,"height":0,"points":[[0,0],[220,0]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+
+    {"type":"line","id":"life_meta","x":150,"y":210,"width":0,"height":1350,"points":[[0,0],[0,1350]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"dashed","roughness":0},
+    {"type":"line","id":"life_api","x":550,"y":210,"width":0,"height":1350,"points":[[0,0],[0,1350]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"dashed","roughness":0},
+    {"type":"line","id":"life_worker","x":950,"y":210,"width":0,"height":1350,"points":[[0,0],[0,1350]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"dashed","roughness":0},
+    {"type":"line","id":"life_agents","x":1350,"y":210,"width":0,"height":1350,"points":[[0,0],[0,1350]],"strokeColor":"#64748b","strokeWidth":1,"strokeStyle":"dashed","roughness":0},
+
+    {"type":"text","id":"phase1_label","x":60,"y":235,"width":400,"height":25,"text":"1 · Recepção do webhook","originalText":"1 · Recepção do webhook","fontSize":18,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e40af"},
+
+    {"type":"arrow","id":"arrow_step1","x":150,"y":290,"width":380,"height":0,"points":[[0,0],[380,0]],"strokeColor":"#c2410c","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+    {"type":"text","id":"step1_t","x":190,"y":262,"width":320,"height":18,"text":"1. POST /api/v1/webhooks/whatsapp","originalText":"1. POST /api/v1/webhooks/whatsapp","fontSize":14,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#c2410c"},
+
+    {"type":"text","id":"note_step1","x":190,"y":475,"width":340,"height":40,"text":"assinatura X-Hub-Signature-256\nquando META_APP_SECRET setado","originalText":"assinatura X-Hub-Signature-256\nquando META_APP_SECRET setado","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#64748b"},
+    {"type":"text","id":"note_step1b","x":190,"y":510,"width":420,"height":20,"text":"GET mesmo path = verificação one-time (META_VERIFY_TOKEN)","originalText":"GET mesmo path = verificação one-time (META_VERIFY_TOKEN)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#64748b"},
+
+    {"type":"rectangle","id":"api_activation","x":530,"y":290,"width":40,"height":180,"backgroundColor":"#93c5fd","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0},
+
+    {"type":"rectangle","id":"evidence1_box","x":610,"y":320,"width":540,"height":170,"backgroundColor":"#1e293b","strokeColor":"#1e293b","strokeWidth":1,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"evidence1_t","type":"text"}]},
+    {"type":"text","id":"evidence1_t","x":630,"y":335,"width":500,"height":140,"text":"SELECT tenant_id FROM whatsapp_numbers\n  WHERE phone_number_id = :id\n\nINSERT INTO messages (sender_type='contact', ...)\n\n-- após commit --\nenqueue('process_inbound_message',\n        tenant_id, conversation_id, message_id)","originalText":"SELECT tenant_id FROM whatsapp_numbers\n  WHERE phone_number_id = :id\n\nINSERT INTO messages (sender_type='contact', ...)\n\n-- após commit --\nenqueue('process_inbound_message',\n        tenant_id, conversation_id, message_id)","fontSize":14,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#22c55e","containerId":"evidence1_box"},
+
+    {"type":"text","id":"phase2_label","x":60,"y":580,"width":500,"height":25,"text":"2 · Processamento assíncrono (worker)","originalText":"2 · Processamento assíncrono (worker)","fontSize":18,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e40af"},
+
+    {"type":"arrow","id":"arrow_step4","x":550,"y":630,"width":400,"height":0,"points":[[0,0],[400,0]],"strokeColor":"#1e3a5f","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+    {"type":"text","id":"step4_t","x":590,"y":602,"width":320,"height":18,"text":"4. enqueue job: process_inbound_message","originalText":"4. enqueue job: process_inbound_message","fontSize":14,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e3a5f"},
+
+    {"type":"text","id":"note_step4","x":590,"y":648,"width":600,"height":20,"text":"fila Arq (Redis) — desacopla do timeout do webhook (~5s SLA da Meta)","originalText":"fila Arq (Redis) — desacopla do timeout do webhook (~5s SLA da Meta)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#64748b"},
+
+    {"type":"diamond","id":"decision_diamond","x":870,"y":700,"width":160,"height":100,"backgroundColor":"#fef3c7","strokeColor":"#b45309","strokeWidth":2,"roughness":0,"boundElements":[{"id":"decision_t","type":"text"}]},
+    {"type":"text","id":"decision_t","x":890,"y":730,"width":120,"height":40,"text":"state?\ncredit_balance?","originalText":"state?\ncredit_balance?","fontSize":13,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#374151","containerId":"decision_diamond"},
+
+    {"type":"text","id":"label_state_human","x":540,"y":705,"width":230,"height":35,"text":"state = human\n(não aciona o agente)","originalText":"state = human\n(não aciona o agente)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e40af"},
+    {"type":"text","id":"label_credit_zero","x":1055,"y":705,"width":230,"height":35,"text":"credit_balance <= 0\n(silêncio total)","originalText":"credit_balance <= 0\n(silêncio total)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#dc2626"},
+    {"type":"text","id":"label_state_agent","x":850,"y":812,"width":220,"height":35,"text":"state=agent AND\ncredit_balance>0","originalText":"state=agent AND\ncredit_balance>0","fontSize":13,"fontFamily":3,"textAlign":"center","verticalAlign":"top","strokeColor":"#b45309"},
+
+    {"type":"rectangle","id":"worker_activation","x":930,"y":850,"width":40,"height":80,"backgroundColor":"#93c5fd","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0},
+
+    {"type":"text","id":"call_t","x":1000,"y":938,"width":300,"height":30,"text":"5. POST /messages\n(token descriptografado, Fernet)","originalText":"5. POST /messages\n(token descriptografado, Fernet)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e3a5f"},
+    {"type":"arrow","id":"arrow_call_agents","x":950,"y":978,"width":400,"height":0,"points":[[0,0],[400,0]],"strokeColor":"#1e3a5f","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+
+    {"type":"arrow","id":"retry_arrow","x":950,"y":1000,"width":70,"height":50,"points":[[0,0],[70,0],[70,50],[0,50]],"strokeColor":"#b91c1c","strokeWidth":1,"strokeStyle":"dashed","roughness":0,"endArrowhead":"arrow"},
+    {"type":"text","id":"retry_label","x":1035,"y":1010,"width":220,"height":35,"text":"retry (arq.Retry, backoff)\nenquanto job_try < 5","originalText":"retry (arq.Retry, backoff)\nenquanto job_try < 5","fontSize":12,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#b91c1c"},
+
+    {"type":"text","id":"escalation_label","x":700,"y":1005,"width":320,"height":35,"text":"5.1 esgotadas as tentativas (job_try=5)\n→ UPDATE conversations SET state='human'","originalText":"5.1 esgotadas as tentativas (job_try=5)\n→ UPDATE conversations SET state='human'","fontSize":12,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#b91c1c"},
+    {"type":"arrow","id":"escalation_arrow","x":950,"y":1070,"width":-650,"height":240,"points":[[0,0],[-650,240]],"strokeColor":"#b91c1c","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"sink_box","x":40,"y":1200,"width":260,"height":120,"backgroundColor":"#dbeafe","strokeColor":"#1e40af","strokeWidth":2,"strokeStyle":"dashed","roughness":0,"roundness":{"type":3},"boundElements":[{"id":"sink_t","type":"text"}]},
+    {"type":"text","id":"sink_t","x":60,"y":1235,"width":220,"height":50,"text":"Painel de Conversas\n(aguarda ação humana)","originalText":"Painel de Conversas\n(aguarda ação humana)","fontSize":14,"fontFamily":3,"textAlign":"center","verticalAlign":"middle","strokeColor":"#374151","containerId":"sink_box"},
+
+    {"type":"arrow","id":"branchB_arrow","x":870,"y":750,"width":-570,"height":480,"points":[[0,0],[-570,480]],"strokeColor":"#1e40af","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+    {"type":"arrow","id":"branchC_arrow","x":1030,"y":750,"width":-730,"height":520,"points":[[0,0],[-730,520]],"strokeColor":"#dc2626","strokeWidth":2,"strokeStyle":"solid","roughness":0,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"agents_activation","x":1330,"y":978,"width":40,"height":422,"backgroundColor":"#ddd6fe","strokeColor":"#6d28d9","strokeWidth":1,"roughness":0},
+
+    {"type":"text","id":"phase3_label","x":60,"y":1355,"width":400,"height":25,"text":"3 · Resposta ao contato","originalText":"3 · Resposta ao contato","fontSize":18,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#1e40af"},
+
+    {"type":"text","id":"return_t","x":700,"y":1372,"width":340,"height":20,"text":"6. POST /{phone_number_id}/messages (Graph API)","originalText":"6. POST /{phone_number_id}/messages (Graph API)","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#6d28d9"},
+    {"type":"arrow","id":"return_arrow","x":1350,"y":1400,"width":-1200,"height":0,"points":[[0,0],[-1200,0]],"strokeColor":"#6d28d9","strokeWidth":2,"strokeStyle":"dashed","roughness":0,"endArrowhead":"arrow"},
+
+    {"type":"rectangle","id":"evidence2_box","x":470,"y":1430,"width":580,"height":110,"backgroundColor":"#1e293b","strokeColor":"#1e293b","strokeWidth":1,"roughness":0,"roundness":{"type":3},"boundElements":[{"id":"evidence2_t","type":"text"}]},
+    {"type":"text","id":"evidence2_t","x":490,"y":1445,"width":540,"height":80,"text":"retry 3x (timeout / conexão / 5xx — nunca 4xx)\nrate limit: WHATSAPP_RATE_LIMIT_PER_SECOND (token bucket, Redis)\nworker grava messages.delivery_status = 'sent' | 'failed'","originalText":"retry 3x (timeout / conexão / 5xx — nunca 4xx)\nrate limit: WHATSAPP_RATE_LIMIT_PER_SECOND (token bucket, Redis)\nworker grava messages.delivery_status = 'sent' | 'failed'","fontSize":13,"fontFamily":3,"textAlign":"left","verticalAlign":"top","strokeColor":"#22c55e","containerId":"evidence2_box"},
+
+    {"type":"ellipse","id":"end_meta","x":144,"y":1554,"width":12,"height":12,"backgroundColor":"#3b82f6","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0},
+    {"type":"ellipse","id":"end_api","x":544,"y":1554,"width":12,"height":12,"backgroundColor":"#3b82f6","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0},
+    {"type":"ellipse","id":"end_worker","x":944,"y":1554,"width":12,"height":12,"backgroundColor":"#3b82f6","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0},
+    {"type":"ellipse","id":"end_agents","x":1344,"y":1554,"width":12,"height":12,"backgroundColor":"#3b82f6","strokeColor":"#1e3a5f","strokeWidth":1,"roughness":0}
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": 20
+  },
+  "files": {}
+}

@@ -20,6 +20,12 @@ jobs:
           script: |
             set -e
             cd /opt/advoxs
+
+            # Pacotes do GHCR são privados por padrão — sem login o pull
+            # falha com "denied" pras 5 imagens da aplicação (postgres/redis/
+            # qdrant vêm do Docker Hub público, não precisam disso).
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+
             docker compose pull
 
             # Derruba tudo (containers + rede do compose) antes de recriar —

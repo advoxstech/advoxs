@@ -62,7 +62,7 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
             <Link
               key={item.key}
               href={item.href}
-              className="font-mono text-[10px] uppercase tracking-[0.2em] text-ground/60 transition-colors [writing-mode:vertical-rl] hover:text-ground"
+              className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-ground transition-colors [writing-mode:vertical-rl] hover:text-ground/60"
             >
               {item.label}
             </Link>
@@ -72,7 +72,7 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
       <form action={logout}>
         <button
           type="submit"
-          className="font-mono text-[10px] uppercase tracking-[0.2em] text-ground/60 transition-colors [writing-mode:vertical-rl] hover:text-ground"
+          className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-ground transition-colors [writing-mode:vertical-rl] hover:text-ground/60"
         >
           Sair
         </button>
