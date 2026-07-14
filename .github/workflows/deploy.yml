@@ -21,6 +21,13 @@ jobs:
             set -e
             cd /opt/advoxs
 
+            # docker-compose.override.yml é só pra dev local (roda `next dev`
+            # etc) e o Compose carrega ele automaticamente sempre que existe
+            # no diretório, sem precisar de -f — como agora sincronizamos o
+            # repo inteiro aqui embaixo, ele passaria a "vazar" pra produção
+            # se não pinássemos explicitamente qual arquivo usar.
+            export COMPOSE_FILE=docker-compose.yml
+
             # Sem isso, o deploy usa o docker-compose.yml (e qualquer outro
             # arquivo) parado na versão que estava em /opt/advoxs desde o
             # último clone/sync manual — mudanças no repo (ex: namespace do
