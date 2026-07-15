@@ -22,9 +22,18 @@ export function ConversationThread({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTakeoverToast, setShowTakeoverToast] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const isManual = conversation.state === "human";
+  const isManual = conversation.state === "human" || manualOverride;
+
+  // O pai só repassa o novo estado no próximo ciclo/interação; até lá, o
+  // override local garante que o composer/toggle reajam de imediato ao
+  // auto-takeover. Some assim que o prop alcançar a mesma verdade.
+  useEffect(() => {
+    setManualOverride(false);
+  }, [conversation.state]);
 
   const [summaryExpanded, setSummaryExpanded] = useState(() => Boolean(conversation.summary));
   const [summarizing, setSummarizing] = useState(false);
@@ -81,6 +90,21 @@ export function ConversationThread({
     bottomRef.current?.scrollIntoView?.({ behavior: "auto", block: "end" });
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!pollMs || conversation.state !== "human") {
+      return;
+    }
+    const sendHeartbeat = () =>
+      void backendFetch(`conversations/${conversation.id}/heartbeat`, {
+        method: "POST",
+      }).catch(() => {
+        // presença é best-effort; tenta no próximo ciclo
+      });
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, pollMs);
+    return () => clearInterval(interval);
+  }, [conversation.id, conversation.state, pollMs]);
+
   const toggleState = async () => {
     setError(null);
     const response = await backendFetch(`conversations/${conversation.id}`, {
@@ -91,6 +115,24 @@ export function ConversationThread({
       onConversationUpdate(await response.json());
     } else {
       setError("Não foi possível alterar o atendimento. Tente novamente.");
+    }
+  };
+
+  const handleComposerFocus = async () => {
+    if (isManual) {
+      return;
+    }
+    setError(null);
+    const response = await backendFetch(`conversations/${conversation.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ state: "human" }),
+    });
+    if (response.ok) {
+      onConversationUpdate(await response.json());
+      setManualOverride(true);
+      setShowTakeoverToast(true);
+    } else {
+      setError("Não foi possível assumir a conversa. Tente novamente.");
     }
   };
 
@@ -160,6 +202,39 @@ export function ConversationThread({
           </button>
         </div>
       </header>
+
+      {showTakeoverToast ? (
+        <div
+          role="status"
+          className="fixed right-6 top-20 z-50 w-72 rounded border border-brass bg-surface p-4 shadow-lg"
+        >
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-brass">
+            IA pausada
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-ink">
+            Você assumiu esta conversa. A IA reassume após 3 minutos sem atividade.
+          </p>
+          <div className="mt-3 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => {
+                setShowTakeoverToast(false);
+                void toggleState();
+              }}
+              className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+            >
+              Devolver pra IA
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTakeoverToast(false)}
+              className="text-xs text-muted transition-colors hover:text-ink"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="border-b border-line bg-surface px-6 py-3">
         <button
@@ -231,9 +306,10 @@ export function ConversationThread({
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={!isManual || sending}
-            placeholder={isManual ? "Escreva sua resposta…" : ""}
+            disabled={sending}
+            placeholder="Escreva sua resposta…"
             aria-label="Resposta"
+            onFocus={() => void handleComposerFocus()}
             className="flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
           />
           <button
@@ -245,7 +321,9 @@ export function ConversationThread({
           </button>
         </form>
         {!isManual ? (
-          <p className="mt-2 text-xs text-muted">Assuma a conversa para responder.</p>
+          <p className="mt-2 text-xs text-muted">
+            Começar a digitar pausa a IA e você assume a conversa.
+          </p>
         ) : null}
       </footer>
     </div>
