@@ -28,7 +28,7 @@ Body: {"messages": [{"role": "contact" | "attendant", "content": "..."}]}
   grafo, sem LLM, sem debounce, sem consumo de créditos** (não há tokens).
 - Mapeamento: `contact` → `HumanMessage`; `attendant` → `AIMessage` (o atendente fala pelo
   escritório — para o modelo é o "nosso lado" respondendo).
-- Body com `messages` vazio ou `role` fora do enum → 400.
+- Body com `messages` vazio ou `role` fora do enum → 422 (validação pydantic padrão do FastAPI).
 - `API_AGENTS.md` documenta o endpoint (fonte da verdade do serviço).
 
 Chamadas (sincronização por mensagem, no momento em que acontece — sem watermark/lote):
@@ -47,7 +47,8 @@ existentes de `agents`).
 
 ### 2. Timeout de presença (retorno automático pra IA)
 
-- Migration `0009`: coluna `conversations.human_last_seen_at` (timestamptz, nullable).
+- Migration `0010`: coluna `conversations.human_last_seen_at` (timestamptz, nullable) — a
+  `0009` já existe (end_customer_billing).
 - **Heartbeat**: `POST /api/v1/conversations/{id}/heartbeat` (autenticado, tenant-scoped) —
   seta `human_last_seen_at = now()`; 204. O front envia a cada ciclo do polling da thread
   (4s, já existente) enquanto a conversa estiver aberta **e** em modo `human`. Presença =
