@@ -72,8 +72,25 @@ async def update_state(
     """Toggle de takeover: em modo `human`, o worker não aciona o agente."""
     conversation = await _get_conversation(conversation_id, ctx, session)
     conversation.state = body.state
+    if body.state == "human":
+        # Takeover começa "presente" — o heartbeat do painel mantém depois.
+        conversation.human_last_seen_at = datetime.now(UTC)
     await session.commit()
     return ConversationOut.model_validate(conversation)
+
+
+@router.post("/{conversation_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+async def heartbeat(
+    conversation_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    """Presença do atendente: o painel envia a cada ciclo de polling enquanto
+    a conversa está aberta em modo human. O worker usa human_last_seen_at pra
+    decidir se a IA reassume (timeout)."""
+    conversation = await _get_conversation(conversation_id, ctx, session)
+    conversation.human_last_seen_at = datetime.now(UTC)
+    await session.commit()
 
 
 @router.post("/{conversation_id}/messages", status_code=status.HTTP_201_CREATED)

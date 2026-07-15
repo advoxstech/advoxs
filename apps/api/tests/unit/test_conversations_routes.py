@@ -17,7 +17,10 @@ CONVERSATION_ID = uuid.uuid4()
 
 
 def _conversation(
-    state: str = "agent", summary: str | None = None, summary_generated_at=None
+    state: str = "agent",
+    summary: str | None = None,
+    summary_generated_at=None,
+    human_last_seen_at=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
@@ -28,6 +31,7 @@ def _conversation(
         created_at=datetime.now(UTC),
         summary=summary,
         summary_generated_at=summary_generated_at,
+        human_last_seen_at=human_last_seen_at,
     )
 
 
@@ -143,6 +147,45 @@ class TestTakeover:
         response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "robo"})
 
         assert response.status_code == 422
+
+
+class TestHeartbeat:
+    def test_seta_human_last_seen_at_e_retorna_204(self, client, session) -> None:
+        conversation = _conversation(state="human")
+        session.scalar.return_value = conversation
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/heartbeat")
+
+        assert response.status_code == 204
+        assert conversation.human_last_seen_at is not None
+        session.commit.assert_awaited()
+
+    def test_conversa_inexistente_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/heartbeat")
+
+        assert response.status_code == 404
+
+
+class TestPatchSetaPresenca:
+    def test_virar_human_seta_human_last_seen_at(self, client, session) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.return_value = conversation
+
+        response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "human"})
+
+        assert response.status_code == 200
+        assert conversation.human_last_seen_at is not None
+
+    def test_virar_agent_nao_seta_timestamp(self, client, session) -> None:
+        conversation = _conversation(state="human")
+        session.scalar.return_value = conversation
+
+        response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "agent"})
+
+        assert response.status_code == 200
+        assert conversation.human_last_seen_at is None
 
 
 class TestSendMessage:
