@@ -23,17 +23,9 @@ export function ConversationThread({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTakeoverToast, setShowTakeoverToast] = useState(false);
-  const [manualOverride, setManualOverride] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const isManual = conversation.state === "human" || manualOverride;
-
-  // O pai só repassa o novo estado no próximo ciclo/interação; até lá, o
-  // override local garante que o composer/toggle reajam de imediato ao
-  // auto-takeover. Some assim que o prop alcançar a mesma verdade.
-  useEffect(() => {
-    setManualOverride(false);
-  }, [conversation.state]);
+  const isManual = conversation.state === "human";
 
   const [summaryExpanded, setSummaryExpanded] = useState(() => Boolean(conversation.summary));
   const [summarizing, setSummarizing] = useState(false);
@@ -129,7 +121,6 @@ export function ConversationThread({
     });
     if (response.ok) {
       onConversationUpdate(await response.json());
-      setManualOverride(true);
       setShowTakeoverToast(true);
     } else {
       setError("Não foi possível assumir a conversa. Tente novamente.");

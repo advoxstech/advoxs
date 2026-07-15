@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationThread } from "@/components/ConversationThread";
@@ -33,6 +34,15 @@ function conversation(
     summary,
     summary_generated_at: summaryGeneratedAt,
   };
+}
+
+// Simula o pai real (ConversationsPanel): guarda a conversa em estado e
+// repassa a versão atualizada de volta pro filho via onConversationUpdate,
+// igual acontece no app de verdade (diferente de um vi.fn() que não
+// rerenderiza a prop).
+function Harness({ initial }: { initial: Conversation }) {
+  const [conv, setConv] = useState(initial);
+  return <ConversationThread conversation={conv} onConversationUpdate={setConv} pollMs={0} />;
 }
 
 const messages: Message[] = [
@@ -144,7 +154,6 @@ describe("ConversationThread", () => {
   });
 
   it("Devolver pra IA faz o PATCH de volta pra agent", async () => {
-    const onUpdate = vi.fn();
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
@@ -153,13 +162,7 @@ describe("ConversationThread", () => {
       return jsonResponse([]);
     });
 
-    render(
-      <ConversationThread
-        conversation={conversation("agent")}
-        onConversationUpdate={onUpdate}
-        pollMs={0}
-      />,
-    );
+    render(<Harness initial={conversation("agent")} />);
 
     await waitFor(() => expect(screen.getByLabelText("Resposta")).not.toBeDisabled());
     fireEvent.focus(screen.getByLabelText("Resposta"));
@@ -168,7 +171,14 @@ describe("ConversationThread", () => {
     fireEvent.click(screen.getByRole("button", { name: "Devolver pra IA" }));
 
     await waitFor(() =>
-      expect(onUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ state: "agent" })),
+      expect(
+        backendFetchMock.mock.calls.some(
+          ([path, init]) =>
+            path === "conversations/c1" &&
+            init?.method === "PATCH" &&
+            JSON.parse(String(init.body)).state === "agent",
+        ),
+      ).toBe(true),
     );
     expect(screen.queryByText("IA pausada")).not.toBeInTheDocument();
   });
