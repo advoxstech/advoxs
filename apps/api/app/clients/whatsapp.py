@@ -111,3 +111,29 @@ async def register_number(phone_number_id: str, access_token: str, pin: str) -> 
                 response, "Não foi possível registrar o número na Meta — verifique o PIN"
             )
         )
+
+
+async def subscribe_app_to_waba(waba_id: str, access_token: str) -> None:
+    """Inscreve o app do tenant na WABA — sem isso a Meta não entrega webhook de mensagem."""
+    url = f"{settings.graph_api_base_url}/{settings.graph_api_version}/{waba_id}/subscribed_apps"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise WhatsAppNetworkError(f"Falha de rede ao inscrever app na WABA: {exc}") from exc
+
+    if response.is_error:
+        logger.warning(
+            "Graph API (subscribed_apps) retornou erro | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise WhatsAppApiError(
+            _meta_error_message(
+                response,
+                "Não foi possível inscrever o app na WhatsApp Business Account — confira o WABA ID",
+            )
+        )

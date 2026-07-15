@@ -66,10 +66,12 @@ def graph_mocks(monkeypatch):
     mocks = {
         "fetch": AsyncMock(return_value="+5511987654321"),
         "register": AsyncMock(return_value=None),
+        "subscribe": AsyncMock(return_value=None),
         "encrypt": MagicMock(return_value="token-cifrado"),
     }
     monkeypatch.setattr(whatsapp_module, "fetch_display_phone_number", mocks["fetch"])
     monkeypatch.setattr(whatsapp_module, "register_number", mocks["register"])
+    monkeypatch.setattr(whatsapp_module, "subscribe_app_to_waba", mocks["subscribe"])
     monkeypatch.setattr(whatsapp_module, "encrypt_access_token", mocks["encrypt"])
     return mocks
 
@@ -92,6 +94,7 @@ class TestConnect:
         session.add.assert_called_once()
         graph_mocks["fetch"].assert_awaited_once_with("PNID", "token-claro")
         graph_mocks["register"].assert_awaited_once_with("PNID", "token-claro", "123456")
+        graph_mocks["subscribe"].assert_awaited_once_with("WABA", "token-claro")
 
     def test_reconexao_substitui_linha_existente(self, client, session, graph_mocks) -> None:
         existing = _number(status="disconnected")
@@ -131,6 +134,27 @@ class TestConnect:
         response = client.post("/api/v1/whatsapp/connect", json=CONNECT_BODY)
 
         assert response.status_code == 502
+
+    def test_falha_no_subscribe_retorna_400_sem_persistir(
+        self, client, session, graph_mocks
+    ) -> None:
+        graph_mocks["subscribe"].side_effect = WhatsAppApiError("WABA não encontrada")
+
+        response = client.post("/api/v1/whatsapp/connect", json=CONNECT_BODY)
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "WABA não encontrada"
+        session.commit.assert_not_awaited()
+
+    def test_falha_de_rede_no_subscribe_retorna_502_sem_persistir(
+        self, client, session, graph_mocks
+    ) -> None:
+        graph_mocks["subscribe"].side_effect = WhatsAppNetworkError("timeout")
+
+        response = client.post("/api/v1/whatsapp/connect", json=CONNECT_BODY)
+
+        assert response.status_code == 502
+        session.commit.assert_not_awaited()
 
     def test_numero_de_outro_tenant_retorna_409(self, client, session, graph_mocks) -> None:
         session.scalar.return_value = None

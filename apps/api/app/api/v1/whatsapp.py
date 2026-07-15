@@ -19,6 +19,7 @@ from app.clients.whatsapp import (
     WhatsAppNetworkError,
     fetch_display_phone_number,
     register_number,
+    subscribe_app_to_waba,
 )
 from app.core.crypto import encrypt_access_token
 from app.models import WhatsAppNumber
@@ -66,6 +67,14 @@ async def connect(
         await register_number(body.phone_number_id, body.access_token, body.pin)
     except WhatsAppNetworkError as exc:
         logger.error("Falha de rede ao registrar número | erro=%s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_GRAPH_ERROR_DETAIL)
+    except WhatsAppApiError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    try:
+        await subscribe_app_to_waba(body.waba_id, body.access_token)
+    except WhatsAppNetworkError as exc:
+        logger.error("Falha de rede ao inscrever app na WABA | erro=%s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_GRAPH_ERROR_DETAIL)
     except WhatsAppApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
