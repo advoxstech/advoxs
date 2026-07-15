@@ -214,7 +214,7 @@ conversaram.
 - Resposta: `200 {"added": <n>}`. `messages` vazio ou `role` inválido → 422.
   Falha de checkpoint → 500.
 - Implementação: `services/update_context.py` (`aupdate_state` com o reducer
-  `add_messages`).
+  do campo `messages` do estado, `operator.add` — ver §sobre o State).
 
 ---
 

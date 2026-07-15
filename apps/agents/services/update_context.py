@@ -17,7 +17,8 @@ async def add_context_messages(
     """Anexa mensagens ao checkpoint sem rodar o grafo (sem LLM, sem débito).
 
     Mantém a memória do agente durante o takeover humano — aupdate_state usa
-    o reducer add_messages do estado, só acrescentando ao histórico.
+    o reducer do campo messages do estado (operator.add), só acrescentando
+    ao histórico.
     """
     lc_messages = [ROLE_TO_MESSAGE[m["role"]](content=m["content"]) for m in messages]
     config = {"configurable": {"thread_id": thread_id}}
