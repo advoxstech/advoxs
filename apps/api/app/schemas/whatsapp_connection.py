@@ -15,3 +15,8 @@ class WhatsAppConnectionOut(BaseModel):
     display_phone_number: str
     status: Literal["connected", "disconnected"]
     connected_at: datetime
+
+
+class WebhookConfigOut(BaseModel):
+    callback_url: str
+    verify_token: str

@@ -209,3 +209,34 @@ class TestDisconnect:
         response = client.post("/api/v1/whatsapp/disconnect")
 
         assert response.status_code == 404
+
+
+class TestWebhookConfig:
+    def test_sem_token_retorna_401(self) -> None:
+        response = TestClient(app).get("/api/v1/whatsapp/webhook-config")
+        assert response.status_code == 401
+
+    def test_retorna_url_completa_e_verify_token(self, client, monkeypatch) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "api_public_url", "https://api.exemplo.com.br")
+        monkeypatch.setattr(settings, "meta_verify_token", "meu-verify-token")
+
+        response = client.get("/api/v1/whatsapp/webhook-config")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "callback_url": "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
+            "verify_token": "meu-verify-token",
+        }
+
+    def test_sem_api_public_url_degrada_pra_path_relativo(self, client, monkeypatch) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "api_public_url", "")
+        monkeypatch.setattr(settings, "meta_verify_token", "meu-verify-token")
+
+        response = client.get("/api/v1/whatsapp/webhook-config")
+
+        assert response.status_code == 200
+        assert response.json()["callback_url"] == "/api/v1/webhooks/whatsapp"

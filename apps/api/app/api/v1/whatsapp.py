@@ -21,9 +21,14 @@ from app.clients.whatsapp import (
     register_number,
     subscribe_app_to_waba,
 )
+from app.core.config import settings
 from app.core.crypto import encrypt_access_token
 from app.models import WhatsAppNumber
-from app.schemas.whatsapp_connection import ConnectWhatsAppRequest, WhatsAppConnectionOut
+from app.schemas.whatsapp_connection import (
+    ConnectWhatsAppRequest,
+    WebhookConfigOut,
+    WhatsAppConnectionOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +132,22 @@ async def get_connection(
     if number is None:
         return None
     return _to_out(number)
+
+
+@router.get("/webhook-config")
+async def get_webhook_config(
+    ctx: TenantContext = Depends(get_current_tenant),
+) -> WebhookConfigOut:
+    """Valores que o escritório precisa colar no painel da Meta (passo manual do webhook).
+
+    Só leitura de config — não toca em tabela nenhuma, então não usa
+    get_tenant_session; a autenticação de tenant continua obrigatória.
+    """
+    base = settings.api_public_url.rstrip("/")
+    return WebhookConfigOut(
+        callback_url=f"{base}/api/v1/webhooks/whatsapp",
+        verify_token=settings.meta_verify_token,
+    )
 
 
 @router.post("/disconnect")
