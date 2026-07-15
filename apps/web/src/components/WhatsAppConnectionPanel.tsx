@@ -272,6 +272,7 @@ export function WhatsAppConnectionPanel() {
                     />
                     <button
                       type="button"
+                      aria-label="Copiar Callback URL"
                       onClick={() => void handleCopy("url", webhookConfig.callback_url)}
                       className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
                     >
@@ -287,6 +288,7 @@ export function WhatsAppConnectionPanel() {
                     />
                     <button
                       type="button"
+                      aria-label="Copiar Verify token"
                       onClick={() => void handleCopy("token", webhookConfig.verify_token)}
                       className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
                     >

@@ -142,7 +142,8 @@ describe("WhatsAppConnectionPanel", () => {
     );
     expect(screen.getByLabelText("Verify token")).toHaveValue("meu-verify-token");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Copiar" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Copiar Callback URL" }));
+    expect(screen.getByRole("button", { name: "Copiar Verify token" })).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText("Copiado!")).toBeInTheDocument());
     expect(writeText).toHaveBeenCalledWith(
