@@ -117,3 +117,38 @@ class TestAdvoxsSystemRoleBypassaRLS:
         await engine.dispose()
 
         assert rows == ["5511900000001", "5511900000002"]
+
+
+class TestGetTenantSessionSobreviveCommit:
+    """Regressão do bug de produção: rotas que fazem commit() e depois
+    refresh() abrem uma transação nova — sem o listener de after_begin no
+    get_tenant_session, ela roda com app.tenant_id vazio e a policy de RLS
+    estoura com `invalid input syntax for type uuid: ""` (visto em
+    POST /whatsapp/connect)."""
+
+    async def test_refresh_apos_commit_nao_estoura_rls(self, seeded_tenants) -> None:
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.api.deps import TenantContext, get_tenant_session
+        from app.models import Conversation
+
+        engine = create_async_engine(settings.app_database_url)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        ctx = TenantContext(user_id=uuid.uuid4(), tenant_id=TENANT_A, role="admin")
+        async with factory() as session:
+            dep = get_tenant_session(ctx, session)
+            tenant_session = await anext(dep)
+            try:
+                conversation = Conversation(
+                    tenant_id=TENANT_A, contact_phone_number="5511900000042"
+                )
+                tenant_session.add(conversation)
+                await tenant_session.commit()
+                # Antes do fix: DBAPIError (invalid input syntax for type uuid: "")
+                await tenant_session.refresh(conversation)
+            finally:
+                await dep.aclose()
+
+        assert conversation.state == "agent"
+        await engine.dispose()
