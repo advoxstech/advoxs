@@ -1,5 +1,6 @@
 """Painel de conversas: listagem, histórico, takeover, resposta humana e resumo sob demanda."""
 
+import logging
 import math
 import uuid
 from datetime import UTC, datetime
@@ -9,7 +10,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.clients.agents import AgentsApiError, AgentsNetworkError, generate_conversation_summary
+from app.clients.agents import (
+    AgentsApiError,
+    AgentsNetworkError,
+    generate_conversation_summary,
+    sync_conversation_context,
+)
 from app.clients.whatsapp import WhatsAppSendError, send_text_message
 from app.core.config import settings
 from app.core.crypto import decrypt_access_token
@@ -22,6 +28,7 @@ from app.schemas.conversations import (
 )
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -141,6 +148,23 @@ async def send_message(
     conversation.last_message_at = datetime.now(UTC)
     await session.commit()
     await session.refresh(message)
+
+    try:
+        await sync_conversation_context(
+            tenant_id=str(ctx.tenant_id),
+            contact_phone_number=conversation.contact_phone_number,
+            role="attendant",
+            content=body.content,
+        )
+    except (AgentsNetworkError, AgentsApiError) as exc:
+        # Best-effort: a mensagem já foi entregue ao contato — sem o sync o
+        # agente fica com um buraco de memória, mas a operação não falha.
+        logger.warning(
+            "Falha ao sincronizar contexto do takeover | conversation=%s erro=%s",
+            conversation_id,
+            exc,
+        )
+
     return MessageOut.model_validate(message)
 
 

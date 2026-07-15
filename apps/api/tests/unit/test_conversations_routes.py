@@ -250,6 +250,40 @@ class TestSendMessage:
 
         assert response.status_code == 422
 
+    def test_resposta_humana_sincroniza_contexto_com_agents(
+        self, client, session, whatsapp_send, monkeypatch
+    ) -> None:
+        session.scalar.side_effect = [_conversation(state="human"), _number()]
+        sync_mock = AsyncMock()
+        monkeypatch.setattr(conversations_module, "sync_conversation_context", sync_mock)
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/messages",
+            json={"content": "olá, aqui é o Dr. Silva"},
+        )
+
+        assert response.status_code == 201
+        sync_mock.assert_awaited_once()
+        kwargs = sync_mock.await_args.kwargs
+        assert kwargs["role"] == "attendant"
+        assert kwargs["content"] == "olá, aqui é o Dr. Silva"
+        assert kwargs["tenant_id"] == str(TENANT_ID)
+        assert kwargs["contact_phone_number"] == "5511999998888"
+
+    def test_falha_no_sync_nao_quebra_o_envio(
+        self, client, session, whatsapp_send, monkeypatch
+    ) -> None:
+        session.scalar.side_effect = [_conversation(state="human"), _number()]
+        sync_mock = AsyncMock(side_effect=AgentsNetworkError("agents fora do ar"))
+        monkeypatch.setattr(conversations_module, "sync_conversation_context", sync_mock)
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/messages",
+            json={"content": "olá"},
+        )
+
+        assert response.status_code == 201
+
 
 class TestGenerateSummary:
     def test_saldo_esgotado_retorna_402(self, client, session, monkeypatch) -> None:

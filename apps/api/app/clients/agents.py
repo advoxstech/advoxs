@@ -109,3 +109,33 @@ async def generate_conversation_summary(messages: list[dict]) -> dict:
     if "summary" not in data:
         raise AgentsApiError("agents retornou resposta sem 'summary'")
     return {"summary": data["summary"], "tokens_used": data.get("tokens_used", 0)}
+
+
+_CONTEXT_TIMEOUT_SECONDS = 15
+
+
+async def sync_conversation_context(
+    *, tenant_id: str, contact_phone_number: str, role: str, content: str
+) -> None:
+    """POST /conversations/{thread_id}/context — anexa uma mensagem do takeover
+    ao checkpoint do LangGraph (sem LLM, sem débito). Levanta AgentsNetworkError/
+    AgentsApiError; o call site decide se é best-effort."""
+    thread_id = f"{tenant_id}:{contact_phone_number}"
+    payload = {"messages": [{"role": role, "content": content}]}
+    try:
+        async with httpx.AsyncClient(
+            base_url=settings.agents_service_url, timeout=_CONTEXT_TIMEOUT_SECONDS
+        ) as client:
+            response = await client.post(
+                f"/conversations/{thread_id}/context", json=payload, headers=_auth_headers()
+            )
+    except httpx.HTTPError as exc:
+        raise AgentsNetworkError(f"Falha de rede ao sincronizar contexto: {exc}") from exc
+
+    if response.is_error:
+        logger.warning(
+            "agents retornou erro no sync de contexto | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise AgentsApiError(f"agents retornou {response.status_code} no sync de contexto")
