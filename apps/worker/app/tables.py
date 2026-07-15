@@ -35,6 +35,7 @@ conversations = Table(
     Column("contact_phone_number", String),
     Column("state", String),
     Column("last_message_at", DateTime(timezone=True)),
+    Column("human_last_seen_at", DateTime(timezone=True)),
 )
 
 messages = Table(

@@ -46,3 +46,23 @@ async def send_message_to_agents(
         "tokens_used": data.get("tokens_used", 0),
         "delivery_failures": data.get("delivery_failures", []),
     }
+
+
+async def sync_context_to_agents(
+    http: httpx.AsyncClient,
+    *,
+    tenant_id: str,
+    contact_phone_number: str,
+    role: str,
+    content: str,
+) -> None:
+    """POST /conversations/{thread_id}/context — anexa mensagem do takeover ao
+    checkpoint do LangGraph (sem LLM, sem débito de créditos)."""
+    headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
+    thread_id = f"{tenant_id}:{contact_phone_number}"
+    response = await http.post(
+        f"/conversations/{thread_id}/context",
+        json={"messages": [{"role": role, "content": content}]},
+        headers=headers,
+    )
+    response.raise_for_status()

@@ -37,7 +37,9 @@ def _session_with(
 
 
 def _conversation():
-    return SimpleNamespace(state="agent", contact_phone_number="5511999998888")
+    return SimpleNamespace(
+        state="agent", contact_phone_number="5511999998888", human_last_seen_at=None
+    )
 
 
 def _number():

@@ -10,7 +10,7 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
-from app.clients.agents import send_message_to_agents
+from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
@@ -35,6 +35,33 @@ class InboundContext:
     end_customer_tokens_per_credit: int | None
     end_customer_balance: int
     end_customer_packages: list[dict]
+    human_last_seen_at: datetime | None = None
+
+
+def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
+    """Sem heartbeat recente do painel, a presença expirou (NULL = expirado)."""
+    if human_last_seen_at is None:
+        return True
+    idade = (datetime.now(UTC) - human_last_seen_at).total_seconds()
+    return idade > settings.human_takeover_timeout_seconds
+
+
+async def _sync_context(
+    http: httpx.AsyncClient, tenant_id: str, contact_phone_number: str, content: str
+) -> None:
+    """Best-effort: falha no sync não pode quebrar o processamento."""
+    try:
+        await sync_context_to_agents(
+            http,
+            tenant_id=tenant_id,
+            contact_phone_number=contact_phone_number,
+            role="contact",
+            content=content,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao sincronizar contexto do takeover | tenant=%s erro=%s", tenant_id, exc
+        )
 
 
 async def process_inbound_message(
@@ -55,13 +82,31 @@ async def process_inbound_message(
         return
 
     if inbound.conversation_state != "agent":
-        # Takeover humano: a mensagem só aparece no painel de conversas.
+        if not _takeover_expirado(inbound.human_last_seen_at):
+            # Takeover ativo: a mensagem aparece no painel e entra no
+            # checkpoint do agente (memória do takeover) — mas a IA não responde.
+            logger.info(
+                "Conversa em modo humano, agente não acionado | tenant=%s conversation=%s",
+                tenant_id,
+                conversation_id,
+            )
+            await _sync_context(
+                http, tenant_id, inbound.contact_phone_number, inbound.message_content
+            )
+            return
+        # Presença do atendente expirou: a IA reassume nesta mesma execução.
         logger.info(
-            "Conversa em modo humano, agente não acionado | tenant=%s conversation=%s",
+            "Takeover expirado, IA reassume | tenant=%s conversation=%s",
             tenant_id,
             conversation_id,
         )
-        return
+        async with open_tenant_session(session_factory, tenant_id) as session:
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(state="agent", human_last_seen_at=None)
+            )
+            await session.commit()
 
     if inbound.credit_balance <= 0:
         # Saldo esgotado: silêncio total pro cliente final — a mensagem só
@@ -72,6 +117,7 @@ async def process_inbound_message(
             conversation_id,
             inbound.credit_balance,
         )
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
         return
 
     access_token = decrypt_access_token(inbound.access_token_encrypted)
@@ -177,6 +223,7 @@ async def _load_context(
             select(
                 tables.conversations.c.state,
                 tables.conversations.c.contact_phone_number,
+                tables.conversations.c.human_last_seen_at,
             ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
         )
     ).one_or_none()
@@ -276,6 +323,7 @@ async def _load_context(
         end_customer_tokens_per_credit=end_customer_tokens_per_credit,
         end_customer_balance=end_customer_balance,
         end_customer_packages=end_customer_packages,
+        human_last_seen_at=conversation.human_last_seen_at,
     )
 
 

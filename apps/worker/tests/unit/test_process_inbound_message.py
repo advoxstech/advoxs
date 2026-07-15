@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -24,7 +25,11 @@ def _ctx() -> dict:
     return {"session_factory": factory, "http": AsyncMock(), "job_try": 1}
 
 
-def _inbound(state: str = "agent", credit_balance: int = 1000) -> InboundContext:
+def _inbound(
+    state: str = "agent",
+    credit_balance: int = 1000,
+    human_last_seen_at=None,
+) -> InboundContext:
     return InboundContext(
         conversation_state=state,
         contact_phone_number="5511888888888",
@@ -36,6 +41,7 @@ def _inbound(state: str = "agent", credit_balance: int = 1000) -> InboundContext
         end_customer_tokens_per_credit=None,
         end_customer_balance=0,
         end_customer_packages=[],
+        human_last_seen_at=human_last_seen_at,
     )
 
 
@@ -52,12 +58,14 @@ def patched(monkeypatch):
         ),
         "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
         "debitar": AsyncMock(),
+        "sync": AsyncMock(),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
     monkeypatch.setattr(messages_task, "send_message_to_agents", mocks["send"])
     monkeypatch.setattr(messages_task, "_persist_agent_responses", mocks["persist"])
     monkeypatch.setattr(messages_task, "_debitar_creditos", mocks["debitar"])
+    monkeypatch.setattr(messages_task, "sync_context_to_agents", mocks["sync"])
     return mocks
 
 
@@ -94,12 +102,63 @@ async def test_sem_tokens_nao_debita(patched) -> None:
 
 
 async def test_human_state_skips_agent(patched) -> None:
-    patched["load"].return_value = _inbound(state="human")
+    patched["load"].return_value = _inbound(state="human", human_last_seen_at=datetime.now(UTC))
 
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["send"].assert_not_awaited()
     patched["persist"].assert_not_awaited()
+
+
+async def test_human_nao_expirado_sincroniza_contexto(patched) -> None:
+    patched["load"].return_value = _inbound(state="human", human_last_seen_at=datetime.now(UTC))
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["sync"].assert_awaited_once()
+    kwargs = patched["sync"].await_args.kwargs
+    assert kwargs["role"] == "contact"
+    assert kwargs["content"] == "Olá"
+    patched["send"].assert_not_awaited()
+
+
+async def test_human_expirado_reativa_ia_e_chama_agente(patched) -> None:
+    patched["load"].return_value = _inbound(
+        state="human", human_last_seen_at=datetime.now(UTC) - timedelta(seconds=999)
+    )
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    session.execute.assert_awaited()  # UPDATE state='agent'
+    patched["send"].assert_awaited_once()
+    patched["persist"].assert_awaited_once()
+
+
+async def test_human_sem_last_seen_e_tratado_como_expirado(patched) -> None:
+    patched["load"].return_value = _inbound(state="human", human_last_seen_at=None)
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+
+
+async def test_saldo_esgotado_sincroniza_contexto(patched) -> None:
+    patched["load"].return_value = _inbound(credit_balance=0)
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["sync"].assert_awaited_once()
+    patched["send"].assert_not_awaited()
+
+
+async def test_falha_no_sync_nao_quebra(patched) -> None:
+    patched["sync"].side_effect = httpx.ConnectError("agents fora do ar")
+    patched["load"].return_value = _inbound(state="human", human_last_seen_at=datetime.now(UTC))
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+    # não levanta — best-effort
 
 
 async def test_saldo_esgotado_nao_chama_agente(patched) -> None:

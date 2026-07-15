@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # cima). Valor de partida — calibrar com o custo real do LLM + margem.
     credit_tokens_per_credit: int = 1000
 
+    # Takeover humano: sem heartbeat do painel há mais que N segundos, a IA
+    # reassume a conversa na chegada da próxima mensagem do contato.
+    human_takeover_timeout_seconds: int = 180
+
     # api_rag (ingestão da base de conhecimento)
     rag_api_url: str = "http://api_rag:8000"
     rag_api_key: str = ""
