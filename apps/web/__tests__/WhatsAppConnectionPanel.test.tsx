@@ -114,4 +114,53 @@ describe("WhatsAppConnectionPanel", () => {
     const reopenedTokenInput = screen.getByLabelText(/Access Token/i) as HTMLInputElement;
     expect(reopenedTokenInput.value).toBe("");
   });
+
+  it("mostra as instruções de webhook com os valores do endpoint e copia a URL", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/webhook-config") {
+        return {
+          ok: true,
+          json: async () => ({
+            callback_url: "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
+            verify_token: "meu-verify-token",
+          }),
+        };
+      }
+      return { ok: true, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Configurar webhook na Meta")).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Callback URL")).toHaveValue(
+      "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
+    );
+    expect(screen.getByLabelText("Verify token")).toHaveValue("meu-verify-token");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Copiar" })[0]);
+
+    await waitFor(() => expect(screen.getByText("Copiado!")).toBeInTheDocument());
+    expect(writeText).toHaveBeenCalledWith(
+      "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
+    );
+  });
+
+  it("não mostra a seção de webhook quando o endpoint falha", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/webhook-config") {
+        return { ok: false, json: async () => null };
+      }
+      return { ok: true, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByText("Phone Number ID")).toBeInTheDocument());
+    expect(screen.queryByText("Configurar webhook na Meta")).not.toBeInTheDocument();
+  });
 });

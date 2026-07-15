@@ -20,6 +20,8 @@ type FormState = {
 
 const EMPTY_FORM: FormState = { phone_number_id: "", waba_id: "", access_token: "", pin: "" };
 
+type WebhookConfig = { callback_url: string; verify_token: string };
+
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
@@ -45,12 +47,21 @@ export function WhatsAppConnectionPanel() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   async function load() {
     try {
       const response = await backendFetch("whatsapp/connection");
       if (response.ok) {
         setConnection(await response.json());
+      }
+      const configResponse = await backendFetch("whatsapp/webhook-config");
+      if (configResponse.ok) {
+        const config = await configResponse.json().catch(() => null);
+        if (config?.callback_url && config?.verify_token) {
+          setWebhookConfig(config);
+        }
       }
     } finally {
       setLoaded(true);
@@ -98,6 +109,16 @@ export function WhatsAppConnectionPanel() {
       setConnection(body);
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
+  async function handleCopy(field: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(field);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      // clipboard indisponível (http/permissão) — sem feedback, sem quebrar
     }
   }
 
@@ -222,6 +243,65 @@ export function WhatsAppConnectionPanel() {
               )}
             </div>
           </form>
+        )}
+
+        {webhookConfig && (
+          <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
+            <h2 className="font-display text-base font-semibold text-ink">
+              Configurar webhook na Meta
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Passo obrigatório: sem o webhook, as mensagens enviadas ao número não chegam à
+              plataforma.
+            </p>
+            <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
+              <li>
+                No painel do seu app em developers.facebook.com, abra{" "}
+                <span className="font-medium">WhatsApp → Configuration → Webhook</span> e clique
+                em Edit.
+              </li>
+              <li>
+                Preencha com os valores abaixo e clique em Verify and save:
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      aria-label="Callback URL"
+                      value={webhookConfig.callback_url}
+                      className="flex-1 rounded border border-line bg-ground px-3 py-2 font-mono text-xs text-ink"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCopy("url", webhookConfig.callback_url)}
+                      className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                    >
+                      {copied === "url" ? "Copiado!" : "Copiar"}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      aria-label="Verify token"
+                      value={webhookConfig.verify_token}
+                      className="flex-1 rounded border border-line bg-ground px-3 py-2 font-mono text-xs text-ink"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCopy("token", webhookConfig.verify_token)}
+                      className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                    >
+                      {copied === "token" ? "Copiado!" : "Copiar"}
+                    </button>
+                  </div>
+                </div>
+              </li>
+              <li>
+                Ainda em Webhook, na lista{" "}
+                <span className="font-medium">Webhook fields</span>, clique em Manage e assine o
+                campo <code className="rounded bg-ground px-1">messages</code>.
+              </li>
+            </ol>
+          </section>
         )}
       </div>
     </main>
