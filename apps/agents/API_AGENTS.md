@@ -199,6 +199,23 @@ Remove o histórico persistido de uma conversa no checkpointer do LangGraph
 
 **Resposta:** `{ "deleted": "<thread_id>" }` · Erros → `500`.
 
+### 3.4 `POST /conversations/{thread_id}/context` — Anexar contexto ao checkpoint
+
+Anexa mensagens ao checkpoint do LangGraph **sem rodar o grafo** (sem LLM, sem
+débito de créditos). Usado pra manter a memória do agente durante o takeover
+humano: quando a IA reassume, o histórico contém o que atendente e contato
+conversaram.
+
+- Auth: mesma API key de serviço (`Authorization: <AGENTS_API_KEY>`).
+- Body: `{"messages": [{"role": "contact" | "attendant", "content": "..."}]}`
+  (mínimo 1 mensagem).
+- Mapeamento: `contact` → `HumanMessage`; `attendant` → `AIMessage` (o
+  atendente fala pelo escritório).
+- Resposta: `200 {"added": <n>}`. `messages` vazio ou `role` inválido → 422.
+  Falha de checkpoint → 500.
+- Implementação: `services/update_context.py` (`aupdate_state` com o reducer
+  `add_messages`).
+
 ---
 
 ## 4. Camada de serviços

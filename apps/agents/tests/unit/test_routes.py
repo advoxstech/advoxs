@@ -162,7 +162,9 @@ def test_resumo_sem_mensagens_retorna_400(client) -> None:
     assert response.status_code == 400
 
 
-def test_resumo_chama_summarize_conversation_e_retorna_resultado(client, monkeypatch) -> None:
+def test_resumo_chama_summarize_conversation_e_retorna_resultado(
+    client, monkeypatch
+) -> None:
     summarize = AsyncMock(return_value=("Resumo gerado.", 42))
     monkeypatch.setattr(routes, "summarize_conversation", summarize)
 
@@ -198,7 +200,9 @@ def test_resumo_erro_interno_retorna_500(client, monkeypatch) -> None:
     assert response.status_code == 500
 
 
-def test_falha_parcial_de_entrega_aparece_em_delivery_failures(client, monkeypatch) -> None:
+def test_falha_parcial_de_entrega_aparece_em_delivery_failures(
+    client, monkeypatch
+) -> None:
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
@@ -220,13 +224,19 @@ def test_falha_parcial_de_entrega_aparece_em_delivery_failures(client, monkeypat
 
 
 def test_end_customer_billing_e_repassado_ao_run_agent(client, monkeypatch):
-    debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
     run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     _mock_whatsapp_client(monkeypatch)
 
-    billing = {"enabled": True, "balance": 0, "packages": [{"id": "p-1", "name": "Básico"}]}
+    billing = {
+        "enabled": True,
+        "balance": 0,
+        "packages": [{"id": "p-1", "name": "Básico"}],
+    }
     payload = {**PAYLOAD, "end_customer_billing": billing}
 
     response = client.post("/messages", json=payload)
@@ -236,7 +246,9 @@ def test_end_customer_billing_e_repassado_ao_run_agent(client, monkeypatch):
 
 
 def test_sem_end_customer_billing_repassa_none(client, monkeypatch):
-    debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
     run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
@@ -246,3 +258,54 @@ def test_sem_end_customer_billing_repassa_none(client, monkeypatch):
 
     assert response.status_code == 200
     assert run_agent.call_args.kwargs["end_customer_billing"] is None
+
+
+CONTEXT_PAYLOAD = {
+    "messages": [
+        {"role": "contact", "content": "oi"},
+        {"role": "attendant", "content": "olá, sou o atendente"},
+    ]
+}
+
+
+def test_context_anexa_mensagens_e_retorna_added(client, monkeypatch):
+    add_mock = AsyncMock(return_value=2)
+    monkeypatch.setattr(routes, "add_context_messages", add_mock)
+
+    response = client.post("/conversations/t1:5511/context", json=CONTEXT_PAYLOAD)
+
+    assert response.status_code == 200
+    assert response.json() == {"added": 2}
+    add_mock.assert_awaited_once_with(
+        "t1:5511",
+        [
+            {"role": "contact", "content": "oi"},
+            {"role": "attendant", "content": "olá, sou o atendente"},
+        ],
+    )
+
+
+def test_context_com_messages_vazio_retorna_422(client):
+    response = client.post("/conversations/t1:5511/context", json={"messages": []})
+    assert response.status_code == 422
+
+
+def test_context_com_role_invalido_retorna_422(client):
+    payload = {"messages": [{"role": "robo", "content": "oi"}]}
+    response = client.post("/conversations/t1:5511/context", json=payload)
+    assert response.status_code == 422
+
+
+def test_context_erro_interno_retorna_500(client, monkeypatch):
+    add_mock = AsyncMock(side_effect=RuntimeError("checkpoint fora do ar"))
+    monkeypatch.setattr(routes, "add_context_messages", add_mock)
+
+    response = client.post("/conversations/t1:5511/context", json=CONTEXT_PAYLOAD)
+
+    assert response.status_code == 500
+
+
+def test_context_exige_api_key(client, monkeypatch):
+    monkeypatch.setattr(routes, "AGENTS_API_KEY", "chave-secreta")
+    response = client.post("/conversations/t1:5511/context", json=CONTEXT_PAYLOAD)
+    assert response.status_code == 403

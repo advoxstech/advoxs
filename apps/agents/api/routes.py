@@ -1,11 +1,13 @@
 import os
 import secrets
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
 from services.concat_messages import debounce_messages
 from services.call_agent import run_agent, DB_URI
 from services.summarize import summarize_conversation
+from services.update_context import add_context_messages
 from clients.whatsapp import WhatsAppClient
 from agents.registry import AGENTS_REGISTRY
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -55,6 +57,15 @@ class SummaryMessageIn(BaseModel):
 
 class SummaryRequest(BaseModel):
     messages: list[SummaryMessageIn]
+
+
+class ContextMessageIn(BaseModel):
+    role: Literal["contact", "attendant"]
+    content: str
+
+
+class ContextRequest(BaseModel):
+    messages: list[ContextMessageIn] = Field(min_length=1)
 
 
 app = FastAPI()
@@ -127,11 +138,15 @@ async def receive(body: IncomingMessage):
                 body.phone_number_id, body.access_token
             ) as client:
                 for i, msg in enumerate(response):
-                    result = await client.send_text_message(body.contact_phone_number, msg)
+                    result = await client.send_text_message(
+                        body.contact_phone_number, msg
+                    )
                     if not result.get("success"):
                         logger.warning(
                             "Falha ao entregar mensagem via WhatsApp | thread_id={} índice={} erro={}",
-                            thread_id, i, result.get("error"),
+                            thread_id,
+                            i,
+                            result.get("error"),
                         )
                         delivery_failures.append(i)
         else:
@@ -173,6 +188,27 @@ async def delete_conversation(thread_id: str):
     return {"deleted": thread_id}
 
 
+@app.post("/conversations/{thread_id}/context", dependencies=[Depends(verify_api_key)])
+async def add_context(thread_id: str, body: ContextRequest):
+    """Anexa mensagens do takeover humano ao checkpoint — sem rodar o grafo.
+
+    Chamado pelo api (resposta do atendente) e pelo worker (mensagem do
+    contato em modo human/saldo esgotado). Sem LLM, sem débito de créditos.
+    """
+    try:
+        added = await add_context_messages(
+            thread_id,
+            [{"role": m.role, "content": m.content} for m in body.messages],
+        )
+    except Exception:
+        logger.exception("Erro ao anexar contexto | thread_id={}", thread_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao anexar contexto.",
+        )
+    return {"added": added}
+
+
 @app.post("/summaries", dependencies=[Depends(verify_api_key)])
 async def summarize(body: SummaryRequest):
     if not body.messages:
@@ -183,7 +219,10 @@ async def summarize(body: SummaryRequest):
 
     try:
         summary, tokens_used = await summarize_conversation(
-            [{"sender_type": m.sender_type, "content": m.content} for m in body.messages]
+            [
+                {"sender_type": m.sender_type, "content": m.content}
+                for m in body.messages
+            ]
         )
     except Exception:
         logger.exception("Erro ao gerar resumo")
