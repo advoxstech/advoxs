@@ -17,7 +17,7 @@ async def test_store_grava_as_duas_chaves_com_ttl() -> None:
     calls = {call.args[0]: call for call in redis.set.await_args_list}
     handoff_call = calls["signup:handoff:cs_test_123"]
     token = handoff_call.args[1]
-    assert handoff_call.kwargs["ex"] == 900
+    assert handoff_call.kwargs["ex"] == 120
 
     sha = hashlib.sha256(token.encode()).hexdigest()
     token_call = calls[f"signup:token:{sha}"]
