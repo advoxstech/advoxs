@@ -4,6 +4,7 @@ import logging
 import math
 import uuid
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
@@ -35,12 +36,16 @@ logger = logging.getLogger(__name__)
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    origin: Literal["real", "test"] = Query(default="real"),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[ConversationOut]:
     result = await session.execute(
         select(Conversation)
-        .where(Conversation.tenant_id == ctx.tenant_id)
+        .where(
+            Conversation.tenant_id == ctx.tenant_id,
+            Conversation.is_test == (origin == "test"),
+        )
         .order_by(Conversation.last_message_at.desc().nulls_last())
         .limit(limit)
         .offset(offset)

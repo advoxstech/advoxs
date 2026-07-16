@@ -21,6 +21,7 @@ def _conversation(
     summary: str | None = None,
     summary_generated_at=None,
     human_last_seen_at=None,
+    is_test: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
@@ -32,6 +33,7 @@ def _conversation(
         summary=summary,
         summary_generated_at=summary_generated_at,
         human_last_seen_at=human_last_seen_at,
+        is_test=is_test,
     )
 
 
@@ -103,6 +105,31 @@ class TestListConversations:
         assert len(body) == 1
         assert body[0]["id"] == str(CONVERSATION_ID)
         assert body[0]["state"] == "agent"
+
+
+class TestOriginFilter:
+    def test_default_exclui_conversas_de_teste(self, client, session) -> None:
+        session.execute.return_value = _execute_returning([])
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        # o filtro is_test == False entrou na query
+        where_clause = str(session.execute.await_args.args[0])
+        assert "is_test" in where_clause
+
+    def test_origin_test_filtra_conversas_de_teste(self, client, session) -> None:
+        session.execute.return_value = _execute_returning([])
+
+        response = client.get("/api/v1/conversations?origin=test")
+
+        assert response.status_code == 200
+        assert "is_test" in str(session.execute.await_args.args[0])
+
+    def test_origin_invalido_retorna_422(self, client) -> None:
+        response = client.get("/api/v1/conversations?origin=banana")
+
+        assert response.status_code == 422
 
 
 class TestListMessages:

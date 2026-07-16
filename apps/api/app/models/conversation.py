@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -35,6 +36,7 @@ class Conversation(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'agent'"))
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     summary: Mapped[str | None] = mapped_column(Text)
     summary_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

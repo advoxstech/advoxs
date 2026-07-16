@@ -34,6 +34,7 @@ conversations = Table(
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
     Column("state", String),
+    Column("is_test", Boolean, nullable=False),
     Column("last_message_at", DateTime(timezone=True)),
     Column("human_last_seen_at", DateTime(timezone=True)),
 )
