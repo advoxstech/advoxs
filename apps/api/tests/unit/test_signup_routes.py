@@ -77,17 +77,42 @@ class TestCheckout:
 
 
 class TestStatus:
-    def test_ready_quando_transacao_existe(self, client, session) -> None:
+    def test_ready_quando_transacao_existe(self, client, session, monkeypatch) -> None:
+        redis = AsyncMock()
+        redis.getdel.return_value = None
+        monkeypatch.setattr(signup_module, "get_redis", AsyncMock(return_value=redis))
         session.scalar.return_value = uuid.uuid4()
 
         response = client.get("/api/v1/signup/status", params={"session_id": "cs_123"})
 
         assert response.status_code == 200
-        assert response.json() == {"ready": True}
+        assert response.json() == {"ready": True, "login_token": None}
 
     def test_not_ready_quando_transacao_nao_existe(self, client, session) -> None:
         session.scalar.return_value = None
 
         response = client.get("/api/v1/signup/status", params={"session_id": "cs_123"})
 
-        assert response.json() == {"ready": False}
+        assert response.json() == {"ready": False, "login_token": None}
+
+    def test_status_ready_entrega_login_token_uma_vez(self, client, session, monkeypatch) -> None:
+        redis = AsyncMock()
+        redis.getdel.return_value = "token-one-time"
+        monkeypatch.setattr(signup_module, "get_redis", AsyncMock(return_value=redis))
+        session.scalar.return_value = uuid.uuid4()  # transação encontrada → ready
+
+        response = client.get("/api/v1/signup/status", params={"session_id": "cs_123"})
+
+        assert response.status_code == 200
+        assert response.json() == {"ready": True, "login_token": "token-one-time"}
+        redis.getdel.assert_awaited_once_with("signup:handoff:cs_123")
+
+    def test_status_nao_ready_nao_toca_no_redis(self, client, session, monkeypatch) -> None:
+        redis = AsyncMock()
+        monkeypatch.setattr(signup_module, "get_redis", AsyncMock(return_value=redis))
+        session.scalar.return_value = None
+
+        response = client.get("/api/v1/signup/status", params={"session_id": "cs_123"})
+
+        assert response.json() == {"ready": False, "login_token": None}
+        redis.getdel.assert_not_awaited()

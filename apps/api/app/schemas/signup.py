@@ -26,3 +26,4 @@ class CheckoutUrlOut(BaseModel):
 
 class SignupStatusOut(BaseModel):
     ready: bool
+    login_token: str | None = None

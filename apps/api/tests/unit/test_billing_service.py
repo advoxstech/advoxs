@@ -257,6 +257,69 @@ class TestProcessCheckoutCompleted:
 
         session.rollback.assert_awaited_once()
 
+    async def test_signup_gera_token_de_auto_login(self, session, monkeypatch) -> None:
+        session.scalar.return_value = None
+        session.get.return_value = _package()
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+
+        redis = AsyncMock()
+        monkeypatch.setattr(billing, "get_redis", AsyncMock(return_value=redis))
+        store_mock = AsyncMock()
+        monkeypatch.setattr(billing, "store_login_token", store_mock)
+
+        stripe_session = self._stripe_session()
+        await process_checkout_completed(session, stripe_session)
+
+        store_mock.assert_awaited_once()
+        assert store_mock.await_args.args[1] == stripe_session["id"]
+        _tenant, user, _transaction = added
+        assert store_mock.await_args.args[2] == user.id
+
+    async def test_falha_no_redis_nao_quebra_o_webhook(self, session, monkeypatch) -> None:
+        session.scalar.return_value = None
+        session.get.return_value = _package()
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+
+        monkeypatch.setattr(billing, "get_redis", AsyncMock(side_effect=RuntimeError("redis fora")))
+
+        await process_checkout_completed(session, self._stripe_session())  # não levanta
+
+        session.commit.assert_awaited_once()
+
+    async def test_recompra_nao_gera_token(self, session, monkeypatch) -> None:
+        session.scalar.return_value = None
+        tenant = SimpleNamespace(id=uuid.uuid4(), credit_balance=500)
+        session.get = AsyncMock(side_effect=[_package(), tenant])
+        session.add = MagicMock()
+
+        store_mock = AsyncMock()
+        monkeypatch.setattr(billing, "store_login_token", store_mock)
+
+        metadata = {
+            "flow": "recompra",
+            "tenant_id": str(tenant.id),
+            "credit_package_id": str(PACKAGE_ID),
+        }
+        await process_checkout_completed(session, {"id": "cs_789", "metadata": metadata})
+
+        store_mock.assert_not_awaited()
+
 
 class TestProcessCheckoutCompletedRecompra:
     def _recompra_session(self, **overrides) -> dict:

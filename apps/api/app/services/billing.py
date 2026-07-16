@@ -16,8 +16,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.redis import get_redis
 from app.core.security import hash_password
 from app.models import CreditPackage, CreditTransaction, Tenant, User
+from app.services.signup_tokens import store_login_token
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +208,15 @@ async def _process_signup(session: AsyncSession, session_id: str, metadata: dict
             session_id,
             email,
         )
+        return
+
+    # Auto-login pós-pagamento: token one-time, best-effort — se o Redis
+    # falhar, a conta já existe e o usuário entra pelo /login normal.
+    try:
+        redis = await get_redis()
+        await store_login_token(redis, session_id, user.id)
+    except Exception as exc:
+        logger.warning("Falha ao gravar token de auto-login | session=%s erro=%s", session_id, exc)
 
 
 async def _process_recompra(session: AsyncSession, session_id: str, metadata: dict) -> None:

@@ -1,10 +1,13 @@
 """Cadastro self-service: cria a sessão de checkout e informa quando o tenant fica pronto."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_system_session
+from app.core.redis import get_redis
 from app.models import CreditTransaction
 from app.schemas.signup import CheckoutUrlOut, SignupCheckoutRequest, SignupStatusOut
 from app.services.billing import (
@@ -13,6 +16,9 @@ from app.services.billing import (
     StripeApiError,
     create_checkout_session,
 )
+from app.services.signup_tokens import claim_handoff_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/signup", tags=["signup"])
 
@@ -44,4 +50,15 @@ async def signup_status(
     found = await session.scalar(
         select(CreditTransaction.id).where(CreditTransaction.stripe_payment_id == session_id)
     )
-    return SignupStatusOut(ready=found is not None)
+    if found is None:
+        return SignupStatusOut(ready=False)
+
+    # Entrega única (GETDEL): o primeiro polling após a conta ficar pronta
+    # leva o token; chamadas seguintes (ou URL vazada depois) recebem null.
+    login_token: str | None = None
+    try:
+        redis = await get_redis()
+        login_token = await claim_handoff_token(redis, session_id)
+    except Exception:
+        logger.warning("Falha ao buscar token de auto-login | session=%s", session_id)
+    return SignupStatusOut(ready=True, login_token=login_token)
