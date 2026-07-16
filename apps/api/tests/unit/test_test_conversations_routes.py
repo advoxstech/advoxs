@@ -175,3 +175,50 @@ class TestSendTestMessage:
         )
 
         assert response.status_code == 404
+
+
+class TestDelete:
+    def test_apaga_conversa_de_teste(self, client, session, monkeypatch) -> None:
+        cleanup_mock = AsyncMock()
+        monkeypatch.setattr(
+            test_conversations_module.service, "delete_playground_conversation", cleanup_mock
+        )
+        session.scalar.return_value = _conversation()
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        session.delete.assert_awaited_once()
+        session.commit.assert_awaited()
+        cleanup_mock.assert_awaited_once_with(f"{TENANT_ID}:teste-abc123def456")
+
+    def test_conversa_real_retorna_409(self, client, session, monkeypatch) -> None:
+        cleanup_mock = AsyncMock()
+        monkeypatch.setattr(
+            test_conversations_module.service, "delete_playground_conversation", cleanup_mock
+        )
+        session.scalar.return_value = _conversation(is_test=False)
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 409
+        session.delete.assert_not_awaited()
+        cleanup_mock.assert_not_awaited()
+
+    def test_desvincula_ledger_antes_de_apagar(self, client, session, monkeypatch) -> None:
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "delete_playground_conversation",
+            AsyncMock(),
+        )
+        session.scalar.return_value = _conversation()
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        # dois executes: UPDATE credit_transactions (related_message_id=NULL)
+        # e DELETE messages, nessa ordem
+        statements = [str(call.args[0]) for call in session.execute.await_args_list]
+        update_idx = next(i for i, s in enumerate(statements) if "credit_transactions" in s)
+        delete_idx = next(i for i, s in enumerate(statements) if "DELETE FROM messages" in s)
+        assert update_idx < delete_idx
