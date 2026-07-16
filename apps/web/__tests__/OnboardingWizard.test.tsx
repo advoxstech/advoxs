@@ -115,4 +115,55 @@ describe("OnboardingWizard", () => {
       expect(locationAssign).toHaveBeenCalledWith("/conversas?aba=testes"),
     );
   });
+
+  it("Configurar cobrança completa e navega pra config de cobrança", async () => {
+    render(<OnboardingWizard />);
+    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Próximo" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Configurar cobrança" }));
+
+    await waitFor(() =>
+      expect(locationAssign).toHaveBeenCalledWith("/configuracoes/cobranca-clientes"),
+    );
+    expect(
+      backendFetchMock.mock.calls.some(
+        ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
+      ),
+    ).toBe(true);
+  });
+
+  it("falha no webhook-config não quebra o passo 2 (campos somem, texto fica)", async () => {
+    backendFetchMock.mockImplementation(async (path: string) => {
+      if (String(path) === "whatsapp/webhook-config") {
+        return jsonResponse(null, 500);
+      }
+      return jsonResponse(null, 204);
+    });
+
+    render(<OnboardingWizard />);
+    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Conectar o WhatsApp Business")).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText("Callback URL")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Próximo" })).toBeInTheDocument();
+  });
+
+  it("duplo-clique num botão de saída dispara um único POST", async () => {
+    render(<OnboardingWizard />);
+
+    const skip = screen.getByText("Pular e testar os agentes");
+    fireEvent.click(skip);
+    fireEvent.click(skip);
+
+    await waitFor(() =>
+      expect(locationAssign).toHaveBeenCalledWith("/conversas?aba=testes"),
+    );
+    const posts = backendFetchMock.mock.calls.filter(
+      ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
+    );
+    expect(posts).toHaveLength(1);
+  });
 });

@@ -6,19 +6,24 @@ import { backendFetch } from "@/lib/client-api";
 
 type WebhookConfig = { callback_url: string; verify_token: string };
 
-async function completeAndGo(href: string) {
-  try {
-    await backendFetch("onboarding/complete", { method: "POST" });
-  } catch {
-    // Best-effort: pior caso o wizard reaparece no próximo login.
-  }
-  window.location.assign(href);
-}
-
 export function OnboardingWizard() {
   const [step, setStep] = useState(1);
   const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+
+  async function completeAndGo(href: string) {
+    // Guard de duplo-clique (mesmo padrão do /creditos): a navegação não é
+    // instantânea, então sem isso um segundo clique dispararia outro POST.
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      await backendFetch("onboarding/complete", { method: "POST" });
+    } catch {
+      // Best-effort: pior caso o wizard reaparece no próximo login.
+    }
+    window.location.assign(href);
+  }
 
   useEffect(() => {
     async function loadConfig() {
@@ -148,7 +153,8 @@ export function OnboardingWizard() {
               <button
                 type="button"
                 onClick={() => void completeAndGo("/configuracoes/whatsapp")}
-                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink"
+                disabled={leaving}
+                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
               >
                 Configurar WhatsApp agora
               </button>
@@ -188,14 +194,16 @@ export function OnboardingWizard() {
               <button
                 type="button"
                 onClick={() => void completeAndGo("/configuracoes/cobranca-clientes")}
-                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink"
+                disabled={leaving}
+                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
               >
                 Configurar cobrança
               </button>
               <button
                 type="button"
                 onClick={() => void completeAndGo("/inicio")}
-                className="rounded-sm border border-line px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent"
+                disabled={leaving}
+                className="rounded-sm border border-line px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent disabled:opacity-50"
               >
                 Concluir
               </button>
@@ -207,7 +215,8 @@ export function OnboardingWizard() {
           <button
             type="button"
             onClick={() => void completeAndGo("/conversas?aba=testes")}
-            className="text-sm text-muted underline transition-colors hover:text-ink"
+            disabled={leaving}
+            className="text-sm text-muted underline transition-colors hover:text-ink disabled:opacity-50"
           >
             Pular e testar os agentes
           </button>
