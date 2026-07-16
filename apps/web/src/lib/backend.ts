@@ -4,6 +4,7 @@ export const API_URL =
 
 const ALLOWED_PREFIXES = [
   "conversations",
+  "test-conversations",
   "knowledge-base",
   "whatsapp",
   "signup",
@@ -11,6 +12,7 @@ const ALLOWED_PREFIXES = [
   "dashboard",
   "profile",
   "end-customer-billing",
+  "onboarding",
 ];
 
 /** Só rotas do painel passam pelo proxy — nunca auth ou webhooks. */

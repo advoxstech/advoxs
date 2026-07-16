@@ -40,4 +40,22 @@ describe("proxy binário", () => {
     expect(Array.from(received)).toEqual(Array.from(pngBytes));
     expect(response.headers.get("content-type")).toBe("image/png");
   });
+
+  it("repassa 204 sem corpo (Response proíbe payload em 204)", async () => {
+    // Regressão real de produção: new NextResponse(arrayBuffer, {status: 204})
+    // lança TypeError — quebrava heartbeat, DELETE de conversa de teste e
+    // onboarding/complete, virando 500 pro cliente.
+    mockedFetch.mockResolvedValue({
+      status: 204,
+      headers: new Headers(),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    });
+
+    const response = await GET(makeRequest("conversations/c1/heartbeat"), {
+      params: Promise.resolve({ path: ["conversations", "c1", "heartbeat"] }),
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.body).toBeNull();
+  });
 });
