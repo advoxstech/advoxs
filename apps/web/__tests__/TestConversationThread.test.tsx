@@ -107,4 +107,39 @@ describe("TestConversationThread", () => {
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
   });
+
+  it("não duplica a mensagem do contato quando o polling já a trouxe antes do POST resolver", async () => {
+    // Corrida real: a mensagem do contato é commitada antes da chamada ao
+    // agente (que pode levar >4s), então o poll a exibe primeiro; o retorno
+    // do POST inclui a mesma mensagem e não pode duplicá-la.
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).endsWith("/test-messages") && init?.method === "POST") {
+        return jsonResponse(
+          {
+            messages: [
+              message("m1", "contact", "olá"),
+              message("m2", "agent", "Oi! Como posso ajudar?"),
+            ],
+            grouped: false,
+          },
+          201,
+        );
+      }
+      // GET messages: o poll já trouxe a mensagem do contato
+      return jsonResponse([message("m1", "contact", "olá")]);
+    });
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("olá")).toBeInTheDocument());
+
+    const input = screen.getByLabelText("Mensagem de teste");
+    fireEvent.change(input, { target: { value: "olá" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Oi! Como posso ajudar?")).toBeInTheDocument(),
+    );
+    expect(screen.getAllByText("olá")).toHaveLength(1);
+  });
 });

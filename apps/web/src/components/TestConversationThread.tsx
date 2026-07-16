@@ -65,7 +65,13 @@ export function TestConversationThread({
       });
       if (response.ok) {
         const body: { messages: Message[]; grouped: boolean } = await response.json();
-        setMessages((prev) => [...prev, ...body.messages]);
+        // Dedupe por id: a chamada ao agente pode levar mais que um ciclo de
+        // polling, e o poll já terá trazido a mensagem do contato (commitada
+        // antes) — sem isso ela apareceria duplicada até o próximo poll.
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...body.messages.filter((m) => !seen.has(m.id))];
+        });
         setGrouped(body.grouped);
         setDraft("");
       } else if (response.status === 402) {
