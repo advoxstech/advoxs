@@ -81,4 +81,17 @@ describe("ConversationsPanel — abas", () => {
       ).toBe(true),
     );
   });
+
+  it("initialOrigin=test abre direto na aba Testes", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(<ConversationsPanel pollMs={0} initialOrigin="test" />);
+
+    await waitFor(() =>
+      expect(
+        backendFetchMock.mock.calls.some(([p]) => String(p).includes("origin=test")),
+      ).toBe(true),
+    );
+    expect(screen.getByText("Nova conversa de teste")).toBeInTheDocument();
+  });
 });

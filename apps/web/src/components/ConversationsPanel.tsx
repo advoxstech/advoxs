@@ -11,8 +11,14 @@ import { TestConversationThread } from "./TestConversationThread";
 
 type Origin = "real" | "test";
 
-export function ConversationsPanel({ pollMs = 5000 }: { pollMs?: number }) {
-  const [origin, setOrigin] = useState<Origin>("real");
+export function ConversationsPanel({
+  pollMs = 5000,
+  initialOrigin = "real",
+}: {
+  pollMs?: number;
+  initialOrigin?: Origin;
+}) {
+  const [origin, setOrigin] = useState<Origin>(initialOrigin);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
