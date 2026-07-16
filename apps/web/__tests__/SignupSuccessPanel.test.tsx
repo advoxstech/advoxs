@@ -14,8 +14,16 @@ vi.mock("@/app/cadastro/actions", () => ({
 
 const mockedBackendFetch = backendFetch as ReturnType<typeof vi.fn>;
 
+const locationAssign = vi.fn();
+
 beforeEach(() => {
   mockedBackendFetch.mockReset();
+  locationAssign.mockReset();
+  Object.defineProperty(window, "location", {
+    value: { assign: locationAssign },
+    writable: true,
+    configurable: true,
+  });
 });
 
 describe("SignupSuccessPanel", () => {
@@ -71,6 +79,7 @@ describe("SignupSuccessPanel", () => {
 
     await waitFor(() => expect(autoLogin).toHaveBeenCalledWith("tok-1"));
     expect(screen.getByText(/Entrando/)).toBeInTheDocument();
+    await waitFor(() => expect(locationAssign).toHaveBeenCalledWith("/inicio"));
   });
 
   it("sem login_token mantém o botão de ir para o login", async () => {

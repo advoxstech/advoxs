@@ -25,9 +25,13 @@ export function SignupSuccessPanel({
       if (result?.error) {
         // Token rejeitado (expirado/reusado): volta pro fallback com o botão.
         setLoggingIn(false);
+        return;
       }
-      // Sem erro: a action redirecionou pro /inicio — o Next cuida da
-      // navegação e este componente sai de cena.
+      // Cookies já setados pela action — navegação dura garante que o
+      // middleware veja a sessão nova (e evita a pegadinha do redirect()
+      // em server action chamada fora de useActionState, que rejeita a
+      // promise no cliente).
+      window.location.assign("/inicio");
     } catch {
       // Rejeição inesperada da action (ex: rede): volta pro fallback.
       setLoggingIn(false);

@@ -1,7 +1,6 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 
 import { setAuthCookies } from "@/lib/auth";
 import { API_URL } from "@/lib/backend";
@@ -24,6 +23,9 @@ export async function autoLogin(token: string): Promise<{ error: string | null }
   }
 
   setAuthCookies(await cookies(), tokens);
-  // Fora do try/catch: o redirect do Next lança NEXT_REDIRECT por design.
-  redirect("/inicio");
+  // A navegação fica no cliente: uma server action chamada fora de
+  // useActionState/<form> tem a promise REJEITADA pelo redirect() do Next
+  // (RedirectBoundary não participa) — um catch genérico no cliente trataria
+  // o sucesso como erro. Devolver sucesso e navegar no cliente é determinístico.
+  return { error: null };
 }
