@@ -71,4 +71,23 @@ describe("OnboardingGate", () => {
     );
     expect(replaceMock).not.toHaveBeenCalled();
   });
+
+  it("fail-open: resposta 500 (não-ok) renderiza os children sem redirecionar", async () => {
+    backendFetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ detail: "erro interno" }),
+    } as Response);
+
+    render(
+      <OnboardingGate>
+        <p>conteudo do dashboard</p>
+      </OnboardingGate>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument(),
+    );
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
 });

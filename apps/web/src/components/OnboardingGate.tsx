@@ -38,10 +38,12 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   if (state === "checking") {
+    // div, não <main>: o gate vive DENTRO do <main> da página /inicio —
+    // um segundo landmark main seria HTML inválido.
     return (
-      <main className="flex flex-1 items-center justify-center bg-ground text-sm text-muted">
+      <div className="flex flex-1 items-center justify-center bg-ground text-sm text-muted">
         Carregando...
-      </main>
+      </div>
     );
   }
   return <>{children}</>;
