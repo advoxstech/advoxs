@@ -9,6 +9,7 @@ from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password
 from app.main import app
 from app.models import Tenant, User
+from app.services import auth as auth_service_module
 from app.services.auth import BLACKLIST_PREFIX
 
 USER_ID = uuid.uuid4()
@@ -147,3 +148,42 @@ class TestLogout:
 
         assert response.status_code == 204
         assert redis.set.await_args.args[0] == f"{BLACKLIST_PREFIX}{jti}"
+
+
+class TestSignupLogin:
+    def test_token_valido_retorna_par_de_tokens(self, client, session, monkeypatch) -> None:
+        user = _user()
+        session.get.return_value = user
+        consume = AsyncMock(return_value=str(user.id))
+        monkeypatch.setattr(auth_service_module, "consume_login_token", consume)
+        monkeypatch.setattr(
+            auth_service_module, "_validar_tenant_ativo", AsyncMock(return_value=None)
+        )
+
+        response = client.post("/api/v1/auth/signup-login", json={"token": "tok-valido"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert "access_token" in body and "refresh_token" in body
+
+    def test_token_invalido_retorna_401(self, client, session, monkeypatch) -> None:
+        monkeypatch.setattr(
+            auth_service_module, "consume_login_token", AsyncMock(return_value=None)
+        )
+
+        response = client.post("/api/v1/auth/signup-login", json={"token": "tok-ruim"})
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Token inválido ou expirado"
+
+    def test_user_sumiu_retorna_401_generico(self, client, session, monkeypatch) -> None:
+        monkeypatch.setattr(
+            auth_service_module,
+            "consume_login_token",
+            AsyncMock(return_value=str(uuid.uuid4())),
+        )
+        session.get.return_value = None
+
+        response = client.post("/api/v1/auth/signup-login", json={"token": "tok"})
+
+        assert response.status_code == 401

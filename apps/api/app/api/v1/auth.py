@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_system_session
 from app.core.redis import get_redis
-from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
+from app.schemas.auth import LoginRequest, RefreshRequest, SignupLoginRequest, TokenPair
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -16,6 +16,16 @@ async def login(
     session: AsyncSession = Depends(get_system_session),
 ) -> TokenPair:
     access_token, refresh_token = await auth_service.login(body.email, body.password, session)
+    return TokenPair(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/signup-login")
+async def signup_login(
+    body: SignupLoginRequest,
+    session: AsyncSession = Depends(get_system_session),
+    redis: Redis = Depends(get_redis),
+) -> TokenPair:
+    access_token, refresh_token = await auth_service.signup_token_login(body.token, session, redis)
     return TokenPair(access_token=access_token, refresh_token=refresh_token)
 
 

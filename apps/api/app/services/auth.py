@@ -18,6 +18,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models import Tenant, User
+from app.services.signup_tokens import consume_login_token
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ _DUMMY_HASH = hash_password("dummy-timing-equalizer")
 
 _CREDENCIAIS_INVALIDAS = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas"
+)
+
+_TOKEN_INVALIDO = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado"
 )
 
 
@@ -43,6 +48,29 @@ async def login(email: str, password: str, session: AsyncSession) -> tuple[str, 
     await _validar_tenant_ativo(user, session)
 
     logger.info("Login | user=%s tenant=%s", user.id, user.tenant_id)
+    return (
+        create_access_token(str(user.id), str(user.tenant_id), user.role),
+        create_refresh_token(str(user.id)),
+    )
+
+
+async def signup_token_login(token: str, session: AsyncSession, redis: Redis) -> tuple[str, str]:
+    """Troca o token one-time do cadastro por um par de JWT (uso único).
+
+    401 genérico pra token inválido/expirado/reusado e pra user inexistente —
+    sem oráculo de qual caso ocorreu.
+    """
+    user_id = await consume_login_token(redis, token)
+    if user_id is None:
+        raise _TOKEN_INVALIDO
+
+    user = await session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise _TOKEN_INVALIDO
+
+    await _validar_tenant_ativo(user, session)
+
+    logger.info("Auto-login pós-cadastro | user=%s tenant=%s", user.id, user.tenant_id)
     return (
         create_access_token(str(user.id), str(user.tenant_id), user.role),
         create_refresh_token(str(user.id)),
