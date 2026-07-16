@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { autoLogin } from "@/app/cadastro/actions";
 import { backendFetch } from "@/lib/client-api";
 
 const MAX_ATTEMPTS = 8;
@@ -15,6 +16,23 @@ export function SignupSuccessPanel({
 }) {
   const [ready, setReady] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  async function tryAutoLogin(token: string) {
+    setLoggingIn(true);
+    try {
+      const result = await autoLogin(token);
+      if (result?.error) {
+        // Token rejeitado (expirado/reusado): volta pro fallback com o botão.
+        setLoggingIn(false);
+      }
+      // Sem erro: a action redirecionou pro /inicio — o Next cuida da
+      // navegação e este componente sai de cena.
+    } catch {
+      // Rejeição inesperada da action (ex: rede): volta pro fallback.
+      setLoggingIn(false);
+    }
+  }
 
   async function checkStatus() {
     if (!sessionId) return;
@@ -26,6 +44,9 @@ export function SignupSuccessPanel({
         const body = await response.json();
         if (body.ready) {
           setReady(true);
+          if (body.login_token) {
+            void tryAutoLogin(body.login_token);
+          }
           return;
         }
       }
@@ -56,11 +77,13 @@ export function SignupSuccessPanel({
           {settled ? "Pagamento confirmado" : "Confirmando seu pagamento…"}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          {settled
-            ? "Sua conta está pronta. Você já pode entrar com o e-mail e a senha que cadastrou."
-            : "Isso leva só alguns segundos."}
+          {loggingIn
+            ? "Entrando na sua conta…"
+            : settled
+              ? "Sua conta está pronta. Você já pode entrar com o e-mail e a senha que cadastrou."
+              : "Isso leva só alguns segundos."}
         </p>
-        {settled && (
+        {settled && !loggingIn && (
           <a
             href="/login"
             className="mt-6 inline-block rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink"

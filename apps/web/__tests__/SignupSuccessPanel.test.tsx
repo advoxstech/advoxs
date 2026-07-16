@@ -8,6 +8,10 @@ vi.mock("@/lib/client-api", () => ({
   backendFetch: vi.fn(),
 }));
 
+vi.mock("@/app/cadastro/actions", () => ({
+  autoLogin: vi.fn(),
+}));
+
 const mockedBackendFetch = backendFetch as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -53,5 +57,43 @@ describe("SignupSuccessPanel", () => {
       { timeout: 3000 },
     );
     expect(screen.getByText("Ir para o login")).toBeInTheDocument();
+  });
+
+  it("chama autoLogin quando o status traz login_token", async () => {
+    const { autoLogin } = await import("@/app/cadastro/actions");
+    vi.mocked(autoLogin).mockResolvedValue({ error: null });
+    mockedBackendFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ready: true, login_token: "tok-1" }),
+    });
+
+    render(<SignupSuccessPanel sessionId="cs_123" />);
+
+    await waitFor(() => expect(autoLogin).toHaveBeenCalledWith("tok-1"));
+    expect(screen.getByText(/Entrando/)).toBeInTheDocument();
+  });
+
+  it("sem login_token mantém o botão de ir para o login", async () => {
+    mockedBackendFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ready: true, login_token: null }),
+    });
+
+    render(<SignupSuccessPanel sessionId="cs_123" />);
+
+    await waitFor(() => expect(screen.getByText("Ir para o login")).toBeInTheDocument());
+  });
+
+  it("erro na action cai no fallback com o botão de login", async () => {
+    const { autoLogin } = await import("@/app/cadastro/actions");
+    vi.mocked(autoLogin).mockResolvedValue({ error: "invalid" });
+    mockedBackendFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ready: true, login_token: "tok-1" }),
+    });
+
+    render(<SignupSuccessPanel sessionId="cs_123" />);
+
+    await waitFor(() => expect(screen.getByText("Ir para o login")).toBeInTheDocument());
   });
 });
