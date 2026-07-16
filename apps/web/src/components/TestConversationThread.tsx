@@ -46,7 +46,13 @@ export function TestConversationThread({
   }, [loadMessages, pollMs]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView?.({ behavior: "auto", block: "end" });
+    // Rola só a lista de mensagens — scrollIntoView rolaria TODOS os
+    // ancestrais (inclusive os overflow-hidden do layout), deslocando a
+    // página inteira sem como o usuário desfazer (visto em produção).
+    const list = bottomRef.current?.parentElement;
+    if (list) {
+      list.scrollTop = list.scrollHeight;
+    }
   }, [messages.length]);
 
   const sendMessage = async (event: React.FormEvent) => {

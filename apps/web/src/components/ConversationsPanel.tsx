@@ -81,7 +81,7 @@ export function ConversationsPanel({
   };
 
   return (
-    <div className="flex min-w-0 flex-1">
+    <div className="flex min-h-0 min-w-0 flex-1">
       <aside className="flex w-80 shrink-0 flex-col border-r border-line">
         <header className="border-b border-line px-5 py-4">
           <div className="flex items-baseline justify-between">
