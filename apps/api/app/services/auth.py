@@ -64,7 +64,14 @@ async def signup_token_login(token: str, session: AsyncSession, redis: Redis) ->
     if user_id is None:
         raise _TOKEN_INVALIDO
 
-    user = await session.get(User, uuid.UUID(user_id))
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        # Valor malformado no Redis = bug interno nosso; 401 genérico em vez
+        # de 500 — mesma paridade do refresh() acima.
+        raise _TOKEN_INVALIDO
+
+    user = await session.get(User, user_uuid)
     if user is None:
         raise _TOKEN_INVALIDO
 
