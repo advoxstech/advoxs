@@ -36,3 +36,8 @@ class ConversationStateUpdate(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+
+
+class TestMessagesOut(BaseModel):
+    messages: list[MessageOut]
+    grouped: bool
