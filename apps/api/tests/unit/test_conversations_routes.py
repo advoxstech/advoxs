@@ -114,9 +114,12 @@ class TestOriginFilter:
         response = client.get("/api/v1/conversations")
 
         assert response.status_code == 200
-        # o filtro is_test == False entrou na query
-        where_clause = str(session.execute.await_args.args[0])
-        assert "is_test" in where_clause
+        # o filtro is_test = false entrou na query (direção importa: um
+        # mapeamento origin→bool invertido passaria num assert só de presença)
+        where_clause = str(
+            session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        assert "is_test = false" in where_clause
 
     def test_origin_test_filtra_conversas_de_teste(self, client, session) -> None:
         session.execute.return_value = _execute_returning([])
@@ -124,7 +127,10 @@ class TestOriginFilter:
         response = client.get("/api/v1/conversations?origin=test")
 
         assert response.status_code == 200
-        assert "is_test" in str(session.execute.await_args.args[0])
+        where_clause = str(
+            session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
+        )
+        assert "is_test = true" in where_clause
 
     def test_origin_invalido_retorna_422(self, client) -> None:
         response = client.get("/api/v1/conversations?origin=banana")
