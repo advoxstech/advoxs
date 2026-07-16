@@ -44,7 +44,9 @@ export function ConversationList({
             >
               <span className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-mono text-sm font-medium">
-                  {formatPhone(conversation.contact_phone_number)}
+                  {conversation.is_test
+                    ? "Conversa de teste"
+                    : formatPhone(conversation.contact_phone_number)}
                 </span>
                 {conversation.last_message_at ? (
                   <time className="shrink-0 font-mono text-[11px] text-muted">

@@ -4,6 +4,7 @@ export interface Conversation {
   id: string;
   contact_phone_number: string;
   state: ConversationState;
+  is_test: boolean;
   last_message_at: string | null;
   created_at: string;
   summary: string | null;

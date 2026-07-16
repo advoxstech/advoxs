@@ -29,6 +29,7 @@ function conversation(
     id: "c1",
     contact_phone_number: "5511999998888",
     state,
+    is_test: false,
     last_message_at: null,
     created_at: new Date().toISOString(),
     summary,
