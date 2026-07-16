@@ -24,6 +24,7 @@ class Tenant(Base):
     # atualizado na mesma transação de cada lançamento.
     credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'active'"))
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

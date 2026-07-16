@@ -8,6 +8,7 @@ from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.end_customer_billing import router as end_customer_billing_router
 from app.api.v1.internal.end_customer_billing import router as internal_end_customer_billing_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
+from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.platform_admin.auth import router as platform_admin_auth_router
 from app.api.v1.platform_admin.dashboard import router as platform_admin_dashboard_router
 from app.api.v1.platform_admin.playground import router as platform_admin_playground_router
@@ -30,6 +31,7 @@ api_router.include_router(dashboard_router)
 api_router.include_router(end_customer_billing_router)
 api_router.include_router(internal_end_customer_billing_router)
 api_router.include_router(knowledge_base_router)
+api_router.include_router(onboarding_router)
 api_router.include_router(platform_admin_auth_router)
 api_router.include_router(platform_admin_dashboard_router)
 api_router.include_router(platform_admin_playground_router)
