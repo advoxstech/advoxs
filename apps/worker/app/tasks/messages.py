@@ -1,8 +1,8 @@
 import logging
-import math
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import httpx
 from arq.worker import Retry
@@ -14,6 +14,7 @@ from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
+from app.pricing import calcular_creditos, get_current_pricing_config
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,9 @@ class InboundContext:
     message_content: str
     phone_number_id: str
     access_token_encrypted: str
-    credit_balance: int
+    credit_balance: Decimal
     end_customer_billing_enabled: bool
-    end_customer_tokens_per_credit: int | None
-    end_customer_balance: int
+    end_customer_balance: Decimal
     end_customer_packages: list[dict]
     human_last_seen_at: datetime | None = None
 
@@ -108,9 +108,12 @@ async def process_inbound_message(
             )
             await session.commit()
 
-    if inbound.credit_balance <= 0:
-        # Saldo esgotado: silêncio total pro cliente final — a mensagem só
-        # aparece no painel de conversas, aguardando um humano do escritório.
+    # Moeda única: turno custeado pelo cliente final (cobrança habilitada e
+    # saldo positivo) roda mesmo com o estoque do tenant zerado — esse crédito
+    # já saiu do estoque na revenda. Silêncio total só quando o turno seria
+    # custeado pelo tenant E o saldo dele esgotou.
+    customer_funded = inbound.end_customer_billing_enabled and inbound.end_customer_balance > 0
+    if inbound.credit_balance <= 0 and not customer_funded:
         logger.info(
             "Saldo esgotado, agente não acionado | tenant=%s conversation=%s saldo=%s",
             tenant_id,
@@ -185,43 +188,42 @@ async def process_inbound_message(
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
     delivery_failures = set(result.get("delivery_failures", []))
-    # 1 crédito = N tokens, sempre arredondando pra cima — nunca cobra fração.
-    credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
 
     async with open_tenant_session(session_factory, tenant_id) as session:
+        # Tokens ponderados -> créditos fracionados, pela config vigente.
+        config = await get_current_pricing_config(session)
+        credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
+
         first_message_id = await _persist_agent_responses(
             session, tenant_id, conversation_id, responses, tokens_used, credits, delivery_failures
         )
         if credits and first_message_id is not None:
-            # Ledger + saldo na mesma transação das mensagens.
-            await _debitar_creditos(
-                session,
-                tenant_id,
-                first_message_id,
-                tokens_used,
-                credits,
-                tokens_input,
-                tokens_output,
-            )
-
-        if (
-            inbound.end_customer_billing_enabled
-            and inbound.end_customer_balance > 0
-            and tokens_used
-            and inbound.end_customer_tokens_per_credit
-            and first_message_id is not None
-        ):
-            end_customer_credits = math.ceil(tokens_used / inbound.end_customer_tokens_per_credit)
-            if end_customer_credits:
+            # Moeda única: quem custeia o turno é a wallet do cliente final
+            # (quando a cobrança está habilitada e havia saldo antes da
+            # chamada) OU o estoque do tenant — nunca os dois. Ledger + saldo
+            # na mesma transação das mensagens.
+            if customer_funded:
                 await _debitar_creditos_cliente_final(
                     session,
                     tenant_id,
                     inbound.contact_phone_number,
                     first_message_id,
                     tokens_used,
-                    end_customer_credits,
+                    credits,
                     tokens_input,
                     tokens_output,
+                    config.id,
+                )
+            else:
+                await _debitar_creditos(
+                    session,
+                    tenant_id,
+                    first_message_id,
+                    tokens_used,
+                    credits,
+                    tokens_input,
+                    tokens_output,
+                    config.id,
                 )
 
         await session.commit()
@@ -277,18 +279,14 @@ async def _load_context(
 
     billing_settings = (
         await session.execute(
-            select(
-                tables.tenant_billing_settings.c.enabled,
-                tables.tenant_billing_settings.c.end_customer_tokens_per_credit,
-            ).where(tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id))
+            select(tables.tenant_billing_settings.c.enabled).where(
+                tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id)
+            )
         )
     ).one_or_none()
 
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
-    end_customer_tokens_per_credit = (
-        billing_settings.end_customer_tokens_per_credit if billing_settings else None
-    )
-    end_customer_balance = 0
+    end_customer_balance = Decimal(0)
     end_customer_packages: list[dict] = []
 
     if end_customer_billing_enabled:
@@ -301,7 +299,7 @@ async def _load_context(
                 )
             )
         ).scalar_one_or_none()
-        end_customer_balance = balance or 0
+        end_customer_balance = balance if balance is not None else Decimal(0)
 
         packages_result = await session.execute(
             select(
@@ -332,7 +330,6 @@ async def _load_context(
         access_token_encrypted=number.access_token_encrypted,
         credit_balance=credit_balance,
         end_customer_billing_enabled=end_customer_billing_enabled,
-        end_customer_tokens_per_credit=end_customer_tokens_per_credit,
         end_customer_balance=end_customer_balance,
         end_customer_packages=end_customer_packages,
         human_last_seen_at=conversation.human_last_seen_at,
@@ -345,7 +342,7 @@ async def _persist_agent_responses(
     conversation_id: str,
     responses: list[str],
     tokens_used: int = 0,
-    credits: int = 0,
+    credits: Decimal | int = 0,
     delivery_failures: set[int] | None = None,
 ) -> uuid.UUID | None:
     """Insere as respostas do agente e retorna o id da primeira.
@@ -390,14 +387,21 @@ async def _debitar_creditos(
     tenant_id: str,
     message_id: uuid.UUID,
     tokens_used: int,
-    credits: int,
+    credits: Decimal,
     tokens_input: int = 0,
     tokens_output: int = 0,
+    pricing_config_id: uuid.UUID | None = None,
 ) -> None:
     """Lança o consumo no ledger e atualiza o cache de saldo do tenant.
 
-    tokens_input/tokens_output são auditoria pura por ora — a conversão em
-    créditos continua pelo total (a Etapa 2 introduz a ponderação)."""
+    O SELECT ... FOR UPDATE serializa débitos concorrentes do mesmo tenant
+    (várias mensagens simultâneas) — o update relativo em seguida nunca perde
+    escrita nem lê saldo obsoleto."""
+    await session.execute(
+        select(tables.tenants.c.credit_balance)
+        .where(tables.tenants.c.id == uuid.UUID(tenant_id))
+        .with_for_update()
+    )
     await session.execute(
         insert(tables.credit_transactions).values(
             tenant_id=uuid.UUID(tenant_id),
@@ -406,6 +410,7 @@ async def _debitar_creditos(
             related_message_id=message_id,
             tokens_input=tokens_input or None,
             tokens_output=tokens_output or None,
+            pricing_config_id=pricing_config_id,
             description=f"Consumo do agente ({tokens_used} tokens)",
             created_at=datetime.now(UTC),
         )
@@ -423,12 +428,23 @@ async def _debitar_creditos_cliente_final(
     contact_phone_number: str,
     message_id: uuid.UUID,
     tokens_used: int,
-    credits: int,
+    credits: Decimal,
     tokens_input: int = 0,
     tokens_output: int = 0,
+    pricing_config_id: uuid.UUID | None = None,
 ) -> None:
-    """Débito do saldo do CLIENTE FINAL com o tenant — independente do débito
-    do tenant com a plataforma (_debitar_creditos), mesma transação."""
+    """Débito do saldo do CLIENTE FINAL com o tenant — moeda única: quando o
+    turno é custeado pelo cliente, SÓ esta wallet é debitada (o estoque do
+    tenant já foi debitado na revenda). FOR UPDATE serializa débitos
+    concorrentes do mesmo contato."""
+    await session.execute(
+        select(tables.end_customer_balances.c.credit_balance)
+        .where(
+            tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
+            tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
+        )
+        .with_for_update()
+    )
     await session.execute(
         insert(tables.end_customer_credit_transactions).values(
             tenant_id=uuid.UUID(tenant_id),
@@ -438,6 +454,7 @@ async def _debitar_creditos_cliente_final(
             related_message_id=message_id,
             tokens_input=tokens_input or None,
             tokens_output=tokens_output or None,
+            pricing_config_id=pricing_config_id,
             description=f"Consumo do agente ({tokens_used} tokens)",
             created_at=datetime.now(UTC),
         )

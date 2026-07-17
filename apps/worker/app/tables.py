@@ -20,6 +20,16 @@ from sqlalchemy import (
 
 metadata = MetaData()
 
+pricing_configs = Table(
+    "pricing_configs",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tokens_per_credit", Integer),
+    Column("input_weight", Numeric(6, 4)),
+    Column("output_weight", Numeric(6, 4)),
+    Column("effective_at", DateTime(timezone=True)),
+)
+
 tenants = Table(
     "tenants",
     metadata,

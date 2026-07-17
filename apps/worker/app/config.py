@@ -17,7 +17,6 @@ class Settings(BaseSettings):
 
     # Conversão de consumo: 1 crédito = N tokens (arredondamento sempre pra
     # cima). Valor de partida — calibrar com o custo real do LLM + margem.
-    credit_tokens_per_credit: int = 1000
 
     # Takeover humano: sem heartbeat do painel há mais que N segundos, a IA
     # reassume a conversa na chegada da próxima mensagem do contato.
