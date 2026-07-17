@@ -43,7 +43,7 @@ describe("DashboardPanel", () => {
 
     render(<DashboardPanel />);
 
-    await waitFor(() => expect(screen.getByText("1500")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1.500")).toBeInTheDocument());
     expect(screen.getByText("551 **** 4321")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();

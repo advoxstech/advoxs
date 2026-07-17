@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMessageTime, formatPhone } from "@/lib/format";
+import { formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
 
 describe("formatPhone", () => {
   it("formata número brasileiro com 9 dígitos", () => {
@@ -25,5 +25,23 @@ describe("formatMessageTime", () => {
   it("mostra data e hora para mensagens de outros dias", () => {
     const now = new Date("2026-07-07T15:00:00");
     expect(formatMessageTime("2026-07-01T09:05:00", now)).toBe("01/07 09:05");
+  });
+});
+
+describe("formatCredits", () => {
+  it("usa separador de milhar pt-BR para valores inteiros", () => {
+    expect(formatCredits(1500)).toBe("1.500");
+  });
+
+  it("mostra até 2 casas decimais para créditos fracionados", () => {
+    expect(formatCredits(1.75)).toBe("1,75");
+  });
+
+  it("arredonda para no máximo 2 casas decimais na exibição", () => {
+    expect(formatCredits(1.7549)).toBe("1,75");
+  });
+
+  it("formata zero normalmente", () => {
+    expect(formatCredits(0)).toBe("0");
   });
 });

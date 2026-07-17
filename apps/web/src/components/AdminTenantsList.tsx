@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { adminBackendFetch } from "@/lib/admin-client-api";
+import { formatCredits } from "@/lib/format";
 
 type TenantListItem = {
   id: string;
@@ -84,7 +85,7 @@ export function AdminTenantsList() {
                   {STATUS_LABEL[t.status]}
                 </span>
               </td>
-              <td className="py-3 font-mono text-muted">{t.credit_balance}</td>
+              <td className="py-3 font-mono text-muted">{formatCredits(t.credit_balance)}</td>
               <td className="py-3 text-muted">{t.whatsapp_connected ? "Sim" : "Não"}</td>
               <td className="py-3 text-muted">
                 {new Date(t.created_at).toLocaleDateString("pt-BR")}

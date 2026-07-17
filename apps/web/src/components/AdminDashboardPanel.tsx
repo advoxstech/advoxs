@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { adminBackendFetch } from "@/lib/admin-client-api";
+import { formatCredits } from "@/lib/format";
 import type { AdminDashboard } from "@/lib/types";
 
 import { NewTenantsChart } from "./NewTenantsChart";
@@ -53,8 +54,11 @@ export function AdminDashboardPanel() {
           label="Receita (30 dias)"
           value={`R$ ${Number(data.revenue_brl_last_30_days).toFixed(2)}`}
         />
-        <StatTile label="Créditos vendidos" value={String(data.credits_summary.sold)} />
-        <StatTile label="Créditos consumidos" value={String(data.credits_summary.consumed)} />
+        <StatTile label="Créditos vendidos" value={formatCredits(data.credits_summary.sold)} />
+        <StatTile
+          label="Créditos consumidos"
+          value={formatCredits(data.credits_summary.consumed)}
+        />
         <StatTile label="Mensagens processadas" value={String(data.messages_processed)} />
         <StatTile label="Execuções de agente" value={String(data.agent_executions)} />
         <StatTile label="Tokens consumidos" value={String(data.tokens_consumed)} />
@@ -85,7 +89,7 @@ export function AdminDashboardPanel() {
               >
                 {t.name}
               </a>
-              <span className="font-mono text-muted">{t.credit_balance} créditos</span>
+              <span className="font-mono text-muted">{formatCredits(t.credit_balance)} créditos</span>
             </li>
           ))}
         </ul>

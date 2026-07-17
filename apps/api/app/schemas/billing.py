@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class BillingBalanceOut(BaseModel):
-    credit_balance: int
+    credit_balance: float
 
 
 class BillingCheckoutRequest(BaseModel):

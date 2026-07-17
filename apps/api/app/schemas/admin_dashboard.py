@@ -16,14 +16,14 @@ class NewTenantsPerDay(BaseModel):
 
 
 class CreditsSummary(BaseModel):
-    sold: int
-    consumed: int
+    sold: float
+    consumed: float
 
 
 class LowBalanceTenant(BaseModel):
     id: uuid.UUID
     name: str
-    credit_balance: int
+    credit_balance: float
 
 
 class WhatsappConnectedSummary(BaseModel):

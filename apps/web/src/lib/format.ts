@@ -33,3 +33,8 @@ export function formatFullDateTime(iso: string): string {
     minute: "2-digit",
   });
 }
+
+/** Créditos agora são fracionados (ponderação de tokens) — formata pt-BR. */
+export function formatCredits(value: number): string {
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
