@@ -17,7 +17,7 @@ export function StatTile({
   tone?: StatTileTone;
 }) {
   return (
-    <div className="rounded-sm border border-line bg-surface p-5">
+    <div className="rounded-none border border-line bg-surface p-5">
       <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">{label}</p>
       <p className={`mt-2 font-display text-3xl font-semibold ${TONE_CLASS[tone]}`}>{value}</p>
     </div>

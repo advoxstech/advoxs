@@ -17,6 +17,12 @@
   --brass: #9c6b33;
   --brass-soft: #f3eadd;
   --danger: #96372b;
+  /* Azul-marinho — exclusivo da barra de navegação lateral */
+  --nav-bg: #14213d;
+  --nav-bg-2: #1c2c4f;
+  --nav-active: #26385f;
+  --nav-ink: #f4f6fa;
+  --nav-ink-muted: #9aa8c2;
 }
 
 body {

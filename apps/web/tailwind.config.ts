@@ -18,6 +18,11 @@ const config: Config = {
         brass: "var(--brass)",
         "brass-soft": "var(--brass-soft)",
         danger: "var(--danger)",
+        "nav-bg": "var(--nav-bg)",
+        "nav-bg-2": "var(--nav-bg-2)",
+        "nav-active": "var(--nav-active)",
+        "nav-ink": "var(--nav-ink)",
+        "nav-ink-muted": "var(--nav-ink-muted)",
       },
       fontFamily: {
         display: ["var(--font-spectral)", "Georgia", "serif"],
