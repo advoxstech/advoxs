@@ -12,6 +12,7 @@ from app.services.end_customer_billing import (
     InvalidPackageError,
     StripeApiError,
     create_end_customer_checkout_session,
+    list_customers,
     process_end_customer_checkout_completed,
 )
 
@@ -35,8 +36,12 @@ def _settings_row(**overrides) -> SimpleNamespace:
 
 def _package(**overrides) -> SimpleNamespace:
     row = SimpleNamespace(
-        id=PACKAGE_ID, tenant_id=TENANT_ID, name="Básico", price_brl=Decimal("49.90"),
-        credits_granted=500, active=True,
+        id=PACKAGE_ID,
+        tenant_id=TENANT_ID,
+        name="Básico",
+        price_brl=Decimal("49.90"),
+        credits_granted=500,
+        active=True,
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -119,7 +124,9 @@ class TestCreateEndCustomerCheckoutSession:
 
 def _conversation(**overrides):
     row = SimpleNamespace(
-        id=uuid.uuid4(), tenant_id=TENANT_ID, contact_phone_number=CONTACT,
+        id=uuid.uuid4(),
+        tenant_id=TENANT_ID,
+        contact_phone_number=CONTACT,
         last_message_at=None,
     )
     for key, value in overrides.items():
@@ -129,7 +136,9 @@ def _conversation(**overrides):
 
 def _number(**overrides):
     row = SimpleNamespace(
-        tenant_id=TENANT_ID, phone_number_id="PNID", access_token_encrypted="cifrado",
+        tenant_id=TENANT_ID,
+        phone_number_id="PNID",
+        access_token_encrypted="cifrado",
         status="connected",
     )
     for key, value in overrides.items():
@@ -194,9 +203,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         package = _package()
         conversation = _conversation()
         number = _number()
-        session.scalar = AsyncMock(
-            side_effect=[None, package, None, conversation, number]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
         session.flush = AsyncMock()
@@ -219,7 +226,9 @@ class TestProcessEndCustomerCheckoutCompleted:
     async def test_credita_saldo_existente_soma(self, session, monkeypatch) -> None:
         package = _package()
         existing_balance = SimpleNamespace(
-            tenant_id=TENANT_ID, contact_phone_number=CONTACT, credit_balance=100,
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            credit_balance=100,
             updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         session.scalar = AsyncMock(side_effect=[None, package, existing_balance, None, None])
@@ -244,3 +253,43 @@ class TestProcessEndCustomerCheckoutCompleted:
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         session.commit.assert_awaited()
+
+
+class TestListCustomers:
+    async def test_agrega_saldo_compra_e_consumo_por_contato(self) -> None:
+        session = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = [
+            ("5511999990001", 120.0, 500.0, -380.0),
+        ]
+        session.execute.return_value = result
+
+        customers = await list_customers(session, TENANT_ID, 50, 0)
+
+        assert len(customers) == 1
+        assert customers[0].contact_phone_number == "5511999990001"
+        assert customers[0].credit_balance == 120.0
+        assert customers[0].total_purchased == 500.0
+        assert customers[0].total_consumed == 380.0  # abs()
+
+    async def test_sem_clientes_retorna_lista_vazia(self) -> None:
+        session = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = []
+        session.execute.return_value = result
+
+        customers = await list_customers(session, TENANT_ID, 50, 0)
+
+        assert customers == []
+
+    async def test_query_filtra_por_tenant_id(self) -> None:
+        session = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = []
+        session.execute.return_value = result
+
+        await list_customers(session, TENANT_ID, 50, 0)
+
+        query = session.execute.call_args.args[0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "tenant_id" in compiled

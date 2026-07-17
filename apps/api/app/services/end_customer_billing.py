@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 import stripe
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.whatsapp import WhatsAppSendError, send_text_message
@@ -26,6 +26,7 @@ from app.models import (
     TenantBillingSettings,
     WhatsAppNumber,
 )
+from app.schemas.end_customer_billing import EndCustomerSummaryOut
 
 logger = logging.getLogger(__name__)
 
@@ -226,3 +227,66 @@ async def _send_purchase_confirmation(
             tenant_id,
             contact_phone_number,
         )
+
+
+async def list_customers(
+    session: AsyncSession, tenant_id: uuid.UUID, limit: int, offset: int
+) -> list[EndCustomerSummaryOut]:
+    """Saldo atual + total comprado/consumido por cliente final do tenant."""
+    purchased = func.coalesce(
+        func.sum(
+            case(
+                (
+                    EndCustomerCreditTransaction.type == "purchase",
+                    EndCustomerCreditTransaction.amount_credits,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    consumed = func.coalesce(
+        func.sum(
+            case(
+                (
+                    EndCustomerCreditTransaction.type == "consumption",
+                    EndCustomerCreditTransaction.amount_credits,
+                ),
+                else_=0,
+            )
+        ),
+        0,
+    )
+    rows = (
+        await session.execute(
+            select(
+                EndCustomerBalance.contact_phone_number,
+                EndCustomerBalance.credit_balance,
+                purchased,
+                consumed,
+            )
+            .outerjoin(
+                EndCustomerCreditTransaction,
+                (EndCustomerCreditTransaction.tenant_id == EndCustomerBalance.tenant_id)
+                & (
+                    EndCustomerCreditTransaction.contact_phone_number
+                    == EndCustomerBalance.contact_phone_number
+                ),
+            )
+            .where(EndCustomerBalance.tenant_id == tenant_id)
+            .group_by(EndCustomerBalance.contact_phone_number, EndCustomerBalance.credit_balance)
+            .order_by(func.abs(consumed).desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+
+    return [
+        EndCustomerSummaryOut(
+            contact_phone_number=contact_phone_number,
+            credit_balance=credit_balance,
+            total_purchased=total_purchased,
+            total_consumed=abs(total_consumed),
+        )
+        for contact_phone_number, credit_balance, total_purchased, total_consumed in rows
+    ]

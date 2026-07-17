@@ -59,3 +59,10 @@ class InternalCheckoutRequest(BaseModel):
 
 class CheckoutUrlOut(BaseModel):
     checkout_url: str
+
+
+class EndCustomerSummaryOut(BaseModel):
+    contact_phone_number: str
+    credit_balance: float
+    total_purchased: float
+    total_consumed: float
