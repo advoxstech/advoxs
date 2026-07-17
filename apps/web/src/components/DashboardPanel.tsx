@@ -93,7 +93,7 @@ export function DashboardPanel() {
 
       <div>
         <h2 className="font-display text-lg font-semibold text-ink">Conversas recentes</h2>
-        <ul className="mt-3 divide-y divide-line rounded-sm border border-line bg-surface">
+        <ul className="mt-3 divide-y divide-line rounded-none border border-line bg-surface">
           {data.recent_conversations.map((c) => (
             <li key={c.id}>
               <Link
