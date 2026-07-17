@@ -233,7 +233,7 @@ async def generate_summary(
                 tokens_input=summary_result.get("tokens_input") or None,
                 tokens_output=summary_result.get("tokens_output") or None,
                 pricing_config_id=config.id,
-                description=f"Resumo de conversa gerado ({tokens_used} tokens)",
+                description="Resumo de conversa gerado",
             )
         )
         await session.execute(

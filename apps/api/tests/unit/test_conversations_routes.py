@@ -390,6 +390,7 @@ class TestGenerateSummary:
         assert added.tokens_input == 2000
         assert added.tokens_output == 500
         assert added.pricing_config_id == pricing.id
+        assert "token" not in added.description.lower()
         session.commit.assert_awaited_once()
 
     def test_erro_no_agents_retorna_502(self, client, session, monkeypatch) -> None:
