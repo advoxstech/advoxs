@@ -8,7 +8,7 @@ class TenantListItemOut(BaseModel):
     id: uuid.UUID
     name: str
     status: str
-    credit_balance: int
+    credit_balance: float
     created_at: datetime
     whatsapp_connected: bool
 
@@ -18,7 +18,7 @@ class CreditTransactionOut(BaseModel):
 
     id: uuid.UUID
     type: str
-    amount_credits: int
+    amount_credits: float
     description: str | None
     created_at: datetime
 
@@ -37,7 +37,7 @@ class TenantDetailOut(BaseModel):
     name: str
     email_contato: str
     status: str
-    credit_balance: int
+    credit_balance: float
     created_at: datetime
     recent_transactions: list[CreditTransactionOut]
     knowledge_base_files: list[KnowledgeBaseFileSummaryOut]

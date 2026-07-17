@@ -1,7 +1,6 @@
 """Painel de conversas: listagem, histórico, takeover, resposta humana e resumo sob demanda."""
 
 import logging
-import math
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
@@ -18,7 +17,6 @@ from app.clients.agents import (
     sync_conversation_context,
 )
 from app.clients.whatsapp import WhatsAppSendError, send_text_message
-from app.core.config import settings
 from app.core.crypto import decrypt_access_token
 from app.models import Conversation, CreditTransaction, Message, Tenant, WhatsAppNumber
 from app.schemas.conversations import (
@@ -27,6 +25,7 @@ from app.schemas.conversations import (
     MessageOut,
     SendMessageRequest,
 )
+from app.services.pricing import calcular_creditos, get_current_pricing_config
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -209,18 +208,31 @@ async def generate_summary(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
     tokens_used = summary_result["tokens_used"]
-    credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
+    config = await get_current_pricing_config(session)
+    credits = calcular_creditos(
+        summary_result.get("tokens_input", 0),
+        summary_result.get("tokens_output", 0),
+        tokens_used,
+        config,
+    )
 
     conversation.summary = summary_result["summary"]
     conversation.summary_generated_at = datetime.now(UTC)
 
     if credits:
+        # Lock da linha do tenant: serializa débitos concorrentes do saldo.
+        await session.execute(
+            select(Tenant.credit_balance).where(Tenant.id == ctx.tenant_id).with_for_update()
+        )
         session.add(
             CreditTransaction(
                 tenant_id=ctx.tenant_id,
                 type="consumption",
                 amount_credits=-credits,
                 related_message_id=None,
+                tokens_input=summary_result.get("tokens_input") or None,
+                tokens_output=summary_result.get("tokens_output") or None,
+                pricing_config_id=config.id,
                 description=f"Resumo de conversa gerado ({tokens_used} tokens)",
             )
         )

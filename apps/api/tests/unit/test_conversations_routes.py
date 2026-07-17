@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -348,8 +349,24 @@ class TestGenerateSummary:
             SimpleNamespace(sender_type="agent", content="Claro, qual é a dúvida?"),
         ]
         session.execute.return_value = _execute_returning(history)
-        summarize = AsyncMock(return_value={"summary": "Resumo da conversa.", "tokens_used": 2500})
+        summarize = AsyncMock(
+            return_value={
+                "summary": "Resumo da conversa.",
+                "tokens_used": 2500,
+                "tokens_input": 2000,
+                "tokens_output": 500,
+            }
+        )
         monkeypatch.setattr(conversations_module, "generate_conversation_summary", summarize)
+        pricing = SimpleNamespace(
+            id=uuid.uuid4(),
+            tokens_per_credit=1000,
+            input_weight=Decimal("0.3"),
+            output_weight=Decimal("1.0"),
+        )
+        monkeypatch.setattr(
+            conversations_module, "get_current_pricing_config", AsyncMock(return_value=pricing)
+        )
 
         response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
 
@@ -367,8 +384,12 @@ class TestGenerateSummary:
         added = session.add.call_args.args[0]
         assert added.tenant_id == TENANT_ID
         assert added.type == "consumption"
-        assert added.amount_credits == -3  # ceil(2500 / 1000)
+        # 2000*0.3 + 500*1.0 = 1100 tokens ponderados -> 1.1 créditos
+        assert added.amount_credits == Decimal("-1.1000")
         assert added.related_message_id is None
+        assert added.tokens_input == 2000
+        assert added.tokens_output == 500
+        assert added.pricing_config_id == pricing.id
         session.commit.assert_awaited_once()
 
     def test_erro_no_agents_retorna_502(self, client, session, monkeypatch) -> None:

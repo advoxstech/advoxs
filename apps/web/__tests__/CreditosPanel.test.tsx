@@ -26,7 +26,7 @@ describe("CreditosPanel", () => {
 
     render(<CreditosPanel packages={PACKAGES} />);
 
-    await waitFor(() => expect(screen.getByText("1500 créditos")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("1.500 créditos")).toBeInTheDocument());
   });
 
   it("renderiza os pacotes recebidos por prop", async () => {

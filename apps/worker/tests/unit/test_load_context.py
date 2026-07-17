@@ -65,7 +65,7 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
 
 
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
-    billing_settings = SimpleNamespace(enabled=True, end_customer_tokens_per_credit=500)
+    billing_settings = SimpleNamespace(enabled=True)
     package_row = SimpleNamespace(
         id=uuid.uuid4(), name="Básico", price_brl=49.9, credits_granted=500
     )
@@ -82,7 +82,6 @@ async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert context.end_customer_billing_enabled is True
-    assert context.end_customer_tokens_per_credit == 500
     assert context.end_customer_balance == 250
     assert context.end_customer_packages == [
         {
@@ -95,7 +94,7 @@ async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
 
 
 async def test_billing_habilitado_sem_saldo_ainda_usa_zero() -> None:
-    billing_settings = SimpleNamespace(enabled=True, end_customer_tokens_per_credit=500)
+    billing_settings = SimpleNamespace(enabled=True)
     session = _session_with(
         conversation=_conversation(),
         content="Olá",

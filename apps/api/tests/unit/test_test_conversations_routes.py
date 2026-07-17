@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -78,10 +79,23 @@ class TestSendTestMessage:
             return_value={
                 "responses": ["resposta 1", "resposta 2"],
                 "tokens_used": 3500,
+                "tokens_input": 2800,
+                "tokens_output": 700,
                 "current_agent": "agente_secretaria",
             }
         )
         monkeypatch.setattr(test_conversations_module.service, "send_playground_message", mock)
+        pricing = SimpleNamespace(
+            id=uuid.uuid4(),
+            tokens_per_credit=1000,
+            input_weight=Decimal("0.3"),
+            output_weight=Decimal("1.0"),
+        )
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "get_current_pricing_config",
+            AsyncMock(return_value=pricing),
+        )
         return mock
 
     def _arm_session(self, session, conversation, balance=1000):
@@ -116,6 +130,13 @@ class TestSendTestMessage:
         assert body["messages"][1]["sender_type"] == "agent"
         playground_mock.assert_awaited_once()
         assert playground_mock.await_args.kwargs["contact_phone_number"] == "teste-abc123def456"
+        # Último add é o lançamento do ledger — com os tokens brutos auditados.
+        transaction = session.add.call_args.args[0]
+        assert transaction.type == "consumption"
+        # 2800*0.3 + 700*1.0 = 1540 tokens ponderados -> 1.54 créditos
+        assert transaction.amount_credits == Decimal("-1.5400")
+        assert transaction.tokens_input == 2800
+        assert transaction.tokens_output == 700
 
     def test_conversa_real_retorna_409(self, client, session, playground_mock) -> None:
         self._arm_session(session, _conversation(is_test=False))

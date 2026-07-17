@@ -24,18 +24,21 @@ DB_URI = (
 )
 
 
-def sum_usage_tokens(messages: list) -> int:
-    """Soma os tokens (input+output) das mensagens de IA de uma execução.
+def sum_usage_breakdown(messages: list) -> dict:
+    """Soma os tokens (input/output/total) das mensagens de IA de uma execução.
 
     O usage_metadata é preenchido pelo langchain-openai em cada AIMessage —
     inclui as chamadas intermediárias com tool_calls, que também custam tokens.
+    Input e output separados alimentam a ponderação de créditos no chamador.
     """
-    total = 0
+    totals = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     for m in messages:
         usage = getattr(m, "usage_metadata", None)
         if m.type == "ai" and usage:
-            total += usage.get("total_tokens", 0)
-    return total
+            totals["input_tokens"] += usage.get("input_tokens", 0)
+            totals["output_tokens"] += usage.get("output_tokens", 0)
+            totals["total_tokens"] += usage.get("total_tokens", 0)
+    return totals
 
 
 async def run_agent(
@@ -47,7 +50,7 @@ async def run_agent(
     num_before_messages: int = 35,
     extra_data: dict = {},
     end_customer_billing: dict | None = None,
-) -> tuple[list[str], int, str]:
+) -> tuple[list[str], dict, str]:
     started_at = time.perf_counter()
     config = {
         "configurable": {"thread_id": conversation_id},
@@ -84,7 +87,7 @@ async def run_agent(
 
     new_messages = response["messages"][prior_count:]
     answers = [m.content for m in new_messages if m.type == "ai" and m.content]
-    tokens_used = sum_usage_tokens(new_messages)
+    usage = sum_usage_breakdown(new_messages)
 
     current_agent = response.get("current_specialist") or "agente_secretaria"
 
@@ -93,7 +96,7 @@ async def run_agent(
         "Respostas geradas | conversation_id={} | total={} | tokens={} | current_agent={} | elapsed_s={}",
         conversation_id,
         len(answers),
-        tokens_used,
+        usage["total_tokens"],
         current_agent,
         elapsed,
     )
@@ -102,4 +105,4 @@ async def run_agent(
             "Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans
         )
 
-    return answers, tokens_used, current_agent
+    return answers, usage, current_agent

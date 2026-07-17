@@ -38,6 +38,10 @@ class TenantBillingSettings(Base):
     billing_mode: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'credits'")
     )
+    # Único valor suportado por ora — hook de extensibilidade (como billing_mode).
+    insufficient_balance_policy: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'block_with_message'")
+    )
     stripe_secret_key_encrypted: Mapped[str | None] = mapped_column(Text)
     stripe_webhook_secret_encrypted: Mapped[str | None] = mapped_column(Text)
     end_customer_tokens_per_credit: Mapped[int | None] = mapped_column(Integer)
@@ -76,7 +80,9 @@ class EndCustomerBalance(Base):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
-    credit_balance: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    credit_balance: Mapped[Decimal] = mapped_column(
+        Numeric(12, 4), nullable=False, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -90,7 +96,9 @@ class EndCustomerCreditTransaction(Base):
 
     __tablename__ = "end_customer_credit_transactions"
     __table_args__ = (
-        CheckConstraint("type IN ('purchase', 'consumption')", name="type"),
+        CheckConstraint(
+            "type IN ('purchase', 'consumption', 'resale', 'adjustment')", name="type"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -101,7 +109,13 @@ class EndCustomerCreditTransaction(Base):
     )
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
-    amount_credits: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_credits: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    # Auditoria de consumo: tokens brutos + config de pricing vigente no débito.
+    tokens_input: Mapped[int | None] = mapped_column(Integer)
+    tokens_output: Mapped[int | None] = mapped_column(Integer)
+    pricing_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("pricing_configs.id")
+    )
     end_customer_credit_package_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("end_customer_credit_packages.id")
     )

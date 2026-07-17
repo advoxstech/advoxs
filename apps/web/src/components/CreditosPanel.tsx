@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
+import { formatCredits } from "@/lib/format";
 import type { CreditPackage } from "@/lib/types";
 
 export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
@@ -51,7 +52,7 @@ export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
           Saldo atual
         </p>
         <p className="mt-1 font-display text-4xl font-semibold text-ink">
-          {balance === null ? "…" : `${balance} créditos`}
+          {balance === null ? "…" : `${formatCredits(balance)} créditos`}
         </p>
       </div>
 

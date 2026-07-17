@@ -16,7 +16,7 @@ class ConversationsSummaryOut(BaseModel):
 
 class UsageSummaryOut(BaseModel):
     agent_messages: int
-    credits_consumed: int
+    credits_consumed: float
 
 
 class KnowledgeBaseSummaryOut(BaseModel):
@@ -34,7 +34,7 @@ class RecentConversationOut(BaseModel):
 
 
 class TenantDashboardOut(BaseModel):
-    credit_balance: int
+    credit_balance: float
     whatsapp: WhatsappStatusOut
     conversations: ConversationsSummaryOut
     usage_last_30_days: UsageSummaryOut

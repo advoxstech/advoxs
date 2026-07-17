@@ -20,11 +20,21 @@ from sqlalchemy import (
 
 metadata = MetaData()
 
+pricing_configs = Table(
+    "pricing_configs",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tokens_per_credit", Integer),
+    Column("input_weight", Numeric(6, 4)),
+    Column("output_weight", Numeric(6, 4)),
+    Column("effective_at", DateTime(timezone=True)),
+)
+
 tenants = Table(
     "tenants",
     metadata,
     Column("id", Uuid, primary_key=True),
-    Column("credit_balance", Integer),
+    Column("credit_balance", Numeric(12, 4)),
 )
 
 conversations = Table(
@@ -49,7 +59,7 @@ messages = Table(
     Column("content", Text),
     Column("delivery_status", String),
     Column("tokens_used", Integer),
-    Column("credits_consumed", Numeric(12, 2)),
+    Column("credits_consumed", Numeric(12, 4)),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
 )
 
@@ -59,7 +69,10 @@ credit_transactions = Table(
     Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
     Column("tenant_id", Uuid),
     Column("type", String),
-    Column("amount_credits", Integer),
+    Column("amount_credits", Numeric(12, 4)),
+    Column("tokens_input", Integer),
+    Column("tokens_output", Integer),
+    Column("pricing_config_id", Uuid),
     Column("related_message_id", Uuid),
     Column("description", String),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
@@ -111,7 +124,7 @@ end_customer_balances = Table(
     Column("id", Uuid, primary_key=True),
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
-    Column("credit_balance", Integer),
+    Column("credit_balance", Numeric(12, 4)),
 )
 
 end_customer_credit_transactions = Table(
@@ -121,7 +134,10 @@ end_customer_credit_transactions = Table(
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
     Column("type", String),
-    Column("amount_credits", Integer),
+    Column("amount_credits", Numeric(12, 4)),
+    Column("tokens_input", Integer),
+    Column("tokens_output", Integer),
+    Column("pricing_config_id", Uuid),
     Column("related_message_id", Uuid),
     Column("description", String),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),

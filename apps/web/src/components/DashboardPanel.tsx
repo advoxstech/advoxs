@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
+import { formatCredits } from "@/lib/format";
 import type { TenantDashboard } from "@/lib/types";
 
 import { StatTile } from "./StatTile";
@@ -44,7 +45,7 @@ export function DashboardPanel() {
         <Link href="/creditos">
           <StatTile
             label="Saldo de créditos"
-            value={String(data.credit_balance)}
+            value={formatCredits(data.credit_balance)}
             tone={data.credit_balance <= 0 ? "critical" : "neutral"}
           />
         </Link>
@@ -75,7 +76,7 @@ export function DashboardPanel() {
         />
         <StatTile
           label="Créditos consumidos (30 dias)"
-          value={String(data.usage_last_30_days.credits_consumed)}
+          value={formatCredits(data.usage_last_30_days.credits_consumed)}
         />
         <Link href="/base-de-conhecimento">
           <StatTile label="Arquivos na base" value={String(data.knowledge_base.ready)} />

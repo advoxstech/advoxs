@@ -153,15 +153,18 @@ este serviço) e descriptografou as credenciais do WhatsApp do tenant.
 **Resposta de sucesso (200):**
 
 ```json
-{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234, "current_agent": "agente_condominial" }
+{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234, "tokens_input": 1000, "tokens_output": 234, "current_agent": "agente_condominial" }
 ```
 
 Todas as respostas geradas são devolvidas ao chamador (`worker`) para
 persistência em `messages`. `tokens_used` é a soma de tokens (input+output)
 das mensagens de IA da execução — incluindo as chamadas intermediárias com
 tool_calls — obtida do `usage_metadata` do langchain-openai
-(`sum_usage_tokens` em `services/call_agent.py`). O `worker` converte em
-créditos (ceil, `CREDIT_TOKENS_PER_CREDIT`) e debita do tenant.
+(`sum_usage_breakdown` em `services/call_agent.py`). `tokens_input` e
+`tokens_output` são o mesmo consumo separado por prompt/completion — auditoria
+e insumo da ponderação de créditos no chamador (`tokens_used` continua sendo o
+total, por compatibilidade). O `worker` converte em créditos (ceil,
+`CREDIT_TOKENS_PER_CREDIT`) e debita do tenant.
 
 `current_agent` é o nome interno do agente que respondeu por último nesta
 execução (`"agente_secretaria"` ou um dos 3 especialistas) — lido do estado do
@@ -247,11 +250,12 @@ async def run_agent(
   (`prior_count`) e assim isolar apenas as **novas** mensagens geradas nesta
   execução.
 - Invoca o grafo com a `HumanMessage` nova.
-- **Retorno:** tupla `(answers, tokens_used, current_agent)`:
+- **Retorno:** tupla `(answers, usage, current_agent)`:
   - `answers`: lista com os `content` de todas as `AIMessage` novas e não-vazias.
     Pode conter mais de uma mensagem (ex.: despedida de transferência + resposta
     do especialista).
-  - `tokens_used`: soma de tokens (input+output) da execução.
+  - `usage`: dict `{"input_tokens", "output_tokens", "total_tokens"}` com a soma
+    de tokens da execução (`sum_usage_breakdown`).
   - `current_agent`: nome do agente ativo no estado (`"agente_secretaria"` ou um
     dos 3 especialistas, obtido de `response.get("current_specialist")`; padrão
     é `"agente_secretaria"` se indefinido).

@@ -22,7 +22,12 @@ def _http_returning(response: Response) -> AsyncMock:
 
 async def test_returns_responses_and_tokens_on_200() -> None:
     response = MagicMock(spec=Response, status_code=200)
-    response.json.return_value = {"responses": ["oi", "como posso ajudar?"], "tokens_used": 1234}
+    response.json.return_value = {
+        "responses": ["oi", "como posso ajudar?"],
+        "tokens_used": 1234,
+        "tokens_input": 1000,
+        "tokens_output": 234,
+    }
     http = _http_returning(response)
 
     result = await send_message_to_agents(http, **KWARGS)
@@ -30,6 +35,8 @@ async def test_returns_responses_and_tokens_on_200() -> None:
     assert result == {
         "responses": ["oi", "como posso ajudar?"],
         "tokens_used": 1234,
+        "tokens_input": 1000,
+        "tokens_output": 234,
         "delivery_failures": [],
     }
     body = http.post.await_args.kwargs["json"]
@@ -38,13 +45,20 @@ async def test_returns_responses_and_tokens_on_200() -> None:
 
 
 async def test_resposta_sem_tokens_usa_zero() -> None:
+    # Resposta do agents sem breakdown (versão antiga durante o deploy).
     response = MagicMock(spec=Response, status_code=200)
     response.json.return_value = {"responses": ["oi"]}
     http = _http_returning(response)
 
     result = await send_message_to_agents(http, **KWARGS)
 
-    assert result == {"responses": ["oi"], "tokens_used": 0, "delivery_failures": []}
+    assert result == {
+        "responses": ["oi"],
+        "tokens_used": 0,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "delivery_failures": [],
+    }
 
 
 async def test_resposta_com_delivery_failures() -> None:

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { adminBackendFetch } from "@/lib/admin-client-api";
+import { formatCredits } from "@/lib/format";
 
 type TenantDetail = {
   id: string;
@@ -67,7 +68,7 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
       <div>
         <h1 className="font-display text-2xl font-semibold text-ink">{tenant.name}</h1>
         <p className="mt-1 text-sm text-muted">
-          {tenant.email_contato} · {tenant.credit_balance} créditos · criado em{" "}
+          {tenant.email_contato} · {formatCredits(tenant.credit_balance)} créditos · criado em{" "}
           {new Date(tenant.created_at).toLocaleDateString("pt-BR")}
         </p>
       </div>
@@ -78,7 +79,7 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
           {tenant.recent_transactions.map((t) => (
             <li key={t.id} className="flex items-center justify-between px-4 py-3 text-sm">
               <span className="text-ink">{t.description ?? t.type}</span>
-              <span className="font-mono text-muted">{t.amount_credits}</span>
+              <span className="font-mono text-muted">{formatCredits(t.amount_credits)}</span>
             </li>
           ))}
           {tenant.recent_transactions.length === 0 && (

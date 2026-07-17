@@ -7,7 +7,7 @@ histórico persistido: o `api` já manda o histórico completo em cada chamada.
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.nodes import model
-from services.call_agent import langfuse_handler, sum_usage_tokens
+from services.call_agent import langfuse_handler, sum_usage_breakdown
 
 SUMMARY_PROMPT = (
     "Resuma esta conversa entre um cliente e o escritório de advocacia em até "
@@ -26,11 +26,11 @@ def _format_transcript(messages: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def summarize_conversation(messages: list[dict]) -> tuple[str, int]:
+async def summarize_conversation(messages: list[dict]) -> tuple[str, dict]:
     transcript = _format_transcript(messages)
     response = await model.ainvoke(
         [SystemMessage(content=SUMMARY_PROMPT), HumanMessage(content=transcript)],
         config={"callbacks": [langfuse_handler]},
     )
-    tokens_used = sum_usage_tokens([response])
-    return response.content, tokens_used
+    usage = sum_usage_breakdown([response])
+    return response.content, usage

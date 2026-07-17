@@ -1,6 +1,6 @@
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.base import Base
-from app.models.billing import CreditPackage, CreditTransaction
+from app.models.billing import CreditPackage, CreditTransaction, PricingConfig
 from app.models.conversation import Conversation
 from app.models.end_customer_billing import (
     EndCustomerBalance,
@@ -27,6 +27,7 @@ __all__ = [
     "KnowledgeBaseFile",
     "Message",
     "PlatformAdmin",
+    "PricingConfig",
     "Tenant",
     "TenantBillingSettings",
     "User",

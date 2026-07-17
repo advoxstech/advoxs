@@ -30,9 +30,10 @@ async def send_playground_message(
 ) -> dict | None:
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
-    Retorna {"responses": [...], "tokens_used": N, "current_agent": "..."},
-    ou None quando o agents devolve 202 (debounce agrupou a mensagem numa
-    execução em andamento — as respostas virão pela execução que já roda).
+    Retorna {"responses": [...], "tokens_used": N, "tokens_input": N,
+    "tokens_output": N, "current_agent": "..."}, ou None quando o agents
+    devolve 202 (debounce agrupou a mensagem numa execução em andamento —
+    as respostas virão pela execução que já roda).
     """
     payload = {
         "tenant_id": tenant_id,
@@ -65,6 +66,8 @@ async def send_playground_message(
     return {
         "responses": data.get("responses", []),
         "tokens_used": data.get("tokens_used"),
+        "tokens_input": data.get("tokens_input", 0),
+        "tokens_output": data.get("tokens_output", 0),
         "current_agent": data.get("current_agent"),
     }
 
@@ -86,7 +89,8 @@ async def delete_playground_conversation(thread_id: str) -> None:
 async def generate_conversation_summary(messages: list[dict]) -> dict:
     """POST /summaries no agents — resumo sob demanda de uma conversa completa.
 
-    Retorna {"summary": str, "tokens_used": int}.
+    Retorna {"summary": str, "tokens_used": int, "tokens_input": int,
+    "tokens_output": int}.
     """
     payload = {"messages": messages}
     try:
@@ -108,7 +112,12 @@ async def generate_conversation_summary(messages: list[dict]) -> dict:
     data = response.json()
     if "summary" not in data:
         raise AgentsApiError("agents retornou resposta sem 'summary'")
-    return {"summary": data["summary"], "tokens_used": data.get("tokens_used", 0)}
+    return {
+        "summary": data["summary"],
+        "tokens_used": data.get("tokens_used", 0),
+        "tokens_input": data.get("tokens_input", 0),
+        "tokens_output": data.get("tokens_output", 0),
+    }
 
 
 _CONTEXT_TIMEOUT_SECONDS = 15

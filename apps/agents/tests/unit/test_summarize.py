@@ -20,7 +20,7 @@ class TestSummarizeConversation:
             usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
         )
 
-        summary, tokens_used = await summarize_module.summarize_conversation(
+        summary, usage = await summarize_module.summarize_conversation(
             [
                 {"sender_type": "contact", "content": "Oi, preciso de ajuda com o condomínio"},
                 {"sender_type": "agent", "content": "Claro, qual é a dúvida?"},
@@ -28,7 +28,7 @@ class TestSummarizeConversation:
         )
 
         assert summary == "Cliente perguntou sobre condomínio e o especialista respondeu."
-        assert tokens_used == 15
+        assert usage == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
         mock_model.ainvoke.assert_awaited_once()
 
     async def test_monta_a_transcricao_com_rotulos_em_portugues(self, mock_model) -> None:
@@ -48,8 +48,8 @@ class TestSummarizeConversation:
     async def test_sem_usage_metadata_retorna_zero_tokens(self, mock_model) -> None:
         mock_model.ainvoke.return_value = AIMessage(content="resumo", usage_metadata=None)
 
-        _, tokens_used = await summarize_module.summarize_conversation(
+        _, usage = await summarize_module.summarize_conversation(
             [{"sender_type": "contact", "content": "oi"}]
         )
 
-        assert tokens_used == 0
+        assert usage == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
