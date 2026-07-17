@@ -12,6 +12,7 @@ from app.schemas.billing import (
     BillingCheckoutRequest,
     BillingCheckoutUrlOut,
     BillingStatusOut,
+    BillingTransactionOut,
 )
 from app.services.billing import (
     InvalidPackageError,
@@ -29,6 +30,23 @@ async def get_balance(
 ) -> BillingBalanceOut:
     tenant = await session.get(Tenant, ctx.tenant_id)
     return BillingBalanceOut(credit_balance=tenant.credit_balance)
+
+
+@router.get("/transactions")
+async def list_transactions(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[BillingTransactionOut]:
+    result = await session.execute(
+        select(CreditTransaction)
+        .where(CreditTransaction.tenant_id == ctx.tenant_id)
+        .order_by(CreditTransaction.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [BillingTransactionOut.model_validate(t) for t in result.scalars().all()]
 
 
 @router.post("/checkout")

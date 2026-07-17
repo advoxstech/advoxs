@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class BillingBalanceOut(BaseModel):
@@ -17,3 +18,13 @@ class BillingCheckoutUrlOut(BaseModel):
 
 class BillingStatusOut(BaseModel):
     ready: bool
+
+
+class BillingTransactionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    type: str
+    amount_credits: float
+    description: str | None
+    created_at: datetime
