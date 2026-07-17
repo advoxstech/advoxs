@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { logout } from "@/app/conversas/actions";
@@ -8,7 +9,7 @@ import { backendFetch } from "@/lib/client-api";
 
 type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "cobranca" | "creditos" | "perfil";
 
-const ITEMS: { key: TenantNavItem; href: string; label: string; icon: JSX.Element }[] = [
+const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode }[] = [
   {
     key: "inicio",
     href: "/inicio",
@@ -79,7 +80,7 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: JSX.Elemen
   },
 ];
 
-function NavIcon({ children }: { children: JSX.Element }) {
+function NavIcon({ children }: { children: ReactNode }) {
   return (
     <svg
       width="18"
