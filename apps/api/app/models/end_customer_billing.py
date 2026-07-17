@@ -38,6 +38,10 @@ class TenantBillingSettings(Base):
     billing_mode: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'credits'")
     )
+    # Único valor suportado por ora — hook de extensibilidade (como billing_mode).
+    insufficient_balance_policy: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'block_with_message'")
+    )
     stripe_secret_key_encrypted: Mapped[str | None] = mapped_column(Text)
     stripe_webhook_secret_encrypted: Mapped[str | None] = mapped_column(Text)
     end_customer_tokens_per_credit: Mapped[int | None] = mapped_column(Integer)
