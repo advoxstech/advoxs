@@ -5,7 +5,6 @@ conversations/messages e o consumo debita créditos normalmente — teste gasta
 token real de LLM.
 """
 
-import math
 import uuid
 from datetime import UTC, datetime
 
@@ -14,8 +13,8 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.agents import delete_playground_conversation, send_playground_message
-from app.core.config import settings
 from app.models import Conversation, CreditTransaction, Message, Tenant
+from app.services.pricing import calcular_creditos, get_current_pricing_config
 
 
 async def send_test_message(
@@ -55,7 +54,8 @@ async def send_test_message(
     tokens_used = result["tokens_used"] or 0
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
-    credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
+    config = await get_current_pricing_config(session)
+    credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
 
     now = datetime.now(UTC)
     agent_messages: list[Message] = []
@@ -76,6 +76,10 @@ async def send_test_message(
 
     if credits and agent_messages:
         # Ledger + saldo na mesma transação das mensagens (fórmula do worker).
+        # Lock da linha do tenant: serializa débitos concorrentes do saldo.
+        await session.execute(
+            select(Tenant.credit_balance).where(Tenant.id == tenant_id).with_for_update()
+        )
         session.add(
             CreditTransaction(
                 tenant_id=tenant_id,
@@ -84,6 +88,7 @@ async def send_test_message(
                 related_message_id=agent_messages[0].id,
                 tokens_input=tokens_input or None,
                 tokens_output=tokens_output or None,
+                pricing_config_id=config.id,
                 description=f"Consumo do agente em conversa de teste ({tokens_used} tokens)",
             )
         )
