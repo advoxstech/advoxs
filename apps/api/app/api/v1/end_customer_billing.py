@@ -82,17 +82,11 @@ async def update_settings(
     if body.end_customer_tokens_per_credit is not None:
         row.end_customer_tokens_per_credit = body.end_customer_tokens_per_credit
 
-    if body.enabled is True:
-        if row.stripe_secret_key_encrypted is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Configure a secret key da Stripe antes de ativar a cobrança",
-            )
-        if not row.end_customer_tokens_per_credit:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Configure a conversão de tokens por crédito antes de ativar a cobrança",
-            )
+    if body.enabled is True and row.stripe_secret_key_encrypted is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configure a secret key da Stripe antes de ativar a cobrança",
+        )
     if body.enabled is not None:
         row.enabled = body.enabled
 

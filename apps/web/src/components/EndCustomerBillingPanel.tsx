@@ -54,7 +54,6 @@ export function EndCustomerBillingPanel() {
   const [enabled, setEnabled] = useState(false);
   const [secretKey, setSecretKey] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
-  const [tokensPerCredit, setTokensPerCredit] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -71,7 +70,6 @@ export function EndCustomerBillingPanel() {
         const body: Settings = await settingsResponse.json();
         setSettings(body);
         setEnabled(body.enabled);
-        setTokensPerCredit(body.end_customer_tokens_per_credit?.toString() ?? "");
       }
       if (packagesResponse.ok) {
         setPackages(await packagesResponse.json());
@@ -93,7 +91,6 @@ export function EndCustomerBillingPanel() {
       const body: Record<string, unknown> = { enabled };
       if (secretKey) body.stripe_secret_key = secretKey;
       if (webhookSecret) body.stripe_webhook_secret = webhookSecret;
-      if (tokensPerCredit) body.end_customer_tokens_per_credit = Number(tokensPerCredit);
 
       const response = await backendFetch("end-customer-billing/settings", {
         method: "PATCH",
@@ -220,16 +217,6 @@ export function EndCustomerBillingPanel() {
               value={webhookSecret}
               onChange={(event) => setWebhookSecret(event.target.value)}
               placeholder={settings.stripe_webhook_secret_configured ? "••••••••" : "whsec_..."}
-              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-ink">
-            Tokens por crédito
-            <input
-              type="number"
-              min={1}
-              value={tokensPerCredit}
-              onChange={(event) => setTokensPerCredit(event.target.value)}
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
           </label>
