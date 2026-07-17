@@ -48,7 +48,7 @@ class Message(Base):
     # wamid da Meta — dedup de retries do webhook (só mensagens de contato).
     wa_message_id: Mapped[str | None] = mapped_column(String, unique=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer)
-    credits_consumed: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    credits_consumed: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
