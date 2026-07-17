@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,9 +22,11 @@ from app.models import Conversation, CreditTransaction, Message, Tenant, WhatsAp
 from app.schemas.conversations import (
     ConversationOut,
     ConversationStateUpdate,
+    ConversationUsageOut,
     MessageOut,
     SendMessageRequest,
 )
+from app.services.conversations_usage import build_conversations_usage
 from app.services.pricing import calcular_creditos, get_current_pricing_config
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -50,6 +52,23 @@ async def list_conversations(
         .offset(offset)
     )
     return [ConversationOut.model_validate(c) for c in result.scalars().all()]
+
+
+@router.get("/usage")
+async def get_conversations_usage(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[ConversationUsageOut]:
+    if to < from_:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'to' não pode ser anterior a 'from'",
+        )
+    return await build_conversations_usage(session, ctx.tenant_id, from_, to, limit, offset)
 
 
 @router.get("/{conversation_id}/messages")
@@ -233,7 +252,7 @@ async def generate_summary(
                 tokens_input=summary_result.get("tokens_input") or None,
                 tokens_output=summary_result.get("tokens_output") or None,
                 pricing_config_id=config.id,
-                description=f"Resumo de conversa gerado ({tokens_used} tokens)",
+                description="Resumo de conversa gerado",
             )
         )
         await session.execute(

@@ -411,7 +411,7 @@ async def _debitar_creditos(
             tokens_input=tokens_input or None,
             tokens_output=tokens_output or None,
             pricing_config_id=pricing_config_id,
-            description=f"Consumo do agente ({tokens_used} tokens)",
+            description="Consumo do agente",
             created_at=datetime.now(UTC),
         )
     )
@@ -455,7 +455,7 @@ async def _debitar_creditos_cliente_final(
             tokens_input=tokens_input or None,
             tokens_output=tokens_output or None,
             pricing_config_id=pricing_config_id,
-            description=f"Consumo do agente ({tokens_used} tokens)",
+            description="Consumo do agente",
             created_at=datetime.now(UTC),
         )
     )

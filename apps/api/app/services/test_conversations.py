@@ -89,7 +89,7 @@ async def send_test_message(
                 tokens_input=tokens_input or None,
                 tokens_output=tokens_output or None,
                 pricing_config_id=config.id,
-                description=f"Consumo do agente em conversa de teste ({tokens_used} tokens)",
+                description="Consumo do agente em conversa de teste",
             )
         )
         await session.execute(

@@ -1,3 +1,4 @@
+import { CreditosExtrato } from "@/components/CreditosExtrato";
 import { CreditosPanel } from "@/components/CreditosPanel";
 import { TenantNav } from "@/components/TenantNav";
 import { API_URL } from "@/lib/backend";
@@ -21,6 +22,9 @@ export default async function CreditosPage() {
       <TenantNav active="creditos" />
       <main className="flex-1 overflow-y-auto bg-ground">
         <CreditosPanel packages={packages} />
+        <div className="px-8 pb-8">
+          <CreditosExtrato />
+        </div>
       </main>
     </div>
   );

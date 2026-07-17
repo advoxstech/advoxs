@@ -6,27 +6,29 @@ import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
 
 import { ConversationList } from "./ConversationList";
+import { ConversationsUsageReport } from "./ConversationsUsageReport";
 import { ConversationThread } from "./ConversationThread";
 import { TestConversationThread } from "./TestConversationThread";
 
-type Origin = "real" | "test";
+type Tab = "real" | "test" | "usage";
 
 export function ConversationsPanel({
   pollMs = 5000,
   initialOrigin = "real",
 }: {
   pollMs?: number;
-  initialOrigin?: Origin;
+  initialOrigin?: "real" | "test";
 }) {
-  const [origin, setOrigin] = useState<Origin>(initialOrigin);
+  const [tab, setTab] = useState<Tab>(initialOrigin);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const loadConversations = useCallback(async () => {
+    if (tab === "usage") return;
     try {
-      const response = await backendFetch(`conversations?origin=${origin}`);
+      const response = await backendFetch(`conversations?origin=${tab}`);
       if (response.ok) {
         setConversations(await response.json());
       }
@@ -35,9 +37,10 @@ export function ConversationsPanel({
     } finally {
       setLoaded(true);
     }
-  }, [origin]);
+  }, [tab]);
 
   useEffect(() => {
+    if (tab === "usage") return;
     setLoaded(false);
     void loadConversations();
     if (!pollMs) {
@@ -45,7 +48,7 @@ export function ConversationsPanel({
     }
     const interval = setInterval(() => void loadConversations(), pollMs);
     return () => clearInterval(interval);
-  }, [loadConversations, pollMs]);
+  }, [loadConversations, pollMs, tab]);
 
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
@@ -53,9 +56,9 @@ export function ConversationsPanel({
     setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
-  const switchTab = (next: Origin) => {
-    if (next === origin) return;
-    setOrigin(next);
+  const switchTab = (next: Tab) => {
+    if (next === tab) return;
+    setTab(next);
     setSelectedId(null);
     setConversations([]);
   };
@@ -81,79 +84,96 @@ export function ConversationsPanel({
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
-      <aside className="flex w-80 shrink-0 flex-col border-r border-line">
-        <header className="border-b border-line px-5 py-4">
-          <div className="flex items-baseline justify-between">
-            <h1 className="font-display text-xl font-semibold">Conversas</h1>
-            <span className="font-mono text-xs text-muted">{conversations.length}</span>
-          </div>
-          <div className="mt-3 flex gap-1">
-            <button
-              type="button"
-              onClick={() => switchTab("real")}
-              aria-pressed={origin === "real"}
-              className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
-                origin === "real" ? "bg-ink text-ground" : "text-muted hover:text-ink"
-              }`}
-            >
-              Conversas
-            </button>
-            <button
-              type="button"
-              onClick={() => switchTab("test")}
-              aria-pressed={origin === "test"}
-              className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
-                origin === "test" ? "bg-ink text-ground" : "text-muted hover:text-ink"
-              }`}
-            >
-              Testes
-            </button>
-          </div>
-        </header>
-        {origin === "test" ? (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
+        <h1 className="font-display text-xl font-semibold">Conversas</h1>
+        <div className="flex gap-1">
           <button
             type="button"
-            onClick={() => void createTestConversation()}
-            disabled={creating}
-            className="border-b border-line px-5 py-3 text-left text-sm font-medium text-accent transition-colors hover:bg-surface/60 disabled:opacity-50"
+            onClick={() => switchTab("real")}
+            aria-pressed={tab === "real"}
+            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+              tab === "real" ? "bg-ink text-ground" : "text-muted hover:text-ink"
+            }`}
           >
-            {creating ? "Criando…" : "Nova conversa de teste"}
+            Conversas
           </button>
-        ) : null}
-        <ConversationList
-          conversations={conversations}
-          loaded={loaded}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-      </aside>
+          <button
+            type="button"
+            onClick={() => switchTab("test")}
+            aria-pressed={tab === "test"}
+            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+              tab === "test" ? "bg-ink text-ground" : "text-muted hover:text-ink"
+            }`}
+          >
+            Testes
+          </button>
+          <button
+            type="button"
+            onClick={() => switchTab("usage")}
+            aria-pressed={tab === "usage"}
+            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+              tab === "usage" ? "bg-ink text-ground" : "text-muted hover:text-ink"
+            }`}
+          >
+            Consumo
+          </button>
+        </div>
+      </header>
 
-      <section className="flex min-w-0 flex-1 flex-col bg-surface/40">
-        {selected ? (
-          selected.is_test ? (
-            <TestConversationThread
-              key={selected.id}
-              conversation={selected}
-              onDeleted={() => handleDeleted(selected.id)}
+      {tab === "usage" ? (
+        <ConversationsUsageReport />
+      ) : (
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <aside className="flex w-80 shrink-0 flex-col border-r border-line">
+            <div className="flex items-center justify-end px-5 py-3">
+              <span className="font-mono text-xs text-muted">{conversations.length}</span>
+            </div>
+            {tab === "test" ? (
+              <button
+                type="button"
+                onClick={() => void createTestConversation()}
+                disabled={creating}
+                className="border-b border-line px-5 py-3 text-left text-sm font-medium text-accent transition-colors hover:bg-surface/60 disabled:opacity-50"
+              >
+                {creating ? "Criando…" : "Nova conversa de teste"}
+              </button>
+            ) : null}
+            <ConversationList
+              conversations={conversations}
+              loaded={loaded}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
             />
-          ) : (
-            <ConversationThread
-              key={selected.id}
-              conversation={selected}
-              onConversationUpdate={handleConversationUpdate}
-            />
-          )
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-8">
-            <p className="max-w-xs text-center text-sm leading-relaxed text-muted">
-              {origin === "test"
-                ? "Crie uma conversa de teste para experimentar os agentes sem WhatsApp."
-                : "Selecione uma conversa para acompanhar o atendimento."}
-            </p>
-          </div>
-        )}
-      </section>
+          </aside>
+
+          <section className="flex min-w-0 flex-1 flex-col bg-surface/40">
+            {selected ? (
+              selected.is_test ? (
+                <TestConversationThread
+                  key={selected.id}
+                  conversation={selected}
+                  onDeleted={() => handleDeleted(selected.id)}
+                />
+              ) : (
+                <ConversationThread
+                  key={selected.id}
+                  conversation={selected}
+                  onConversationUpdate={handleConversationUpdate}
+                />
+              )
+            ) : (
+              <div className="flex flex-1 items-center justify-center p-8">
+                <p className="max-w-xs text-center text-sm leading-relaxed text-muted">
+                  {tab === "test"
+                    ? "Crie uma conversa de teste para experimentar os agentes sem WhatsApp."
+                    : "Selecione uma conversa para acompanhar o atendimento."}
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }

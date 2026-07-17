@@ -3,7 +3,7 @@ pacotes de crédito que o tenant vende aos próprios clientes."""
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +14,11 @@ from app.schemas.end_customer_billing import (
     EndCustomerCreditPackageIn,
     EndCustomerCreditPackageOut,
     EndCustomerCreditPackageUpdate,
+    EndCustomerSummaryOut,
     TenantBillingSettingsOut,
     TenantBillingSettingsUpdate,
 )
+from app.services.end_customer_billing import list_customers
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -80,17 +82,11 @@ async def update_settings(
     if body.end_customer_tokens_per_credit is not None:
         row.end_customer_tokens_per_credit = body.end_customer_tokens_per_credit
 
-    if body.enabled is True:
-        if row.stripe_secret_key_encrypted is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Configure a secret key da Stripe antes de ativar a cobrança",
-            )
-        if not row.end_customer_tokens_per_credit:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Configure a conversão de tokens por crédito antes de ativar a cobrança",
-            )
+    if body.enabled is True and row.stripe_secret_key_encrypted is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configure a secret key da Stripe antes de ativar a cobrança",
+        )
     if body.enabled is not None:
         row.enabled = body.enabled
 
@@ -104,9 +100,7 @@ async def list_packages(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[EndCustomerCreditPackageOut]:
     result = await session.execute(
-        select(EndCustomerCreditPackage).where(
-            EndCustomerCreditPackage.tenant_id == ctx.tenant_id
-        )
+        select(EndCustomerCreditPackage).where(EndCustomerCreditPackage.tenant_id == ctx.tenant_id)
     )
     return [EndCustomerCreditPackageOut.model_validate(p) for p in result.scalars().all()]
 
@@ -172,3 +166,13 @@ async def delete_package(
         )
     await session.delete(package)
     await session.commit()
+
+
+@router.get("/customers")
+async def list_end_customers(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[EndCustomerSummaryOut]:
+    return await list_customers(session, ctx.tenant_id, limit, offset)

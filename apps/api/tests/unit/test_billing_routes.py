@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -134,3 +136,65 @@ class TestStatus:
 
         assert response.status_code == 200
         assert response.json() == {"ready": False}
+
+
+class TestTransactions:
+    def test_sem_token_retorna_401(self) -> None:
+        response = TestClient(app).get("/api/v1/billing/transactions")
+        assert response.status_code == 401
+
+    def test_lista_paginada_ordenada_por_data_desc(self, client, session) -> None:
+        rows = [
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                type="purchase",
+                amount_credits=1000.0,
+                description="Compra do pacote Starter",
+                created_at=datetime(2026, 7, 10, tzinfo=UTC),
+            ),
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                type="consumption",
+                amount_credits=-1.75,
+                description="Consumo do agente",
+                created_at=datetime(2026, 7, 9, tzinfo=UTC),
+            ),
+        ]
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = rows
+        session.execute.return_value = result
+
+        response = client.get("/api/v1/billing/transactions")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 2
+        assert body[0]["type"] == "purchase"
+        assert body[0]["amount_credits"] == 1000.0
+        assert body[1]["amount_credits"] == -1.75
+
+    def test_query_filtra_por_tenant_id(self, client, session) -> None:
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        session.execute.return_value = result
+
+        response = client.get("/api/v1/billing/transactions")
+
+        assert response.status_code == 200
+        query = session.execute.call_args.args[0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "tenant_id" in compiled
+        assert TENANT_ID.hex in compiled.replace("-", "")
+
+    def test_respeita_limit_e_offset(self, client, session) -> None:
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        session.execute.return_value = result
+
+        response = client.get("/api/v1/billing/transactions?limit=10&offset=20")
+
+        assert response.status_code == 200
+        query = session.execute.call_args.args[0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "LIMIT 10" in compiled
+        assert "OFFSET 20" in compiled

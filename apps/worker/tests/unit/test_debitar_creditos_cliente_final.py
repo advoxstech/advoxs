@@ -48,6 +48,7 @@ async def test_lanca_consumption_negativo_e_atualiza_saldo() -> None:
     assert transaction["tokens_input"] == 1400
     assert transaction["tokens_output"] == 600
     assert transaction["pricing_config_id"] == PRICING_CONFIG_ID
+    assert "token" not in transaction["description"].lower()
 
 
 async def test_debito_do_tenant_grava_tokens_brutos_e_config() -> None:
@@ -71,6 +72,7 @@ async def test_debito_do_tenant_grava_tokens_brutos_e_config() -> None:
     assert transaction["tokens_input"] == 1400
     assert transaction["tokens_output"] == 600
     assert transaction["pricing_config_id"] == PRICING_CONFIG_ID
+    assert "token" not in transaction["description"].lower()
 
 
 async def test_sem_breakdown_grava_null_em_tokens() -> None:

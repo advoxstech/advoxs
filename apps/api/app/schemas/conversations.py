@@ -41,3 +41,12 @@ class SendMessageRequest(BaseModel):
 class TestMessagesOut(BaseModel):
     messages: list[MessageOut]
     grouped: bool
+
+
+class ConversationUsageOut(BaseModel):
+    conversation_id: uuid.UUID
+    contact_phone_number: str
+    is_test: bool
+    credits_consumed: float
+    billed_responses: int
+    last_message_at: datetime

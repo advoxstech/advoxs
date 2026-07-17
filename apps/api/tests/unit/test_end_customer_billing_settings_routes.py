@@ -98,12 +98,16 @@ def test_patch_habilitar_sem_secret_key_configurada_retorna_400(client, session)
     assert response.status_code == 400
 
 
-def test_patch_habilitar_sem_tokens_per_credit_configurado_retorna_400(client, session) -> None:
+def test_patch_habilitar_sem_tokens_per_credit_funciona(client, session) -> None:
+    """A proporção token/crédito é global (pricing_configs, Etapa 2) — não é
+    mais responsabilidade do tenant configurar, então habilitar não exige
+    end_customer_tokens_per_credit (coluna deprecada)."""
     session.scalar.return_value = _settings_row(stripe_secret_key_encrypted="cifrado")
 
     response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
 
 
 def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:

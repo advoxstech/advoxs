@@ -137,6 +137,7 @@ class TestSendTestMessage:
         assert transaction.amount_credits == Decimal("-1.5400")
         assert transaction.tokens_input == 2800
         assert transaction.tokens_output == 700
+        assert "token" not in transaction.description.lower()
 
     def test_conversa_real_retorna_409(self, client, session, playground_mock) -> None:
         self._arm_session(session, _conversation(is_test=False))
