@@ -88,7 +88,7 @@ async def test_consumo_convertido_em_creditos_com_ceil(patched) -> None:
     assert persist_args[4] == 3500  # tokens_used
     assert persist_args[5] == 4  # credits
     patched["debitar"].assert_awaited_once_with(
-        patched["debitar"].await_args.args[0], TENANT_ID, FIRST_MESSAGE_ID, 3500, 4
+        patched["debitar"].await_args.args[0], TENANT_ID, FIRST_MESSAGE_ID, 3500, 4, 0, 0
     )
 
 

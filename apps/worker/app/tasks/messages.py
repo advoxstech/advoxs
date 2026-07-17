@@ -182,6 +182,8 @@ async def process_inbound_message(
 
     responses = result["responses"]
     tokens_used = result.get("tokens_used", 0)
+    tokens_input = result.get("tokens_input", 0)
+    tokens_output = result.get("tokens_output", 0)
     delivery_failures = set(result.get("delivery_failures", []))
     # 1 crédito = N tokens, sempre arredondando pra cima — nunca cobra fração.
     credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
@@ -192,7 +194,15 @@ async def process_inbound_message(
         )
         if credits and first_message_id is not None:
             # Ledger + saldo na mesma transação das mensagens.
-            await _debitar_creditos(session, tenant_id, first_message_id, tokens_used, credits)
+            await _debitar_creditos(
+                session,
+                tenant_id,
+                first_message_id,
+                tokens_used,
+                credits,
+                tokens_input,
+                tokens_output,
+            )
 
         if (
             inbound.end_customer_billing_enabled
@@ -210,6 +220,8 @@ async def process_inbound_message(
                     first_message_id,
                     tokens_used,
                     end_customer_credits,
+                    tokens_input,
+                    tokens_output,
                 )
 
         await session.commit()
@@ -379,14 +391,21 @@ async def _debitar_creditos(
     message_id: uuid.UUID,
     tokens_used: int,
     credits: int,
+    tokens_input: int = 0,
+    tokens_output: int = 0,
 ) -> None:
-    """Lança o consumo no ledger e atualiza o cache de saldo do tenant."""
+    """Lança o consumo no ledger e atualiza o cache de saldo do tenant.
+
+    tokens_input/tokens_output são auditoria pura por ora — a conversão em
+    créditos continua pelo total (a Etapa 2 introduz a ponderação)."""
     await session.execute(
         insert(tables.credit_transactions).values(
             tenant_id=uuid.UUID(tenant_id),
             type="consumption",
             amount_credits=-credits,
             related_message_id=message_id,
+            tokens_input=tokens_input or None,
+            tokens_output=tokens_output or None,
             description=f"Consumo do agente ({tokens_used} tokens)",
             created_at=datetime.now(UTC),
         )
@@ -405,6 +424,8 @@ async def _debitar_creditos_cliente_final(
     message_id: uuid.UUID,
     tokens_used: int,
     credits: int,
+    tokens_input: int = 0,
+    tokens_output: int = 0,
 ) -> None:
     """Débito do saldo do CLIENTE FINAL com o tenant — independente do débito
     do tenant com a plataforma (_debitar_creditos), mesma transação."""
@@ -415,6 +436,8 @@ async def _debitar_creditos_cliente_final(
             type="consumption",
             amount_credits=-credits,
             related_message_id=message_id,
+            tokens_input=tokens_input or None,
+            tokens_output=tokens_output or None,
             description=f"Consumo do agente ({tokens_used} tokens)",
             created_at=datetime.now(UTC),
         )
