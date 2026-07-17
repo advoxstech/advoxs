@@ -221,6 +221,8 @@ async def generate_summary(
                 type="consumption",
                 amount_credits=-credits,
                 related_message_id=None,
+                tokens_input=summary_result.get("tokens_input") or None,
+                tokens_output=summary_result.get("tokens_output") or None,
                 description=f"Resumo de conversa gerado ({tokens_used} tokens)",
             )
         )

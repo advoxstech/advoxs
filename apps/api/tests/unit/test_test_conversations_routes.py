@@ -78,6 +78,8 @@ class TestSendTestMessage:
             return_value={
                 "responses": ["resposta 1", "resposta 2"],
                 "tokens_used": 3500,
+                "tokens_input": 2800,
+                "tokens_output": 700,
                 "current_agent": "agente_secretaria",
             }
         )
@@ -116,6 +118,12 @@ class TestSendTestMessage:
         assert body["messages"][1]["sender_type"] == "agent"
         playground_mock.assert_awaited_once()
         assert playground_mock.await_args.kwargs["contact_phone_number"] == "teste-abc123def456"
+        # Último add é o lançamento do ledger — com os tokens brutos auditados.
+        transaction = session.add.call_args.args[0]
+        assert transaction.type == "consumption"
+        assert transaction.amount_credits == -4  # ceil(3500 / 1000)
+        assert transaction.tokens_input == 2800
+        assert transaction.tokens_output == 700
 
     def test_conversa_real_retorna_409(self, client, session, playground_mock) -> None:
         self._arm_session(session, _conversation(is_test=False))

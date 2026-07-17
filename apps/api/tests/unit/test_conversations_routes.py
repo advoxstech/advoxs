@@ -348,7 +348,14 @@ class TestGenerateSummary:
             SimpleNamespace(sender_type="agent", content="Claro, qual é a dúvida?"),
         ]
         session.execute.return_value = _execute_returning(history)
-        summarize = AsyncMock(return_value={"summary": "Resumo da conversa.", "tokens_used": 2500})
+        summarize = AsyncMock(
+            return_value={
+                "summary": "Resumo da conversa.",
+                "tokens_used": 2500,
+                "tokens_input": 2000,
+                "tokens_output": 500,
+            }
+        )
         monkeypatch.setattr(conversations_module, "generate_conversation_summary", summarize)
 
         response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
@@ -369,6 +376,8 @@ class TestGenerateSummary:
         assert added.type == "consumption"
         assert added.amount_credits == -3  # ceil(2500 / 1000)
         assert added.related_message_id is None
+        assert added.tokens_input == 2000
+        assert added.tokens_output == 500
         session.commit.assert_awaited_once()
 
     def test_erro_no_agents_retorna_502(self, client, session, monkeypatch) -> None:

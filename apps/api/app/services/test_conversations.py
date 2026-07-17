@@ -53,6 +53,8 @@ async def send_test_message(
 
     responses: list[str] = result["responses"]
     tokens_used = result["tokens_used"] or 0
+    tokens_input = result.get("tokens_input", 0)
+    tokens_output = result.get("tokens_output", 0)
     credits = math.ceil(tokens_used / settings.credit_tokens_per_credit) if tokens_used else 0
 
     now = datetime.now(UTC)
@@ -80,6 +82,8 @@ async def send_test_message(
                 type="consumption",
                 amount_credits=-credits,
                 related_message_id=agent_messages[0].id,
+                tokens_input=tokens_input or None,
+                tokens_output=tokens_output or None,
                 description=f"Consumo do agente em conversa de teste ({tokens_used} tokens)",
             )
         )
