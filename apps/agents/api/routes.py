@@ -119,7 +119,7 @@ async def receive(body: IncomingMessage):
 
     try:
         logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
-        response, tokens_used, current_agent = await run_agent(
+        response, usage, current_agent = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
             conversation_id=thread_id,
@@ -160,7 +160,9 @@ async def receive(body: IncomingMessage):
         # do LLM já ocorreu).
         return {
             "responses": response,
-            "tokens_used": tokens_used,
+            "tokens_used": usage["total_tokens"],
+            "tokens_input": usage["input_tokens"],
+            "tokens_output": usage["output_tokens"],
             "current_agent": current_agent,
             "delivery_failures": delivery_failures,
         }
@@ -218,7 +220,7 @@ async def summarize(body: SummaryRequest):
         )
 
     try:
-        summary, tokens_used = await summarize_conversation(
+        summary, usage = await summarize_conversation(
             [
                 {"sender_type": m.sender_type, "content": m.content}
                 for m in body.messages
@@ -231,4 +233,9 @@ async def summarize(body: SummaryRequest):
             detail="Erro ao gerar resumo.",
         )
 
-    return {"summary": summary, "tokens_used": tokens_used}
+    return {
+        "summary": summary,
+        "tokens_used": usage["total_tokens"],
+        "tokens_input": usage["input_tokens"],
+        "tokens_output": usage["output_tokens"],
+    }

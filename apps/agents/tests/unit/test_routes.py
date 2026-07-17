@@ -60,7 +60,11 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
     run_agent = AsyncMock(
-        return_value=(["resposta 1", "resposta 2"], 1234, "agente_secretaria")
+        return_value=(
+            ["resposta 1", "resposta 2"],
+            {"input_tokens": 1000, "output_tokens": 234, "total_tokens": 1234},
+            "agente_secretaria",
+        )
     )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
@@ -72,6 +76,8 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     assert response.json() == {
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 1234,
+        "tokens_input": 1000,
+        "tokens_output": 234,
         "current_agent": "agente_secretaria",
         "delivery_failures": [],
     }
@@ -92,7 +98,11 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
     run_agent = AsyncMock(
-        return_value=(["resposta 1", "resposta 2"], 1234, "agente_condominial")
+        return_value=(
+            ["resposta 1", "resposta 2"],
+            {"input_tokens": 1000, "output_tokens": 234, "total_tokens": 1234},
+            "agente_condominial",
+        )
     )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
@@ -110,6 +120,8 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
     assert response.json() == {
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 1234,
+        "tokens_input": 1000,
+        "tokens_output": 234,
         "current_agent": "agente_condominial",
         "delivery_failures": [],
     }
@@ -121,7 +133,13 @@ def test_send_to_whatsapp_default_true_continua_enviando(client, monkeypatch):
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
-    run_agent = AsyncMock(return_value=(["resposta 1"], 100, None))
+    run_agent = AsyncMock(
+        return_value=(
+            ["resposta 1"],
+            {"input_tokens": 70, "output_tokens": 30, "total_tokens": 100},
+            None,
+        )
+    )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
@@ -165,7 +183,12 @@ def test_resumo_sem_mensagens_retorna_400(client) -> None:
 def test_resumo_chama_summarize_conversation_e_retorna_resultado(
     client, monkeypatch
 ) -> None:
-    summarize = AsyncMock(return_value=("Resumo gerado.", 42))
+    summarize = AsyncMock(
+        return_value=(
+            "Resumo gerado.",
+            {"input_tokens": 30, "output_tokens": 12, "total_tokens": 42},
+        )
+    )
     monkeypatch.setattr(routes, "summarize_conversation", summarize)
 
     response = client.post(
@@ -179,7 +202,12 @@ def test_resumo_chama_summarize_conversation_e_retorna_resultado(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"summary": "Resumo gerado.", "tokens_used": 42}
+    assert response.json() == {
+        "summary": "Resumo gerado.",
+        "tokens_used": 42,
+        "tokens_input": 30,
+        "tokens_output": 12,
+    }
     summarize.assert_awaited_once_with(
         [
             {"sender_type": "contact", "content": "Oi"},
@@ -207,7 +235,11 @@ def test_falha_parcial_de_entrega_aparece_em_delivery_failures(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
     run_agent = AsyncMock(
-        return_value=(["resposta 1", "resposta 2"], 1234, "agente_secretaria")
+        return_value=(
+            ["resposta 1", "resposta 2"],
+            {"input_tokens": 1000, "output_tokens": 234, "total_tokens": 1234},
+            "agente_secretaria",
+        )
     )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
@@ -227,7 +259,13 @@ def test_end_customer_billing_e_repassado_ao_run_agent(client, monkeypatch):
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
-    run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
+    run_agent = AsyncMock(
+        return_value=(
+            ["oi"],
+            {"input_tokens": 70, "output_tokens": 30, "total_tokens": 100},
+            "agente_secretaria",
+        )
+    )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     _mock_whatsapp_client(monkeypatch)
@@ -249,7 +287,13 @@ def test_sem_end_customer_billing_repassa_none(client, monkeypatch):
     debounce = AsyncMock(
         return_value={"combined_message": "olá", "other_exec_is_running": False}
     )
-    run_agent = AsyncMock(return_value=(["oi"], 100, "agente_secretaria"))
+    run_agent = AsyncMock(
+        return_value=(
+            ["oi"],
+            {"input_tokens": 70, "output_tokens": 30, "total_tokens": 100},
+            "agente_secretaria",
+        )
+    )
     monkeypatch.setattr(routes, "debounce_messages", debounce)
     monkeypatch.setattr(routes, "run_agent", run_agent)
     _mock_whatsapp_client(monkeypatch)
