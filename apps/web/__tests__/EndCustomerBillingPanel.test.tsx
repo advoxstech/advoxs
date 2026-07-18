@@ -125,6 +125,10 @@ describe("EndCustomerBillingPanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/configure a secret key/i)).toBeInTheDocument(),
     );
+    // Sem isso, o checkbox continua marcado mesmo com o PATCH tendo falhado —
+    // o usuário vê a caixa "salva" e só descobre que não persistiu ao
+    // recarregar a página depois.
+    expect(screen.getByLabelText(/cobrar meus clientes/i)).not.toBeChecked();
   });
 
   it("lista os pacotes já cadastrados", async () => {

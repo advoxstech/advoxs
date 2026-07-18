@@ -98,6 +98,10 @@ export function EndCustomerBillingPanel() {
       const responseBody = await response.json().catch(() => null);
       if (!response.ok) {
         setFeedback(extractErrorDetail(responseBody, "Falha ao salvar — tente novamente."));
+        // Reverte o checkbox pro último valor confirmado pelo servidor — sem
+        // isso a caixa fica marcada mesmo com o PATCH tendo falhado, dando a
+        // impressão falsa de que salvou.
+        setEnabled(settings.enabled);
         return;
       }
       setSettings(responseBody);
