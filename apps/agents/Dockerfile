@@ -14,8 +14,6 @@ ENV UV_SYSTEM_PYTHON=1 \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
-RUN uv run playwright install --with-deps chromium
-
 COPY . .
 
 EXPOSE 8001
