@@ -11,6 +11,10 @@ class TenantBillingSettingsOut(BaseModel):
     stripe_secret_key_configured: bool
     stripe_webhook_secret_configured: bool
     end_customer_tokens_per_credit: int | None
+    # URL completa (com domínio) — montada no backend a partir de
+    # settings.api_public_url, nunca no client (NEXT_PUBLIC_* do Next.js só é
+    # embutido em build-time, e o build de produção não recebe essa env).
+    webhook_url: str
 
 
 class TenantBillingSettingsUpdate(BaseModel):

@@ -45,7 +45,7 @@ describe("EndCustomerBillingPanel", () => {
     expect(screen.getByText(/secret key/i)).toBeInTheDocument();
   });
 
-  it("mostra a URL do webhook com o tenant_id pra colar no Dashboard da Stripe", async () => {
+  it("mostra a URL completa do webhook devolvida pelo backend, pra colar no Dashboard da Stripe", async () => {
     mockLoad({
       tenant_id: "11111111-1111-1111-1111-111111111111",
       enabled: false,
@@ -53,16 +53,19 @@ describe("EndCustomerBillingPanel", () => {
       stripe_secret_key_configured: false,
       stripe_webhook_secret_configured: false,
       end_customer_tokens_per_credit: null,
+      webhook_url:
+        "https://api.exemplo.com.br/api/v1/webhooks/stripe/tenant/11111111-1111-1111-1111-111111111111",
     });
 
     render(<EndCustomerBillingPanel />);
 
     await waitFor(() =>
       expect(
-        screen.getByText(/11111111-1111-1111-1111-111111111111/),
+        screen.getByText(
+          "https://api.exemplo.com.br/api/v1/webhooks/stripe/tenant/11111111-1111-1111-1111-111111111111",
+        ),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByText(/webhooks\/stripe\/tenant/)).toBeInTheDocument();
   });
 
   it("envia PATCH com a secret key digitada", async () => {
