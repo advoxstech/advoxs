@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.core.config import settings
 from app.core.crypto import encrypt_tenant_secret
 from app.models import EndCustomerCreditPackage, EndCustomerCreditTransaction, TenantBillingSettings
 from app.schemas.end_customer_billing import (
@@ -23,6 +24,14 @@ from app.services.end_customer_billing import list_customers
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
 
+def _webhook_url_for(tenant_id: uuid.UUID) -> str:
+    """URL completa do webhook por tenant, pro escritório colar no Dashboard
+    da própria Stripe — mesmo padrão de GET /whatsapp/webhook-config (montada
+    no backend via settings.api_public_url, nunca no client)."""
+    base = settings.api_public_url.rstrip("/")
+    return f"{base}/api/v1/webhooks/stripe/tenant/{tenant_id}"
+
+
 def _to_settings_out(
     tenant_id: uuid.UUID, settings_row: TenantBillingSettings | None
 ) -> TenantBillingSettingsOut:
@@ -34,6 +43,7 @@ def _to_settings_out(
             stripe_secret_key_configured=False,
             stripe_webhook_secret_configured=False,
             end_customer_tokens_per_credit=None,
+            webhook_url=_webhook_url_for(tenant_id),
         )
     return TenantBillingSettingsOut(
         tenant_id=tenant_id,
@@ -42,6 +52,7 @@ def _to_settings_out(
         stripe_secret_key_configured=settings_row.stripe_secret_key_encrypted is not None,
         stripe_webhook_secret_configured=settings_row.stripe_webhook_secret_encrypted is not None,
         end_customer_tokens_per_credit=settings_row.end_customer_tokens_per_credit,
+        webhook_url=_webhook_url_for(tenant_id),
     )
 
 

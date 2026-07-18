@@ -66,6 +66,30 @@ def test_get_retorna_tenant_id_para_montar_url_do_webhook(client, session) -> No
     assert response.json()["tenant_id"] == str(TENANT_ID)
 
 
+def test_get_retorna_webhook_url_completa(client, session, monkeypatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "api_public_url", "https://api.exemplo.com.br")
+    session.scalar.return_value = None
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    assert response.json()["webhook_url"] == (
+        f"https://api.exemplo.com.br/api/v1/webhooks/stripe/tenant/{TENANT_ID}"
+    )
+
+
+def test_get_sem_api_public_url_degrada_pra_path_relativo(client, session, monkeypatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "api_public_url", "")
+    session.scalar.return_value = None
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    assert response.json()["webhook_url"] == f"/api/v1/webhooks/stripe/tenant/{TENANT_ID}"
+
+
 def test_get_com_configuracao_nao_revela_secrets(client, session) -> None:
     session.scalar.return_value = _settings_row(
         stripe_secret_key_encrypted="cifrado", stripe_webhook_secret_encrypted="cifrado-2"
