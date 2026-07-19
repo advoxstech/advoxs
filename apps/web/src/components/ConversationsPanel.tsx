@@ -160,6 +160,7 @@ export function ConversationsPanel({
                   key={selected.id}
                   conversation={selected}
                   onConversationUpdate={handleConversationUpdate}
+                  onDeleted={() => handleDeleted(selected.id)}
                 />
               )
             ) : (

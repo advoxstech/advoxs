@@ -513,4 +513,76 @@ describe("ConversationThread", () => {
     });
     expect(screen.queryByText("Não entregue")).not.toBeInTheDocument();
   });
+
+  it("exclui a conversa com confirmação e chama onDeleted", async () => {
+    const onDeleted = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return jsonResponse(null, 204);
+      }
+      return jsonResponse([]);
+    });
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        onDeleted={onDeleted}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Apagar todo o histórico desta conversa? Essa ação não pode ser desfeita — as mensagens serão excluídas permanentemente.",
+    );
+  });
+
+  it("não exclui quando o usuário cancela a confirmação", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+
+    expect(
+      backendFetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
+    ).toBe(false);
+  });
+
+  it("mostra erro quando a exclusão falha", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return jsonResponse({ detail: "erro" }, 500);
+      }
+      return jsonResponse([]);
+    });
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Não foi possível excluir a conversa. Tente novamente."),
+      ).toBeInTheDocument(),
+    );
+  });
 });

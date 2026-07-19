@@ -9,12 +9,14 @@ import type { Conversation, Message } from "@/lib/types";
 interface ConversationThreadProps {
   conversation: Conversation;
   onConversationUpdate: (conversation: Conversation) => void;
+  onDeleted?: () => void;
   pollMs?: number;
 }
 
 export function ConversationThread({
   conversation,
   onConversationUpdate,
+  onDeleted,
   pollMs = 4000,
 }: ConversationThreadProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -133,6 +135,25 @@ export function ConversationThread({
     }
   };
 
+  const handleDelete = async () => {
+    if (
+      !window.confirm(
+        "Apagar todo o histórico desta conversa? Essa ação não pode ser desfeita — as mensagens serão excluídas permanentemente.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    const response = await backendFetch(`conversations/${conversation.id}`, {
+      method: "DELETE",
+    });
+    if (response.ok) {
+      onDeleted?.();
+    } else {
+      setError("Não foi possível excluir a conversa. Tente novamente.");
+    }
+  };
+
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     const content = draft.trim();
@@ -178,24 +199,33 @@ export function ConversationThread({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-muted">IA respondendo</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted">IA respondendo</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!isManual}
+              aria-label="IA respondendo"
+              onClick={() => void toggleState()}
+              className={`relative h-5 w-9 rounded-full transition-colors ${
+                !isManual ? "bg-accent" : "bg-line"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
+                  !isManual ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
           <button
             type="button"
-            role="switch"
-            aria-checked={!isManual}
-            aria-label="IA respondendo"
-            onClick={() => void toggleState()}
-            className={`relative h-5 w-9 rounded-full transition-colors ${
-              !isManual ? "bg-accent" : "bg-line"
-            }`}
+            onClick={() => void handleDelete()}
+            className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
           >
-            <span
-              aria-hidden
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
-                !isManual ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
+            Excluir conversa
           </button>
         </div>
       </header>
