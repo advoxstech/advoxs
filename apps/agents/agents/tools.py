@@ -222,7 +222,7 @@ async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) ->
         )
     return f"Link de pagamento gerado: {checkout_url}"
 
-def is_billing_blocked(enabled: bool, balance: int) -> bool:
+def is_billing_blocked(enabled: bool, balance: float) -> bool:
     """Bloqueia oferta/transferência quando a cobrança do cliente final está
     ativa e o saldo está zerado — usada tanto pelo gate técnico em
     transfer_to_specialist quanto pela decisão de injetar os pacotes/pular a
@@ -234,7 +234,7 @@ def is_billing_blocked(enabled: bool, balance: int) -> bool:
 def transfer_to_specialist(
     current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"],
     end_customer_billing_enabled: bool = False,
-    end_customer_balance: int = 0,
+    end_customer_balance: float = 0,
 ) -> str:
     """
     Atualiza o estado do agente para transferir a conversa para um especialista.
