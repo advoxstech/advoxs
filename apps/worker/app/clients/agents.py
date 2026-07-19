@@ -36,7 +36,14 @@ async def send_message_to_agents(
         "access_token": access_token,
     }
     if end_customer_billing is not None:
-        payload["end_customer_billing"] = end_customer_billing
+        # balance vem de end_customer_balances.credit_balance (Numeric(12,4)
+        # desde a Etapa 1/2 da wallet unificada) — chega aqui como Decimal,
+        # que o encoder JSON padrão não serializa. Converte na fronteira,
+        # defensivo contra qualquer chamador (só há um hoje).
+        payload["end_customer_billing"] = {
+            **end_customer_billing,
+            "balance": float(end_customer_billing["balance"]),
+        }
 
     response = await http.post("/messages", json=payload, headers=headers)
     if response.status_code == 202:
