@@ -203,7 +203,7 @@ class TestDelete:
     def test_apaga_conversa_de_teste(self, client, session, monkeypatch) -> None:
         cleanup_mock = AsyncMock()
         monkeypatch.setattr(
-            test_conversations_module.service, "delete_playground_conversation", cleanup_mock
+            test_conversations_module.service, "delete_agent_checkpoint", cleanup_mock
         )
         session.scalar.return_value = _conversation()
 
@@ -217,7 +217,7 @@ class TestDelete:
     def test_conversa_real_retorna_409(self, client, session, monkeypatch) -> None:
         cleanup_mock = AsyncMock()
         monkeypatch.setattr(
-            test_conversations_module.service, "delete_playground_conversation", cleanup_mock
+            test_conversations_module.service, "delete_agent_checkpoint", cleanup_mock
         )
         session.scalar.return_value = _conversation(is_test=False)
 
@@ -230,7 +230,7 @@ class TestDelete:
     def test_desvincula_ledger_antes_de_apagar(self, client, session, monkeypatch) -> None:
         monkeypatch.setattr(
             test_conversations_module.service,
-            "delete_playground_conversation",
+            "delete_agent_checkpoint",
             AsyncMock(),
         )
         session.scalar.return_value = _conversation()

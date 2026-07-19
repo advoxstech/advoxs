@@ -12,7 +12,7 @@ from sqlalchemy import delete as sql_delete
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.agents import delete_playground_conversation, send_playground_message
+from app.clients.agents import delete_agent_checkpoint, send_playground_message
 from app.models import Conversation, CreditTransaction, Message, Tenant
 from app.services.pricing import calcular_creditos, get_current_pricing_config
 
@@ -121,4 +121,4 @@ async def delete_test_conversation(
     await session.commit()
 
     # Best-effort (a função do client já loga e engole falhas internamente).
-    await delete_playground_conversation(thread_id)
+    await delete_agent_checkpoint(thread_id)

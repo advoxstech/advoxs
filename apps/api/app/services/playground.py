@@ -6,7 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.agents import delete_playground_conversation, send_playground_message
+from app.clients.agents import delete_agent_checkpoint, send_playground_message
 from app.models import Tenant
 from app.schemas.playground import PlaygroundMessageOut
 
@@ -42,4 +42,4 @@ async def send_message(
 
 
 async def delete_conversation(tenant_id: uuid.UUID, session_id: str) -> None:
-    await delete_playground_conversation(f"{tenant_id}:playground-{session_id}")
+    await delete_agent_checkpoint(f"{tenant_id}:playground-{session_id}")

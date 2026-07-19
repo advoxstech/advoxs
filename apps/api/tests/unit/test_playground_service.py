@@ -81,7 +81,7 @@ class TestSendMessage:
 class TestDeleteConversation:
     async def test_monta_thread_id_com_prefixo_playground(self, monkeypatch):
         delete_mock = AsyncMock()
-        monkeypatch.setattr("app.services.playground.delete_playground_conversation", delete_mock)
+        monkeypatch.setattr("app.services.playground.delete_agent_checkpoint", delete_mock)
 
         await delete_conversation(TENANT_ID, "sess-1")
 

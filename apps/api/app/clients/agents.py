@@ -72,9 +72,11 @@ async def send_playground_message(
     }
 
 
-async def delete_playground_conversation(thread_id: str) -> None:
-    """DELETE /conversations/{thread_id} no agents — melhor esforço, loga e
-    segue em caso de falha (é só higiene do checkpoint, não bloqueia o front)."""
+async def delete_agent_checkpoint(thread_id: str) -> None:
+    """DELETE /conversations/{thread_id} no agents — limpa o checkpoint do
+    LangGraph. Melhor esforço: loga e segue em caso de falha, nunca bloqueia
+    o chamador (usado tanto pelo playground de admin quanto pela exclusão de
+    conversas reais/de teste do painel do tenant)."""
     try:
         async with httpx.AsyncClient(
             base_url=settings.agents_service_url, timeout=_DELETE_TIMEOUT_SECONDS
@@ -82,7 +84,7 @@ async def delete_playground_conversation(thread_id: str) -> None:
             await client.delete(f"/conversations/{thread_id}", headers=_auth_headers())
     except httpx.HTTPError as exc:
         logger.warning(
-            "Falha ao apagar conversa do playground | thread_id=%s erro=%s", thread_id, exc
+            "Falha ao apagar checkpoint do agente | thread_id=%s erro=%s", thread_id, exc
         )
 
 
