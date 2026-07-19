@@ -281,6 +281,31 @@ async def test_esgotadas_tentativas_vira_conversa_pra_human(patched) -> None:
     patched["persist"].assert_not_awaited()
 
 
+async def test_erro_nao_http_tambem_reagenda(patched) -> None:
+    """Regressão: um TypeError (ex: bug de serialização, já aconteceu em
+    produção) precisa cair no mesmo tratamento de httpx.HTTPError — não pode
+    subir incapturado e fazer o Arq esgotar as tentativas em silêncio."""
+    patched["send"].side_effect = TypeError("Object of type Decimal is not JSON serializable")
+
+    with pytest.raises(Retry):
+        await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["persist"].assert_not_awaited()
+
+
+async def test_erro_nao_http_esgotadas_tentativas_vira_conversa_pra_human(patched) -> None:
+    patched["send"].side_effect = TypeError("Object of type Decimal is not JSON serializable")
+    ctx = _ctx()
+    ctx["job_try"] = 5
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    session.execute.assert_awaited()
+    session.commit.assert_awaited()
+    patched["persist"].assert_not_awaited()
+
+
 async def test_load_context_seta_app_tenant_id(patched) -> None:
     ctx = _ctx()
     session = ctx["session_factory"].return_value.__aenter__.return_value

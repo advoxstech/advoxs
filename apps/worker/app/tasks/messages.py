@@ -143,7 +143,13 @@ async def process_inbound_message(
             access_token=access_token,
             **extra_kwargs,
         )
-    except httpx.HTTPError as exc:
+    except Exception as exc:
+        # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
+        # TypeError de serialização já aconteceu em produção) precisa cair
+        # aqui, não só httpx.HTTPError: sem isso, a exceção sobe incapturada,
+        # o Arq esgota as tentativas em silêncio, e a conversa fica travada
+        # sem resposta e sem alertar o escritório — pior do que qualquer
+        # erro transiente de rede.
         if ctx.get("job_try", 1) < MAX_TRIES:
             # Erro transiente (rede, 5xx): reagenda com backoff crescente.
             logger.warning(
