@@ -69,16 +69,6 @@ async def send_test_message(
     )
 
 
-@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_test_conversation(
-    conversation_id: uuid.UUID,
-    ctx: TenantContext = Depends(get_current_tenant),
-    session: AsyncSession = Depends(get_tenant_session),
-) -> None:
-    conversation = await _get_test_conversation(conversation_id, ctx, session)
-    await service.delete_test_conversation(session, ctx.tenant_id, conversation)
-
-
 async def _get_test_conversation(
     conversation_id: uuid.UUID, ctx: TenantContext, session: AsyncSession
 ) -> Conversation:

@@ -8,11 +8,10 @@ token real de LLM.
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import delete as sql_delete
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.agents import delete_agent_checkpoint, send_playground_message
+from app.clients.agents import send_playground_message
 from app.models import Conversation, CreditTransaction, Message, Tenant
 from app.services.pricing import calcular_creditos, get_current_pricing_config
 
@@ -101,24 +100,3 @@ async def send_test_message(
     for message in agent_messages:
         await session.refresh(message)
     return [contact_message, *agent_messages], False
-
-
-async def delete_test_conversation(
-    session: AsyncSession, tenant_id: uuid.UUID, conversation: Conversation
-) -> None:
-    """Apaga mensagens + conversa; ledger fica (related_message_id vira NULL,
-    o consumo continua auditável). Checkpoint no agents é limpado best-effort."""
-    thread_id = f"{tenant_id}:{conversation.contact_phone_number}"
-
-    message_ids = select(Message.id).where(Message.conversation_id == conversation.id)
-    await session.execute(
-        update(CreditTransaction)
-        .where(CreditTransaction.related_message_id.in_(message_ids))
-        .values(related_message_id=None)
-    )
-    await session.execute(sql_delete(Message).where(Message.conversation_id == conversation.id))
-    await session.delete(conversation)
-    await session.commit()
-
-    # Best-effort (a função do client já loga e engole falhas internamente).
-    await delete_agent_checkpoint(thread_id)
