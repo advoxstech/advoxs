@@ -431,3 +431,75 @@ class TestGenerateSummary:
         response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
 
         assert response.status_code == 404
+
+
+class TestDeleteConversation:
+    def test_apaga_conversa_real_com_sucesso(self, client, session, monkeypatch) -> None:
+        checkpoint_mock = AsyncMock()
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
+        session.scalar.return_value = _conversation()
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        session.delete.assert_awaited_once()
+        session.commit.assert_awaited()
+        checkpoint_mock.assert_awaited_once_with(f"{TENANT_ID}:5511999998888")
+
+    def test_apaga_conversa_de_teste_tambem(self, client, session, monkeypatch) -> None:
+        # A rota generalizada não distingue origem — conversa de teste também
+        # pode ser apagada por aqui (o botão de teste continua existindo no
+        # front, mas o backend não faz mais essa distinção).
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        session.scalar.return_value = _conversation(is_test=True)
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+
+    def test_desvincula_ledger_do_tenant_e_do_cliente_final_antes_de_apagar(
+        self, client, session, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        session.scalar.return_value = _conversation()
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        # três executes: UPDATE credit_transactions, UPDATE
+        # end_customer_credit_transactions e DELETE messages, nessa ordem.
+        statements = [str(call.args[0]) for call in session.execute.await_args_list]
+        tenant_ledger_idx = next(
+            i
+            for i, s in enumerate(statements)
+            if "credit_transactions" in s and "end_customer" not in s
+        )
+        end_customer_ledger_idx = next(
+            i for i, s in enumerate(statements) if "end_customer_credit_transactions" in s
+        )
+        delete_idx = next(i for i, s in enumerate(statements) if "DELETE FROM messages" in s)
+        assert tenant_ledger_idx < delete_idx
+        assert end_customer_ledger_idx < delete_idx
+
+    def test_conversa_inexistente_retorna_404(self, client, session, monkeypatch) -> None:
+        checkpoint_mock = AsyncMock()
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
+        session.scalar.return_value = None
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 404
+        session.delete.assert_not_awaited()
+        checkpoint_mock.assert_not_awaited()
+
+    def test_falha_no_checkpoint_nao_impede_a_exclusao(self, client, session, monkeypatch) -> None:
+        # delete_agent_checkpoint já engole a própria exceção (best-effort) —
+        # aqui só confirmamos que a rota não depende do retorno dele.
+        checkpoint_mock = AsyncMock(return_value=None)
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
+        session.scalar.return_value = _conversation()
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        checkpoint_mock.assert_awaited_once()

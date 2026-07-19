@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,12 +14,20 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.agents import (
     AgentsApiError,
     AgentsNetworkError,
+    delete_agent_checkpoint,
     generate_conversation_summary,
     sync_conversation_context,
 )
 from app.clients.whatsapp import WhatsAppSendError, send_text_message
 from app.core.crypto import decrypt_access_token
-from app.models import Conversation, CreditTransaction, Message, Tenant, WhatsAppNumber
+from app.models import (
+    Conversation,
+    CreditTransaction,
+    EndCustomerCreditTransaction,
+    Message,
+    Tenant,
+    WhatsAppNumber,
+)
 from app.schemas.conversations import (
     ConversationOut,
     ConversationStateUpdate,
@@ -263,6 +272,42 @@ async def generate_summary(
 
     await session.commit()
     return ConversationOut.model_validate(conversation)
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    """Apaga mensagens + conversa (real ou de teste); ledger fica (related_message_id
+    vira NULL nas duas tabelas — tenant e cliente final —, o consumo continua
+    auditável). Checkpoint no agents é limpado best-effort. Irreversível."""
+    conversation = await _get_conversation(conversation_id, ctx, session)
+    thread_id = f"{ctx.tenant_id}:{conversation.contact_phone_number}"
+    logger.info(
+        "Excluindo histórico de conversa | tenant_id=%s conversation_id=%s contact=%s",
+        ctx.tenant_id,
+        conversation.id,
+        conversation.contact_phone_number,
+    )
+
+    message_ids = select(Message.id).where(Message.conversation_id == conversation.id)
+    await session.execute(
+        update(CreditTransaction)
+        .where(CreditTransaction.related_message_id.in_(message_ids))
+        .values(related_message_id=None)
+    )
+    await session.execute(
+        update(EndCustomerCreditTransaction)
+        .where(EndCustomerCreditTransaction.related_message_id.in_(message_ids))
+        .values(related_message_id=None)
+    )
+    await session.execute(sql_delete(Message).where(Message.conversation_id == conversation.id))
+    await session.delete(conversation)
+    await session.commit()
+
+    await delete_agent_checkpoint(thread_id)
 
 
 async def _get_conversation(
