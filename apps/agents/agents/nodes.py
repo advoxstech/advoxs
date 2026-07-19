@@ -60,7 +60,10 @@ async def agente_secretaria(state: dict) -> dict:
             "**Instrução:** Este cliente está sem créditos disponíveis. Antes de "
             "transferir para um especialista, explique que é necessário comprar "
             "créditos e ofereça os pacotes abaixo. Quando o cliente escolher um, "
-            "use a tool gerar_link_pagamento_cliente com o package_id correspondente.\n\n"
+            "use a tool gerar_link_pagamento_cliente com o package_id correspondente. "
+            "Depois que o cliente confirmar que pagou, chame transfer_to_specialist "
+            "de novo — é essa chamada que efetivamente libera o especialista; nunca "
+            "diga que já transferiu sem chamar essa ferramenta.\n\n"
             f"Pacotes disponíveis:\n{packages_text}"
         )
 
