@@ -26,6 +26,7 @@ from app.core.crypto import encrypt_access_token
 from app.core.db import SystemSessionLocal
 from app.core.security import hash_password
 from app.models import Tenant, User, WhatsAppNumber
+from app.services.default_agents import build_default_agents
 
 
 async def seed(args: argparse.Namespace) -> None:
@@ -47,7 +48,9 @@ async def seed(args: argparse.Namespace) -> None:
                     password_hash=hash_password(args.password),
                 )
             )
-            print(f"Tenant {tenant.id} + usuário {args.email} criados.")
+            for agent in build_default_agents(tenant.id):
+                session.add(agent)
+            print(f"Tenant {tenant.id} + usuário {args.email} criados (com os 4 agentes padrão).")
 
         if args.phone_number_id:
             existing = await session.scalar(
