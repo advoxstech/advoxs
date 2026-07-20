@@ -133,8 +133,8 @@ class TestSendTestMessage:
         # Último add é o lançamento do ledger — com os tokens brutos auditados.
         transaction = session.add.call_args.args[0]
         assert transaction.type == "consumption"
-        # 2800*0.3 + 700*1.0 = 1540 tokens ponderados -> 1.54 créditos
-        assert transaction.amount_credits == Decimal("-1.5400")
+        # 2800*0.3 + 700*1.0 = 1540 tokens ponderados -> 1.54 créditos -> arredonda pra 2
+        assert transaction.amount_credits == Decimal("-2")
         assert transaction.tokens_input == 2800
         assert transaction.tokens_output == 700
         assert "token" not in transaction.description.lower()

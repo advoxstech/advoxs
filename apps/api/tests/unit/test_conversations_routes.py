@@ -384,8 +384,8 @@ class TestGenerateSummary:
         added = session.add.call_args.args[0]
         assert added.tenant_id == TENANT_ID
         assert added.type == "consumption"
-        # 2000*0.3 + 500*1.0 = 1100 tokens ponderados -> 1.1 créditos
-        assert added.amount_credits == Decimal("-1.1000")
+        # 2000*0.3 + 500*1.0 = 1100 tokens ponderados -> 1.1 créditos -> arredonda pra 1
+        assert added.amount_credits == Decimal("-1")
         assert added.related_message_id is None
         assert added.tokens_input == 2000
         assert added.tokens_output == 500
