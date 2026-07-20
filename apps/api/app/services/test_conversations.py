@@ -6,7 +6,7 @@ token real de LLM.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,7 +64,11 @@ async def send_test_message(
             tenant_id=tenant_id,
             sender_type="agent",
             content=text,
-            created_at=now,
+            # Mesma execução pode gerar várias respostas (ex: despedida da
+            # secretária + saudação do especialista) — sem offset por índice,
+            # todas cravam o mesmo instante e a ordenação por created_at não
+            # tem como desempatar a ordem real de geração.
+            created_at=now + timedelta(microseconds=i),
             tokens_used=tokens_used if i == 0 else None,
             credits_consumed=credits if i == 0 else None,
         )
