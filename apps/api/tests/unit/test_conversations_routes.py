@@ -580,3 +580,50 @@ class TestEndCustomerBalance:
 
         assert response.status_code == 200
         assert response.json()["end_customer_balance"] == 7.0
+
+    def test_resumo_devolve_saldo_do_cliente_final(self, client, session, monkeypatch) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.return_value = conversation
+        session.get = AsyncMock(return_value=SimpleNamespace(credit_balance=100))
+        session.execute.side_effect = [
+            _execute_returning([SimpleNamespace(sender_type="contact", content="oi")]),
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888", credit_balance=Decimal("15")
+                    )
+                ]
+            ),
+        ]
+        monkeypatch.setattr(
+            conversations_module,
+            "generate_conversation_summary",
+            AsyncMock(return_value={"summary": "Resumo.", "tokens_used": 100}),
+        )
+        pricing = SimpleNamespace(
+            id=uuid.uuid4(),
+            tokens_per_credit=1000,
+            input_weight=Decimal("0.3"),
+            output_weight=Decimal("1.0"),
+        )
+        monkeypatch.setattr(
+            conversations_module, "get_current_pricing_config", AsyncMock(return_value=pricing)
+        )
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/summary")
+
+        assert response.status_code == 200
+        assert response.json()["end_customer_balance"] == 15.0
+
+    def test_saldo_filtra_por_billing_habilitado(self, client, session) -> None:
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result([]),
+        ]
+
+        client.get("/api/v1/conversations")
+
+        balance_query = session.execute.await_args_list[1].args[0]
+        compiled = str(balance_query.compile(compile_kwargs={"literal_binds": True}))
+        assert "tenant_billing_settings" in compiled
+        assert "enabled IS true" in compiled
