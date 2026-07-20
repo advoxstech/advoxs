@@ -47,9 +47,7 @@ async def test_query_filtra_tenant_credits_consumed_not_null_e_periodo() -> None
     session = AsyncMock()
     session.execute.return_value = _execute_result([])
 
-    await build_conversations_usage(
-        session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 17), 50, 0
-    )
+    await build_conversations_usage(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 17), 50, 0)
 
     query = session.execute.call_args.args[0]
     compiled = str(query.compile(compile_kwargs={"literal_binds": True}))

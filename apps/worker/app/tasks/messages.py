@@ -1,7 +1,7 @@
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -369,7 +369,11 @@ async def _persist_agent_responses(
             "sender_type": "agent",
             "content": response,
             "delivery_status": "failed" if i in delivery_failures else "sent",
-            "created_at": now,
+            # Mesma execução pode gerar várias respostas (ex: despedida da
+            # secretária + saudação do especialista) — sem um offset por
+            # índice, todas cravam o mesmo instante e o ORDER BY created_at
+            # não tem como desempatar a ordem real de geração.
+            "created_at": now + timedelta(microseconds=i),
         }
         if i == 0:
             values["tokens_used"] = tokens_used or None

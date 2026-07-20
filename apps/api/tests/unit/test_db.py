@@ -1,3 +1,6 @@
+from sqlalchemy.engine import make_url
+
+from app.core.config import settings
 from app.core.db import engine, get_session, get_system_session, system_engine
 
 
@@ -7,8 +10,9 @@ def test_engine_e_system_engine_sao_conexoes_distintas() -> None:
 
 
 def test_engine_usa_app_database_url() -> None:
+    expected = make_url(settings.app_database_url)
     assert engine.url.username == "advoxs_app"
-    assert engine.url.database == "advoxs"
+    assert engine.url.database == expected.database
 
 
 def test_system_engine_usa_system_database_url() -> None:

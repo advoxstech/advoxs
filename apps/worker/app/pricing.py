@@ -45,8 +45,7 @@ def calcular_creditos(tokens_input: int, tokens_output: int, tokens_used: int, c
     if not tokens_input and not tokens_output and tokens_used:
         tokens_output = tokens_used
     ponderados = (
-        Decimal(tokens_input) * config.input_weight
-        + Decimal(tokens_output) * config.output_weight
+        Decimal(tokens_input) * config.input_weight + Decimal(tokens_output) * config.output_weight
     )
     return (ponderados / Decimal(config.tokens_per_credit)).quantize(
         _PRECISION, rounding=ROUND_HALF_UP
