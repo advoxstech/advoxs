@@ -7,8 +7,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.models import Agent
-from app.schemas.agents import AgentCreate, AgentOut, AgentUpdate
+from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
+from app.schemas.agents import (
+    AgentCreate,
+    AgentKnowledgeBaseFileOut,
+    AgentOut,
+    AgentUpdate,
+    AttachKnowledgeBaseFileIn,
+)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -104,4 +110,49 @@ async def delete_agent(
         )
 
     await session.delete(agent)
+    await session.commit()
+
+
+@router.post("/{agent_id}/knowledge-base-files", status_code=status.HTTP_201_CREATED)
+async def attach_knowledge_base_file(
+    agent_id: uuid.UUID,
+    body: AttachKnowledgeBaseFileIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> AgentKnowledgeBaseFileOut:
+    await _get_agent(agent_id, ctx, session)
+
+    file = await session.scalar(
+        select(KnowledgeBaseFile).where(
+            KnowledgeBaseFile.id == body.knowledge_base_file_id,
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+        )
+    )
+    if file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado"
+        )
+
+    link = AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=file.id)
+    session.add(link)
+    await session.commit()
+    return AgentKnowledgeBaseFileOut.model_validate(link)
+
+
+@router.delete(
+    "/{agent_id}/knowledge-base-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def detach_knowledge_base_file(
+    agent_id: uuid.UUID,
+    file_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    await _get_agent(agent_id, ctx, session)
+
+    link = await session.get(AgentKnowledgeBaseFile, (agent_id, file_id))
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vínculo não encontrado")
+
+    await session.delete(link)
     await session.commit()

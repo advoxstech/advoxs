@@ -166,3 +166,61 @@ class TestDelete:
         response = client.delete(f"/api/v1/agents/{AGENT_ID}")
 
         assert response.status_code == 404
+
+
+class TestAttachKnowledgeBaseFile:
+    def test_anexa_arquivo_existente(self, client, session) -> None:
+        session.scalar.side_effect = [_agent(), SimpleNamespace(id=uuid.uuid4())]
+
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files",
+            json={"knowledge_base_file_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 201
+        session.add.assert_called_once()
+        session.commit.assert_awaited()
+
+    def test_agente_inexistente_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files",
+            json={"knowledge_base_file_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 404
+
+    def test_arquivo_de_outro_tenant_retorna_404(self, client, session) -> None:
+        session.scalar.side_effect = [_agent(), None]
+
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files",
+            json={"knowledge_base_file_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 404
+
+
+class TestDetachKnowledgeBaseFile:
+    def test_desanexa_arquivo(self, client, session) -> None:
+        session.scalar.return_value = _agent()
+        link = SimpleNamespace(agent_id=AGENT_ID, knowledge_base_file_id=uuid.uuid4())
+        session.get = AsyncMock(return_value=link)
+
+        response = client.delete(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{link.knowledge_base_file_id}"
+        )
+
+        assert response.status_code == 204
+        session.delete.assert_awaited_once_with(link)
+
+    def test_vinculo_inexistente_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = _agent()
+        session.get = AsyncMock(return_value=None)
+
+        response = client.delete(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{uuid.uuid4()}"
+        )
+
+        assert response.status_code == 404
