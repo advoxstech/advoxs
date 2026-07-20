@@ -120,6 +120,13 @@ async def upload_file(
         status="processing",
     )
     session.add(record)
+    # Flush explícito antes de adicionar o vínculo: sem isso, a FK de
+    # agent_knowledge_base_files.knowledge_base_file_id pode ser checada
+    # antes do INSERT de knowledge_base_files acontecer de fato (SQLAlchemy
+    # não garante ordem entre dois session.add() de tabelas sem relationship()
+    # entre si) — violava a constraint em todo upload real contra Postgres,
+    # mascarado pelos testes unitários (sessão mockada, sem FK de verdade).
+    await session.flush()
     session.add(AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=record.id))
 
     tenant_dir = Path(settings.kb_upload_dir) / str(ctx.tenant_id)
