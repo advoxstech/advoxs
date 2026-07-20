@@ -96,9 +96,7 @@ class EndCustomerCreditTransaction(Base):
 
     __tablename__ = "end_customer_credit_transactions"
     __table_args__ = (
-        CheckConstraint(
-            "type IN ('purchase', 'consumption', 'resale', 'adjustment')", name="type"
-        ),
+        CheckConstraint("type IN ('purchase', 'consumption', 'resale', 'adjustment')", name="type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
