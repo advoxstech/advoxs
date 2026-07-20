@@ -99,19 +99,20 @@ async def test_agent_flow_persists_responses(patched) -> None:
     assert patched["persist"].await_args.args[3] == ["resposta 1", "resposta 2"]
 
 
-async def test_consumo_ponderado_fracionado(patched) -> None:
-    # 2500*0.3 + 1000*1.0 = 1750 tokens ponderados / 1000 = 1.75 créditos
+async def test_consumo_ponderado_arredonda_pro_inteiro(patched) -> None:
+    # 2500*0.3 + 1000*1.0 = 1750 tokens ponderados / 1000 = 1.75 créditos ->
+    # HALF_UP sobe pra 2
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
     assert persist_args[4] == 3500  # tokens_used
-    assert persist_args[5] == Decimal("1.7500")  # credits ponderados
+    assert persist_args[5] == Decimal("2")  # credits arredondados
     patched["debitar"].assert_awaited_once_with(
         patched["debitar"].await_args.args[0],
         TENANT_ID,
         FIRST_MESSAGE_ID,
         3500,
-        Decimal("1.7500"),
+        Decimal("2"),
         2500,
         1000,
         PRICING_CONFIG.id,
