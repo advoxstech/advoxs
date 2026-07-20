@@ -1,6 +1,6 @@
 "use client";
 
-import { formatMessageTime, formatPhone } from "@/lib/format";
+import { formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation } from "@/lib/types";
 
 interface ConversationListProps {
@@ -54,18 +54,25 @@ export function ConversationList({
                   </time>
                 ) : null}
               </span>
-              <span
-                className={`flex items-center gap-1.5 text-xs ${
-                  isManual ? "text-brass" : "text-muted"
-                }`}
-              >
+              <span className="flex items-center justify-between gap-2">
                 <span
-                  aria-hidden
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    isManual ? "bg-brass" : "bg-accent"
+                  className={`flex items-center gap-1.5 text-xs ${
+                    isManual ? "text-brass" : "text-muted"
                   }`}
-                />
-                {isManual ? "atendimento manual" : "agente respondendo"}
+                >
+                  <span
+                    aria-hidden
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isManual ? "bg-brass" : "bg-accent"
+                    }`}
+                  />
+                  {isManual ? "atendimento manual" : "agente respondendo"}
+                </span>
+                {conversation.end_customer_balance != null ? (
+                  <span className="font-mono text-[11px] text-muted">
+                    {formatCredits(conversation.end_customer_balance)} créditos
+                  </span>
+                ) : null}
               </span>
             </button>
           </li>

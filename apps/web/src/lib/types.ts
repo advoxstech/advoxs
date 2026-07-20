@@ -9,6 +9,7 @@ export interface Conversation {
   created_at: string;
   summary: string | null;
   summary_generated_at: string | null;
+  end_customer_balance?: number | null;
 }
 
 export type SenderType = "agent" | "human" | "contact";
