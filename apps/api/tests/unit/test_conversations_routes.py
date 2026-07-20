@@ -56,6 +56,15 @@ def session():
 
     mock.add = MagicMock()
     mock.refresh.side_effect = fake_refresh
+    # Default seguro pra qualquer execute() não configurado explicitamente por
+    # um teste — sem isso, o AsyncMock() bare propaga async recursivamente em
+    # cadeias de atributo não configuradas (session.execute(...).all() viraria
+    # uma coroutine, não uma lista, e o helper de saldo do cliente final
+    # quebraria com "coroutine object is not iterable"). Testes que precisam
+    # de um retorno específico continuam sobrescrevendo via
+    # session.execute.return_value/.side_effect normalmente — essa linha só
+    # cobre os que nunca tocam em session.execute hoje.
+    mock.execute.return_value = _execute_returning([])
     return mock
 
 
@@ -86,6 +95,12 @@ def whatsapp_send(monkeypatch):
 def _execute_returning(items: list) -> MagicMock:
     result = MagicMock()
     result.scalars.return_value.all.return_value = items
+    return result
+
+
+def _balance_result(rows: list) -> MagicMock:
+    result = MagicMock()
+    result.all.return_value = rows
     return result
 
 
@@ -503,3 +518,65 @@ class TestDeleteConversation:
 
         assert response.status_code == 204
         checkpoint_mock.assert_awaited_once()
+
+
+class TestEndCustomerBalance:
+    def test_lista_inclui_saldo_do_cliente_final_quando_ha_registro(
+        self, client, session
+    ) -> None:
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888", credit_balance=Decimal("42")
+                    )
+                ]
+            ),
+        ]
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["end_customer_balance"] == 42.0
+
+    def test_lista_sem_saldo_encontrado_retorna_null(self, client, session) -> None:
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result([]),
+        ]
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["end_customer_balance"] is None
+
+    def test_lista_vazia_nao_consulta_saldo(self, client, session) -> None:
+        session.execute.return_value = _execute_returning([])
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json() == []
+        # Sem conversas, não há telefone pra buscar saldo — só 1 chamada a execute.
+        session.execute.assert_awaited_once()
+
+    def test_takeover_devolve_saldo_do_cliente_final(self, client, session) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.return_value = conversation
+        session.execute.side_effect = [
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888", credit_balance=Decimal("7")
+                    )
+                ]
+            ),
+        ]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "human"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["end_customer_balance"] == 7.0
