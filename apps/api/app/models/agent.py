@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -13,6 +13,14 @@ class Agent(Base):
     mensagem de conversas novas; exatamente 1 por tenant)."""
 
     __tablename__ = "agents"
+    __table_args__ = (
+        Index(
+            "uq_agents_tenant_entry_point",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("is_entry_point = true"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
