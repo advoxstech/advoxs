@@ -170,20 +170,53 @@ class TestUpload:
         tenant_dir = tmp_path / str(TENANT_ID)
         assert not tenant_dir.exists() or not any(tenant_dir.iterdir())
 
-    def test_upload_sem_agent_id_retorna_422(self, client) -> None:
+    def test_upload_com_agente_de_outro_tenant_retorna_404(self, client, session) -> None:
+        # agent_id explícito não encontrado (tenant errado ou inexistente) —
+        # 404, comportamento inalterado em relação a antes do fallback.
+        session.scalar.side_effect = [None]
+
+        response = _upload(client)
+
+        assert response.status_code == 404
+
+    def test_upload_sem_agent_id_usa_agente_ponto_de_entrada_do_tenant(
+        self, client, session
+    ) -> None:
+        # Sem agent_id no form (cliente web atual, que não manda esse campo)
+        # cai no fallback: o ponto de entrada do tenant vira o agente-destino.
+        entry_point_id = uuid.uuid4()
+        session.scalar.side_effect = [
+            SimpleNamespace(id=entry_point_id, tenant_id=TENANT_ID, is_entry_point=True),
+            0,
+            None,
+        ]
+
         response = client.post(
             "/api/v1/knowledge-base/files",
             files={"file": ("regimento.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 202
+        link_calls = [
+            call.args[0]
+            for call in session.add.call_args_list
+            if type(call.args[0]).__name__ == "AgentKnowledgeBaseFile"
+        ]
+        assert len(link_calls) == 1
+        assert link_calls[0].agent_id == entry_point_id
 
-    def test_upload_com_agente_de_outro_tenant_retorna_404(self, client, session) -> None:
-        session.scalar.return_value = None
+    def test_upload_sem_agent_id_sem_ponto_de_entrada_retorna_500(self, client, session) -> None:
+        # Defensivo: se o tenant não tem NENHUM agente ponto de entrada
+        # (não devia acontecer, mas não pode quebrar em silêncio) — 500
+        # explícito em vez de um erro de banco/None mais adiante.
+        session.scalar.side_effect = [None]
 
-        response = _upload(client)
+        response = client.post(
+            "/api/v1/knowledge-base/files",
+            files={"file": ("regimento.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+        )
 
-        assert response.status_code == 404
+        assert response.status_code == 500
 
 
 class TestList:

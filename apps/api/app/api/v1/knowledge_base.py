@@ -34,16 +34,32 @@ GENERIC_MIME_TYPES = {"", "application/octet-stream"}
 @router.post("/files", status_code=status.HTTP_202_ACCEPTED)
 async def upload_file(
     file: UploadFile = File(...),
-    agent_id: uuid.UUID = Form(...),
+    agent_id: uuid.UUID | None = Form(default=None),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
     arq: ArqRedis = Depends(get_arq_pool),
 ) -> KnowledgeBaseFileOut:
-    agent = await session.scalar(
-        select(Agent).where(Agent.id == agent_id, Agent.tenant_id == ctx.tenant_id)
-    )
-    if agent is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agente não encontrado")
+    if agent_id is not None:
+        agent = await session.scalar(
+            select(Agent).where(Agent.id == agent_id, Agent.tenant_id == ctx.tenant_id)
+        )
+        if agent is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Agente não encontrado"
+            )
+    else:
+        # Campo opcional pra não quebrar o painel web já em produção (nunca
+        # manda agent_id) — cai no ponto de entrada do tenant, aproximando
+        # ao máximo o comportamento de "sem conceito de agente" de antes.
+        agent = await session.scalar(
+            select(Agent).where(Agent.tenant_id == ctx.tenant_id, Agent.is_entry_point.is_(True))
+        )
+        if agent is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Nenhum agente-destino disponível para o upload — configure um agente",
+            )
+        agent_id = agent.id
 
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
