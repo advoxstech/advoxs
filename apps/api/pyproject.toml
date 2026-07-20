@@ -48,3 +48,6 @@ select = ["E", "F", "I", "UP"]
 # de prosa longas por natureza) — exceção de line-length só pra esse arquivo,
 # nunca pra código real.
 "alembic/versions/0015_agentes_por_tenant.py" = ["E501"]
+# Mesma exceção — default_agents.py clona os mesmos prompts, verbatim, pra
+# provisionar tenants novos (ver docstring do módulo).
+"app/services/default_agents.py" = ["E501"]

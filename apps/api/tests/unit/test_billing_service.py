@@ -181,8 +181,10 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._stripe_session())
 
-        assert len(added) == 3
-        tenant, user, transaction = added
+        # tenant + user + transaction + os 4 agentes padrão (ver C2/finding
+        # do review final — provisionamento de agentes na mesma transação).
+        assert len(added) == 7
+        tenant, user, transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         assert tenant.credit_balance == 2750
         assert user.email == "a@b.com"
@@ -191,6 +193,36 @@ class TestProcessCheckoutCompleted:
         assert user.tenant_id == tenant.id
         assert transaction.amount_credits == 2750
         assert transaction.stripe_payment_id == "cs_123"
+        session.commit.assert_awaited_once()
+
+    async def test_cria_4_agentes_padrao_para_o_tenant_novo(self, session) -> None:
+        """C2: signup precisa provisionar os 4 agentes padrão (Secretária
+        ponto de entrada + 3 especialistas) na MESMA transação — senão o
+        tenant novo nasce sem nenhum agente (upload de KB/fallback quebram)."""
+        session.scalar.return_value = None
+        session.get.return_value = _package()
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+
+        await process_checkout_completed(session, self._stripe_session())
+
+        tenant = added[0]
+        agents_added = [obj for obj in added if type(obj).__name__ == "Agent"]
+        assert len(agents_added) == 4
+        assert all(a.tenant_id == tenant.id for a in agents_added)
+        entry_points = [a for a in agents_added if a.is_entry_point]
+        assert len(entry_points) == 1
+        assert entry_points[0].name == "Secretária"
+        names = {a.name for a in agents_added}
+        assert names == {"Secretária", "Condominial", "Contratos", "Direito do Consumidor"}
+        # Tudo na mesma transação: um único commit pro conjunto todo.
         session.commit.assert_awaited_once()
 
     async def test_cria_tenant_com_stripe_session_real_nao_dict(self, session) -> None:
@@ -212,8 +244,8 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._real_stripe_session())
 
-        assert len(added) == 3
-        tenant, _user, _transaction = added
+        assert len(added) == 7
+        tenant, _user, _transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         session.commit.assert_awaited_once()
 
@@ -280,7 +312,7 @@ class TestProcessCheckoutCompleted:
 
         store_mock.assert_awaited_once()
         assert store_mock.await_args.args[1] == stripe_session["id"]
-        _tenant, user, _transaction = added
+        _tenant, user, _transaction = added[:3]
         assert store_mock.await_args.args[2] == user.id
 
     async def test_falha_no_redis_nao_quebra_o_webhook(self, session, monkeypatch) -> None:
@@ -428,5 +460,5 @@ class TestProcessCheckoutCompletedRecompra:
         }
         await process_checkout_completed(session, {"id": "cs_999", "metadata": metadata})
 
-        assert len(added) == 3
+        assert len(added) == 7
         session.commit.assert_awaited_once()
