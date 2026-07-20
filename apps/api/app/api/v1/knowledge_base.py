@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.rag import RagApiError, delete_documents
 from app.core.config import settings
 from app.core.queue import get_arq_pool
-from app.models import KnowledgeBaseFile
+from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,17 @@ GENERIC_MIME_TYPES = {"", "application/octet-stream"}
 @router.post("/files", status_code=status.HTTP_202_ACCEPTED)
 async def upload_file(
     file: UploadFile = File(...),
+    agent_id: uuid.UUID = Form(...),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
     arq: ArqRedis = Depends(get_arq_pool),
 ) -> KnowledgeBaseFileOut:
+    agent = await session.scalar(
+        select(Agent).where(Agent.id == agent_id, Agent.tenant_id == ctx.tenant_id)
+    )
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agente não encontrado")
+
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
     expected_mime = ALLOWED_EXTENSIONS.get(extension)
@@ -97,6 +104,7 @@ async def upload_file(
         status="processing",
     )
     session.add(record)
+    session.add(AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=record.id))
 
     tenant_dir = Path(settings.kb_upload_dir) / str(ctx.tenant_id)
     tenant_dir.mkdir(parents=True, exist_ok=True)

@@ -69,10 +69,20 @@ def client(session, arq, tmp_path, monkeypatch):
     app.dependency_overrides.clear()
 
 
-def _upload(client, filename="regimento.pdf", content=b"%PDF-1.4 conteudo", mime="application/pdf"):
+AGENT_ID = uuid.uuid4()
+
+
+def _upload(
+    client,
+    filename="regimento.pdf",
+    content=b"%PDF-1.4 conteudo",
+    mime="application/pdf",
+    agent_id=None,
+):
     return client.post(
         "/api/v1/knowledge-base/files",
         files={"file": (filename, io.BytesIO(content), mime)},
+        data={"agent_id": str(agent_id or AGENT_ID)},
     )
 
 
@@ -84,8 +94,12 @@ def test_sem_token_retorna_401() -> None:
 
 class TestUpload:
     def test_upload_feliz_enfileira_apos_commit(self, client, session, arq, tmp_path) -> None:
-        # 1ª scalar: soma do storage usado; 2ª: checagem de duplicado.
-        session.scalar.side_effect = [0, None]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
+        session.scalar.side_effect = [
+            SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID),
+            0,
+            None,
+        ]
 
         response = _upload(client)
 
@@ -111,7 +125,8 @@ class TestUpload:
         assert response.status_code == 400
 
     def test_arquivo_vazio_400(self, client, session) -> None:
-        session.scalar.side_effect = [0, None]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0]
 
         response = _upload(client, content=b"")
 
@@ -126,7 +141,8 @@ class TestUpload:
 
     def test_storage_estourado_413(self, client, session, monkeypatch) -> None:
         monkeypatch.setattr(settings, "kb_max_total_size_bytes", 100)
-        session.scalar.side_effect = [95]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 95]
 
         response = _upload(client, content=b"x" * 10)
 
@@ -134,7 +150,8 @@ class TestUpload:
         assert "restam" in response.json()["detail"]
 
     def test_nome_duplicado_409(self, client, session) -> None:
-        session.scalar.side_effect = [0, FILE_ID]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, FILE_ID]
 
         response = _upload(client)
 
@@ -143,7 +160,8 @@ class TestUpload:
     def test_corrida_de_duplicado_no_commit_409(self, client, session, tmp_path) -> None:
         # Dois uploads concorrentes passam pelo check de duplicado; a unique
         # constraint (tenant_id, filename) estoura no commit do segundo.
-        session.scalar.side_effect = [0, None]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, None]
         session.commit.side_effect = IntegrityError("stmt", {}, Exception("uq"))
 
         response = _upload(client)
@@ -151,6 +169,21 @@ class TestUpload:
         assert response.status_code == 409
         tenant_dir = tmp_path / str(TENANT_ID)
         assert not tenant_dir.exists() or not any(tenant_dir.iterdir())
+
+    def test_upload_sem_agent_id_retorna_422(self, client) -> None:
+        response = client.post(
+            "/api/v1/knowledge-base/files",
+            files={"file": ("regimento.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+        )
+
+        assert response.status_code == 422
+
+    def test_upload_com_agente_de_outro_tenant_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = _upload(client)
+
+        assert response.status_code == 404
 
 
 class TestList:
