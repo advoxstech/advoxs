@@ -351,7 +351,7 @@ async def test_moeda_unica_debita_so_o_cliente_final(patched) -> None:
     args = patched["debitar_cliente_final"].await_args.args
     assert args[4] == 2000  # tokens_used
     # Sem breakdown na resposta -> fallback: tudo como output -> 2000/1000 = 2
-    assert args[5] == Decimal("2.0000")
+    assert args[5] == Decimal("2")
     assert args[8] == PRICING_CONFIG.id
 
 
