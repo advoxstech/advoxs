@@ -134,6 +134,31 @@ class TestUpdate:
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert any("UPDATE agents" in s for s in statements)
 
+    def test_desmarcar_o_unico_ponto_de_entrada_retorna_409(self, client, session) -> None:
+        # I1: PATCH is_entry_point=false no agente que É o ponto de entrada
+        # atual deixaria o tenant sem nenhum — precisa ser rejeitado.
+        session.scalar.return_value = _agent(is_entry_point=True)
+
+        response = client.patch(
+            f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": False}
+        )
+
+        assert response.status_code == 409
+        session.commit.assert_not_awaited()
+
+    def test_desmarcar_is_entry_point_que_ja_era_false_nao_quebra(
+        self, client, session
+    ) -> None:
+        # Só bloqueia demover o ponto de entrada ATUAL — um agente que já
+        # não é o ponto de entrada pode continuar recebendo is_entry_point=false.
+        session.scalar.return_value = _agent(is_entry_point=False)
+
+        response = client.patch(
+            f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": False}
+        )
+
+        assert response.status_code == 200
+
 
 class TestDelete:
     def test_apaga_agente_que_nao_e_ponto_de_entrada(self, client, session) -> None:

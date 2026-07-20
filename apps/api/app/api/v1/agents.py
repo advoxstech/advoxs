@@ -72,6 +72,15 @@ async def update_agent(
 ) -> AgentOut:
     agent = await _get_agent(agent_id, ctx, session)
 
+    if body.is_entry_point is False and agent.is_entry_point:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Não é possível desmarcar o único ponto de entrada — "
+                "marque outro agente como ponto de entrada antes"
+            ),
+        )
+
     if body.is_entry_point is True and not agent.is_entry_point:
         await _unset_current_entry_point(ctx, session)
 
