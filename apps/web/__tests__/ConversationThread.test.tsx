@@ -585,4 +585,32 @@ describe("ConversationThread", () => {
       ).toBeInTheDocument(),
     );
   });
+
+  it("mostra o saldo do cliente final quando presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_balance: 50 }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(screen.getByText(/saldo do cliente: 50 créditos/)).toBeInTheDocument();
+  });
+
+  it("não mostra saldo do cliente quando end_customer_balance é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_balance: null }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(screen.queryByText(/saldo do cliente/)).not.toBeInTheDocument();
+  });
 });

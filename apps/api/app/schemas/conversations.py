@@ -16,6 +16,7 @@ class ConversationOut(BaseModel):
     created_at: datetime
     summary: str | None
     summary_generated_at: datetime | None
+    end_customer_balance: float | None = None
 
 
 class MessageOut(BaseModel):

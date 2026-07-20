@@ -66,4 +66,30 @@ describe("ConversationList", () => {
 
     expect(screen.getByText(/Nenhuma conversa por aqui ainda/)).toBeInTheDocument();
   });
+
+  it("mostra o saldo do cliente final quando presente", () => {
+    render(
+      <ConversationList
+        conversations={[{ ...conversations[0], end_customer_balance: 128.5 }]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("128,5 créditos")).toBeInTheDocument();
+  });
+
+  it("não mostra saldo quando end_customer_balance é null", () => {
+    render(
+      <ConversationList
+        conversations={[{ ...conversations[0], end_customer_balance: null }]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/créditos/)).not.toBeInTheDocument();
+  });
 });

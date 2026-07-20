@@ -3,6 +3,7 @@
 import logging
 import uuid
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,9 +24,11 @@ from app.core.crypto import decrypt_access_token
 from app.models import (
     Conversation,
     CreditTransaction,
+    EndCustomerBalance,
     EndCustomerCreditTransaction,
     Message,
     Tenant,
+    TenantBillingSettings,
     WhatsAppNumber,
 )
 from app.schemas.conversations import (
@@ -60,7 +63,13 @@ async def list_conversations(
         .limit(limit)
         .offset(offset)
     )
-    return [ConversationOut.model_validate(c) for c in result.scalars().all()]
+    conversations = result.scalars().all()
+    balances = await _end_customer_balances_by_phone(
+        session, ctx.tenant_id, [c.contact_phone_number for c in conversations]
+    )
+    return [
+        _to_conversation_out(c, balances.get(c.contact_phone_number)) for c in conversations
+    ]
 
 
 @router.get("/usage")
@@ -115,7 +124,10 @@ async def update_state(
         # Takeover começa "presente" — o heartbeat do painel mantém depois.
         conversation.human_last_seen_at = datetime.now(UTC)
     await session.commit()
-    return ConversationOut.model_validate(conversation)
+    balances = await _end_customer_balances_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
+    return _to_conversation_out(conversation, balances.get(conversation.contact_phone_number))
 
 
 @router.post("/{conversation_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
@@ -271,7 +283,10 @@ async def generate_summary(
         )
 
     await session.commit()
-    return ConversationOut.model_validate(conversation)
+    balances = await _end_customer_balances_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
+    return _to_conversation_out(conversation, balances.get(conversation.contact_phone_number))
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -308,6 +323,39 @@ async def delete_conversation(
     await session.commit()
 
     await delete_agent_checkpoint(thread_id)
+
+
+async def _end_customer_balances_by_phone(
+    session: AsyncSession, tenant_id: uuid.UUID, phone_numbers: list[str]
+) -> dict[str, Decimal]:
+    """Saldo do cliente final por contato — só populado quando a cobrança do
+    cliente final está habilitada pro tenant; caso contrário (ou sem contatos
+    pra buscar) retorna {} e o campo do conversation fica None."""
+    if not phone_numbers:
+        return {}
+    result = await session.execute(
+        select(EndCustomerBalance.contact_phone_number, EndCustomerBalance.credit_balance)
+        .join(
+            TenantBillingSettings,
+            TenantBillingSettings.tenant_id == EndCustomerBalance.tenant_id,
+        )
+        .where(
+            TenantBillingSettings.enabled.is_(True),
+            EndCustomerBalance.tenant_id == tenant_id,
+            EndCustomerBalance.contact_phone_number.in_(phone_numbers),
+        )
+    )
+    return {row.contact_phone_number: row.credit_balance for row in result.all()}
+
+
+def _to_conversation_out(
+    conversation: Conversation, end_customer_balance: Decimal | None
+) -> ConversationOut:
+    out = ConversationOut.model_validate(conversation)
+    out.end_customer_balance = (
+        float(end_customer_balance) if end_customer_balance is not None else None
+    )
+    return out
 
 
 async def _get_conversation(

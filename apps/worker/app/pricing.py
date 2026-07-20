@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
 
-_PRECISION = Decimal("0.0001")
+_PRECISION = Decimal("1")
 
 
 async def get_current_pricing_config(session: AsyncSession):
@@ -38,7 +38,9 @@ async def get_current_pricing_config(session: AsyncSession):
 
 
 def calcular_creditos(tokens_input: int, tokens_output: int, tokens_used: int, config) -> Decimal:
-    """Créditos fracionados (4 casas, HALF_UP) a partir dos tokens ponderados.
+    """Créditos inteiros (arredondado pro mais próximo, HALF_UP) a partir dos
+    tokens ponderados. Consumo muito barato pode arredondar pra 0 créditos —
+    decisão deliberada, sem mínimo de 1 crédito por cobrança.
 
     Fallback de transição: breakdown zerado com tokens_used > 0 (agents antigo)
     trata tudo como output — cobra a mais, nunca a menos."""
