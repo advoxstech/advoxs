@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
-import { formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
+import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 interface ConversationThreadProps {
@@ -198,6 +198,11 @@ export function ConversationThread({
               agente respondendo
             </span>
           )}
+          {conversation.end_customer_balance != null ? (
+            <span className="font-mono text-xs text-muted">
+              saldo do cliente: {formatCredits(conversation.end_customer_balance)} créditos
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
