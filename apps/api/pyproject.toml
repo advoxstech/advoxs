@@ -42,3 +42,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Migration 0015 clona, verbatim, os 4 prompts fixos de apps/agents (linhas
+# de prosa longas por natureza) — exceção de line-length só pra esse arquivo,
+# nunca pra código real.
+"alembic/versions/0015_agentes_por_tenant.py" = ["E501"]
