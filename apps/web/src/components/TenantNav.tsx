@@ -7,7 +7,15 @@ import { useEffect, useState } from "react";
 import { logout } from "@/app/conversas/actions";
 import { backendFetch } from "@/lib/client-api";
 
-type TenantNavItem = "inicio" | "conversas" | "base" | "config" | "cobranca" | "creditos" | "perfil";
+type TenantNavItem =
+  | "inicio"
+  | "conversas"
+  | "base"
+  | "agentes"
+  | "config"
+  | "cobranca"
+  | "creditos"
+  | "perfil";
 
 const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -32,6 +40,17 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
     label: "Base",
     icon: (
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
+    ),
+  },
+  {
+    key: "agentes",
+    href: "/agentes",
+    label: "Agentes",
+    icon: (
+      <>
+        <rect x="4" y="8" width="16" height="12" rx="2" />
+        <path d="M12 8V4M9 13h.01M15 13h.01" />
+      </>
     ),
   },
   {

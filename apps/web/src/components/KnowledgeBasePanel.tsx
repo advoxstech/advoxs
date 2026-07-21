@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
+import type { Agent } from "@/lib/types";
 
 type KbFile = {
   id: string;
@@ -37,6 +38,8 @@ function formatSize(bytes: number): string {
 
 export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [files, setFiles] = useState<KbFile[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +58,28 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    async function loadAgents() {
+      try {
+        const response = await backendFetch("agents");
+        if (!response.ok) return;
+        const body: Agent[] = await response.json();
+        setAgents(body);
+
+        const fromUrl = new URLSearchParams(window.location.search).get("agent_id");
+        if (fromUrl && body.some((a) => a.id === fromUrl)) {
+          setSelectedAgentId(fromUrl);
+          return;
+        }
+        const entryPoint = body.find((a) => a.is_entry_point);
+        if (entryPoint) setSelectedAgentId(entryPoint.id);
+      } catch {
+        // fail-safe: sem agentes carregados, o select fica vazio e o upload exige escolha manual
+      }
+    }
+    void loadAgents();
+  }, []);
 
   const hasProcessing = files.some((file) => file.status === "processing");
 
@@ -75,9 +100,14 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       setFeedback("Arquivo excede o limite de 20 MB.");
       return;
     }
+    if (!selectedAgentId) {
+      setFeedback("Escolha o agente de destino antes de enviar.");
+      return;
+    }
 
     const form = new FormData();
     form.append("file", selected);
+    form.append("agent_id", selectedAgentId);
     setUploading(true);
     try {
       const response = await backendFetch("knowledge-base/files", {
@@ -119,24 +149,44 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         <div>
           <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
           <p className="text-sm text-muted">
-            PDF, DOCX ou TXT, até 20 MB — os agentes consultam esses documentos nas conversas.
+            PDF, DOCX ou TXT, até 20 MB — cada arquivo fica anexado a um agente específico.
           </p>
         </div>
-        <label
-          className={`cursor-pointer rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
-        >
-          {uploading ? "Enviando..." : "Enviar arquivo"}
-          <input
-            ref={inputRef}
-            type="file"
-            accept={ACCEPTED}
-            className="hidden"
-            onChange={(event) => {
-              const selected = event.target.files?.[0];
-              if (selected) void handleUpload(selected);
-            }}
-          />
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Agente de destino
+            <select
+              required
+              value={selectedAgentId}
+              onChange={(event) => setSelectedAgentId(event.target.value)}
+              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+            >
+              <option value="" disabled>
+                Selecione um agente
+              </option>
+              {agents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label
+            className={`cursor-pointer rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
+          >
+            {uploading ? "Enviando..." : "Enviar arquivo"}
+            <input
+              ref={inputRef}
+              type="file"
+              accept={ACCEPTED}
+              className="hidden"
+              onChange={(event) => {
+                const selected = event.target.files?.[0];
+                if (selected) void handleUpload(selected);
+              }}
+            />
+          </label>
+        </div>
       </header>
 
       {feedback && (

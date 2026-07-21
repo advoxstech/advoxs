@@ -25,6 +25,7 @@ describe("TenantNav", () => {
       "href",
       "/base-de-conhecimento",
     );
+    expect(screen.getByText("Agentes").closest("a")).toHaveAttribute("href", "/agentes");
     expect(screen.getByText("Config WhatsApp").closest("a")).toHaveAttribute(
       "href",
       "/configuracoes/whatsapp",
@@ -41,6 +42,13 @@ describe("TenantNav", () => {
     render(<TenantNav active="inicio" />);
 
     expect(screen.getByText("Início").closest("a")).toBeNull();
+    expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
+  });
+
+  it("marca agentes como ativo quando active='agentes'", () => {
+    render(<TenantNav active="agentes" />);
+
+    expect(screen.getByText("Agentes").closest("a")).toBeNull();
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 

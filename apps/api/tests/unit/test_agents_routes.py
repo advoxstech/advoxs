@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.main import app
@@ -226,6 +227,18 @@ class TestAttachKnowledgeBaseFile:
 
         assert response.status_code == 404
 
+    def test_arquivo_ja_anexado_retorna_409(self, client, session) -> None:
+        session.scalar.side_effect = [_agent(), SimpleNamespace(id=uuid.uuid4())]
+        session.commit.side_effect = IntegrityError("stmt", {}, Exception("dup"))
+
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files",
+            json={"knowledge_base_file_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 409
+        session.rollback.assert_awaited_once()
+
 
 class TestDetachKnowledgeBaseFile:
     def test_desanexa_arquivo(self, client, session) -> None:
@@ -247,5 +260,32 @@ class TestDetachKnowledgeBaseFile:
         response = client.delete(
             f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{uuid.uuid4()}"
         )
+
+        assert response.status_code == 404
+
+
+class TestListKnowledgeBaseFiles:
+    def test_lista_arquivos_anexados(self, client, session) -> None:
+        session.scalar.return_value = _agent()
+        file_row = SimpleNamespace(
+            id=uuid.uuid4(),
+            filename="regimento.pdf",
+            size_bytes=1024,
+            mime_type="application/pdf",
+            status="ready",
+            error_message=None,
+            uploaded_at=datetime.now(UTC),
+        )
+        session.execute.return_value = _execute_returning([file_row])
+
+        response = client.get(f"/api/v1/agents/{AGENT_ID}/knowledge-base-files")
+
+        assert response.status_code == 200
+        assert response.json()[0]["filename"] == "regimento.pdf"
+
+    def test_agente_inexistente_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.get(f"/api/v1/agents/{AGENT_ID}/knowledge-base-files")
 
         assert response.status_code == 404

@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -15,6 +16,7 @@ from app.schemas.agents import (
     AgentUpdate,
     AttachKnowledgeBaseFileIn,
 )
+from app.schemas.knowledge_base import KnowledgeBaseFileOut
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -144,7 +146,14 @@ async def attach_knowledge_base_file(
 
     link = AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=file.id)
     session.add(link)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este arquivo já está anexado a este agente",
+        )
     return AgentKnowledgeBaseFileOut.model_validate(link)
 
 
@@ -165,3 +174,23 @@ async def detach_knowledge_base_file(
 
     await session.delete(link)
     await session.commit()
+
+
+@router.get("/{agent_id}/knowledge-base-files")
+async def list_agent_knowledge_base_files(
+    agent_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[KnowledgeBaseFileOut]:
+    await _get_agent(agent_id, ctx, session)
+
+    result = await session.execute(
+        select(KnowledgeBaseFile)
+        .join(
+            AgentKnowledgeBaseFile,
+            AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
+        )
+        .where(AgentKnowledgeBaseFile.agent_id == agent_id)
+        .order_by(KnowledgeBaseFile.uploaded_at.desc())
+    )
+    return [KnowledgeBaseFileOut.model_validate(f) for f in result.scalars().all()]
