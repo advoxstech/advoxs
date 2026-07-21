@@ -47,12 +47,14 @@ async def agent_node(state: dict) -> Command:
     billing_enabled = bool(billing.get("enabled"))
     billing_blocked = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
 
+    bounced_from_billing_block = False
     if billing_blocked and not current["is_entry_point"]:
         logger.info(
             "Agente bloqueado por saldo esgotado, devolvendo pro ponto de entrada | agent_id={}",
             current["id"],
         )
         current = entry_point
+        bounced_from_billing_block = True
 
     is_entry_point = current["is_entry_point"]
     # O ponto de entrada nunca recebe a instrução de "primeira resposta" —
@@ -125,6 +127,15 @@ async def agent_node(state: dict) -> Command:
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
     if is_first_run:
         update["receptive_message_specialist"] = False
+    if bounced_from_billing_block:
+        aviso_retorno = AIMessage(
+            content=(
+                f"voltando para {entry_point['name']} — o atendimento anterior "
+                "ficou indisponível porque os créditos acabaram."
+            )
+        )
+        update["messages"] = [aviso_retorno, response]
+        logger.info("Aviso de retorno ao ponto de entrada injetado | entry_point_id={}", entry_point["id"])
 
     if response.tool_calls:
         tool_name = response.tool_calls[0]["name"]

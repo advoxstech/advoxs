@@ -346,7 +346,7 @@ async def test_ponto_de_entrada_nunca_recebe_instrucao_de_first_run(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_agente_bloqueado_por_saldo_esgotado_e_atendido_pelo_ponto_de_entrada(monkeypatch):
+async def test_saldo_esgotado_no_meio_da_conversa_devolve_pro_ponto_de_entrada(monkeypatch) -> None:
     """Saldo esgotado no meio da conversa (não só na transferência inicial) deve
     ser atendido pelo ponto de entrada (equivalente à antiga secretária), que
     oferece os pacotes — em vez de deixar o agente atual responder de graça."""
@@ -371,6 +371,44 @@ async def test_agente_bloqueado_por_saldo_esgotado_e_atendido_pelo_ponto_de_entr
     model.bind_tools.assert_called_once()
     prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
     assert "Básico" in prompt_arg.content
+
+    # Aviso fixo de retorno vem antes da resposta normal do ponto de entrada.
+    assert len(result.update["messages"]) == 2
+    aviso, resposta = result.update["messages"]
+    assert aviso.content == (
+        "voltando para Secretária — o atendimento anterior ficou indisponível "
+        "porque os créditos acabaram."
+    )
+    assert resposta.content == "aqui estão os pacotes disponíveis"
+
+
+@pytest.mark.asyncio
+async def test_aviso_de_retorno_nao_repete_quando_ja_esta_no_ponto_de_entrada(monkeypatch) -> None:
+    """O aviso de retorno só deve aparecer no turno exato da transição
+    especialista -> ponto de entrada. Nos turnos seguintes, com
+    current_agent_id já apontando pro ponto de entrada, a condição de
+    bloqueio (`not current["is_entry_point"]`) nunca mais é verdadeira —
+    então o aviso não deve se repetir."""
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("aqui estão os pacotes disponíveis"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    result = await agent_node(
+        base_state(
+            current_agent_id="entry-1",
+            receptive_message_specialist=False,
+            end_customer_billing={
+                "enabled": True,
+                "balance": 0,
+                "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+            },
+        )
+    )
+
+    assert result.update["current_agent_id"] == "entry-1"
+    assert len(result.update["messages"]) == 1
+    assert result.update["messages"][0].content == "aqui estão os pacotes disponíveis"
 
 
 @pytest.mark.asyncio
