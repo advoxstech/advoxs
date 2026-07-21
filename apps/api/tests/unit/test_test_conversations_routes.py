@@ -85,6 +85,11 @@ class TestSendTestMessage:
             }
         )
         monkeypatch.setattr(test_conversations_module.service, "send_playground_message", mock)
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "load_agents_for_engine",
+            AsyncMock(return_value=[]),
+        )
         pricing = SimpleNamespace(
             id=uuid.uuid4(),
             tokens_per_credit=1000,
@@ -187,6 +192,32 @@ class TestSendTestMessage:
         assert response.status_code == 502
         # a mensagem do contato foi commitada antes da chamada
         session.commit.assert_awaited()
+
+    def test_agents_do_tenant_e_repassado_ao_send_playground_message(
+        self, client, session, playground_mock, monkeypatch
+    ) -> None:
+        self._arm_session(session, _conversation())
+        agents_payload = [
+            {
+                "id": "a1",
+                "name": "Secretária",
+                "instructions": "x",
+                "is_entry_point": True,
+                "knowledge_base_file_ids": [],
+            }
+        ]
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "load_agents_for_engine",
+            AsyncMock(return_value=agents_payload),
+        )
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "oi"},
+        )
+
+        assert playground_mock.await_args.kwargs["agents"] == agents_payload
 
     def test_conversa_inexistente_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None

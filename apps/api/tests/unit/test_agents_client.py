@@ -7,6 +7,7 @@ from app.clients.agents import (
     AgentsApiError,
     AgentsNetworkError,
     generate_conversation_summary,
+    send_playground_message,
 )
 
 
@@ -75,3 +76,42 @@ class TestGenerateConversationSummary:
 
         with pytest.raises(AgentsApiError):
             await generate_conversation_summary([{"sender_type": "contact", "content": "oi"}])
+
+
+class TestSendPlaygroundMessage:
+    async def test_inclui_agents_quando_informado(self, monkeypatch) -> None:
+        response = httpx.Response(
+            200, json={"responses": ["oi"], "tokens_used": 0, "current_agent": None}
+        )
+        mock_post = AsyncMock(return_value=response)
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+        agents = [
+            {
+                "id": "a1",
+                "name": "Secretária",
+                "instructions": "x",
+                "is_entry_point": True,
+                "knowledge_base_file_ids": [],
+            }
+        ]
+
+        await send_playground_message(
+            tenant_id="t1", contact_phone_number="playground-s1", message="oi", agents=agents
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        assert body["agents"] == agents
+
+    async def test_sem_agents_manda_lista_vazia(self, monkeypatch) -> None:
+        response = httpx.Response(
+            200, json={"responses": ["oi"], "tokens_used": 0, "current_agent": None}
+        )
+        mock_post = AsyncMock(return_value=response)
+        monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+        await send_playground_message(
+            tenant_id="t1", contact_phone_number="playground-s1", message="oi"
+        )
+
+        body = mock_post.call_args.kwargs["json"]
+        assert body["agents"] == []

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.agents import send_playground_message
 from app.models import Conversation, CreditTransaction, Message, Tenant
+from app.services.agents_engine import load_agents_for_engine
 from app.services.pricing import calcular_creditos, get_current_pricing_config
 
 
@@ -43,6 +44,7 @@ async def send_test_message(
         tenant_id=str(tenant_id),
         contact_phone_number=conversation.contact_phone_number,
         message=content,
+        agents=await load_agents_for_engine(session, tenant_id),
     )
     if result is None:
         # 202: debounce agrupou numa execução em andamento — as respostas

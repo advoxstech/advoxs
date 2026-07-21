@@ -26,7 +26,7 @@ def _auth_headers() -> dict[str, str]:
 
 
 async def send_playground_message(
-    *, tenant_id: str, contact_phone_number: str, message: str
+    *, tenant_id: str, contact_phone_number: str, message: str, agents: list[dict] | None = None
 ) -> dict | None:
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
@@ -34,6 +34,10 @@ async def send_playground_message(
     "tokens_output": N, "current_agent": "..."}, ou None quando o agents
     devolve 202 (debounce agrupou a mensagem numa execução em andamento —
     as respostas virão pela execução que já roda).
+
+    `agents`: lista de agentes do tenant (id, name, instructions,
+    is_entry_point, knowledge_base_file_ids) — ver
+    app.services.agents_engine.load_agents_for_engine.
     """
     payload = {
         "tenant_id": tenant_id,
@@ -43,6 +47,7 @@ async def send_playground_message(
         "phone_number_id": "",
         "access_token": "",
         "send_to_whatsapp": False,
+        "agents": agents or [],
     }
     try:
         async with httpx.AsyncClient(
