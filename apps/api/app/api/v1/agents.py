@@ -17,6 +17,7 @@ from app.schemas.agents import (
     AttachKnowledgeBaseFileIn,
 )
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
+from app.services.subscriptions import get_active_subscription
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -46,6 +47,25 @@ async def create_agent(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> AgentOut:
+    subscription, plan = await get_active_subscription(session, ctx.tenant_id)
+    if subscription.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sua assinatura não está ativa — regularize o pagamento para continuar",
+        )
+
+    total = await session.scalar(
+        select(func.count()).select_from(Agent).where(Agent.tenant_id == ctx.tenant_id)
+    )
+    if plan.max_agents is not None and total >= plan.max_agents:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Seu plano atual ({plan.name}) permite até {plan.max_agents} agentes — "
+                "faça upgrade para criar mais"
+            ),
+        )
+
     if body.is_entry_point:
         await _unset_current_entry_point(ctx, session)
 
