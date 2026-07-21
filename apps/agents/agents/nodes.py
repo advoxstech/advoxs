@@ -82,6 +82,16 @@ async def agent_node(state: dict) -> Command:
     model_with_tools = model.bind_tools(tools_for_agent)
 
     prompt = current["instructions"]
+    other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
+    if other_agents:
+        roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)
+        prompt += (
+            "\n\n---\n"
+            "**Agentes disponíveis para transferência** (use o agent_id exato ao "
+            "chamar transfer_to_agent — nunca invente ou abrevie o id):\n"
+            f"{roster_text}"
+        )
+
     if billing_blocked and is_entry_point:
         packages_text = "\n".join(
             f"- {p['name']}: R$ {p['price_brl']} = {p['credits_granted']} créditos "

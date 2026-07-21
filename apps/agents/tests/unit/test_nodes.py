@@ -141,6 +141,57 @@ async def test_bind_nao_inclui_gerar_link_pagamento_sem_end_customer_billing_no_
     assert "gerar_link_pagamento_cliente" not in tool_names
 
 
+# ──────────────────────────────────────────────
+# agent_node — roster de outros agentes no prompt (transferência dinâmica)
+# ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_prompt_inclui_roster_de_outros_agentes_para_transferencia(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state())
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "other-1" in prompt_arg.content
+    assert "Condominial" in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_prompt_nao_inclui_o_proprio_agente_no_roster(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state())
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "entry-1" not in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_sem_outros_agentes_nao_inclui_bloco_de_roster(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(agents=[{
+        "id": "entry-1",
+        "name": "Secretária",
+        "instructions": "Você é a secretária de triagem.",
+        "is_entry_point": True,
+        "knowledge_base_file_ids": [],
+    }])
+    await agent_node(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Agentes disponíveis para transferência" not in prompt_arg.content
+
+
 @pytest.mark.asyncio
 async def test_injeta_pacotes_no_prompt_quando_sem_saldo_no_ponto_de_entrada(monkeypatch) -> None:
     from agents.nodes import agent_node
