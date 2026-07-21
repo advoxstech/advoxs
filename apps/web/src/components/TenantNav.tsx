@@ -143,7 +143,7 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
         pinned ? "w-[232px]" : "w-[72px] hover:w-[232px]"
       }`}
     >
-      <div className="flex h-8 items-center gap-3 px-[22px]">
+      <div className="flex h-8 items-center justify-between px-[22px]">
         <span
           className="font-display text-2xl font-semibold text-nav-ink"
           aria-label="Advoxs"
