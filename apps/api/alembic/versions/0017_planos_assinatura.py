@@ -167,9 +167,6 @@ def upgrade() -> None:
             "stripe_subscription_id", name=op.f("uq_tenant_subscriptions_stripe_subscription_id")
         ),
     )
-    op.create_index(
-        op.f("ix_tenant_subscriptions_tenant_id"), "tenant_subscriptions", ["tenant_id"]
-    )
 
     op.bulk_insert(subscription_plans, PLANS)
 
