@@ -248,15 +248,15 @@ export function WhatsAppConnectionPanel() {
         {webhookConfig && (
           <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
             <h2 className="font-display text-base font-semibold text-ink">
-              Configurar o aviso de mensagens novas (webhook)
+              Conectar o WhatsApp Business
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Passo obrigatório — sem isso, as mensagens enviadas pros seus clientes chegam no
-              WhatsApp deles, mas não chegam aqui na Advoxs pros agentes responderem.
+              Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — dá um pouco
+              de trabalho, mas só precisa ser feita uma única vez.
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                No painel do seu app em{" "}
+                Acesse{" "}
                 <a
                   href="https://developers.facebook.com/apps/"
                   target="_blank"
@@ -264,9 +264,57 @@ export function WhatsAppConnectionPanel() {
                   className="text-accent underline"
                 >
                   developers.facebook.com
+                </a>{" "}
+                e crie um app pro seu escritório.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo WhatsApp, não
+                  afeta seu uso normal do Facebook.
+                </span>
+              </li>
+              <li>
+                Dentro do app, você vai criar uma{" "}
+                <a
+                  href="https://business.facebook.com/settings/system-users"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  &quot;conta de sistema&quot;
                 </a>
-                , abra <span className="font-medium">WhatsApp → Configuration → Webhook</span> e
-                clique em Edit.
+                .
+                <span className="mt-0.5 block text-xs text-muted">
+                  Pense nela como um crachá de acesso que representa seu escritório perante o
+                  WhatsApp, separado da sua conta pessoal.
+                </span>
+              </li>
+              <li>
+                Gere uma chave de acesso pra essa conta — é como uma senha que a plataforma vai
+                usar pra mandar e receber mensagens em nome do seu escritório. Marque as duas
+                opções de permissão do WhatsApp que aparecerem.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
+                </span>
+              </li>
+              <li>
+                Cadastre o{" "}
+                <a
+                  href="https://business.facebook.com/wa/manage/phone-numbers/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  número de telefone
+                </a>{" "}
+                do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Você inventa esse código na hora — só serve pra essa confirmação, não precisa
+                  anotar.
+                </span>
+              </li>
+              <li>
+                No painel do seu app, abra{" "}
+                <span className="font-medium">WhatsApp → Configuration → Webhook</span> e clique
+                em Edit.
                 <span className="mt-0.5 block text-xs text-muted">
                   É essa tela que recebe as mensagens dos seus clientes e repassa pra Advoxs.
                 </span>
