@@ -104,10 +104,7 @@ async def delete_agent(
     if agent.is_entry_point:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Não é possível apagar o agente ponto de entrada — "
-                "marque outro agente como ponto de entrada antes"
-            ),
+            detail="Não é possível apagar o agente ponto de entrada",
         )
 
     total = await session.scalar(
