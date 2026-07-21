@@ -185,7 +185,7 @@ async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) ->
 def is_billing_blocked(enabled: bool, balance: float) -> bool:
     """Bloqueia oferta/transferência quando a cobrança do cliente final está
     ativa e o saldo está zerado — usada tanto pelo gate técnico em
-    transfer_to_specialist quanto pela decisão de injetar os pacotes/pular a
+    transfer_to_agent quanto pela decisão de injetar os pacotes/pular a
     despedida em agente_secretaria, pra nunca divergir entre os dois."""
     return bool(enabled) and balance <= 0
 
