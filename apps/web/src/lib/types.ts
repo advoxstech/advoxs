@@ -66,3 +66,12 @@ export interface Profile {
   user_name: string;
   user_email: string;
 }
+
+export interface Agent {
+  id: string;
+  name: string;
+  instructions: string;
+  is_entry_point: boolean;
+  created_at: string;
+  updated_at: string;
+}

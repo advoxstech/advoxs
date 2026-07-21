@@ -13,6 +13,7 @@ const ALLOWED_PREFIXES = [
   "profile",
   "end-customer-billing",
   "onboarding",
+  "agents",
 ];
 
 /** Só rotas do painel passam pelo proxy — nunca auth ou webhooks. */

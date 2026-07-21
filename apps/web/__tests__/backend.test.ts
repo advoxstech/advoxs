@@ -34,4 +34,9 @@ describe("isAllowedPath", () => {
     expect(isAllowedPath(["onboarding"])).toBe(true);
     expect(isAllowedPath(["onboarding", "complete"])).toBe(true);
   });
+
+  it("permite rotas de agentes", () => {
+    expect(isAllowedPath(["agents"])).toBe(true);
+    expect(isAllowedPath(["agents", "abc123", "knowledge-base-files"])).toBe(true);
+  });
 });
