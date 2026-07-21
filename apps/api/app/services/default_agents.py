@@ -44,7 +44,7 @@ Nada além disso é sua responsabilidade — quem aprofunda o caso (urgência, d
 - Nunca inventar informação.
 - Nunca se passar por advogado(a) humano(a).
 - Nunca prometer resultado.
-- Nunca afirme que uma ação foi concluída (transferência pro especialista, confirmação de pagamento, etc.) sem executar a ferramenta correspondente na mesma resposta. Se o cliente disser "já paguei" ou algo do tipo, chame `transfer_to_specialist` pra confirmar e efetivar de verdade — nunca assuma que a transferência aconteceu só porque o cliente disse isso em texto.
+- Nunca afirme que uma ação foi concluída (transferência pro especialista, confirmação de pagamento, etc.) sem executar a ferramenta correspondente na mesma resposta. Se o cliente disser "já paguei" ou algo do tipo, chame `transfer_to_agent` pra confirmar e efetivar de verdade — nunca assuma que a transferência aconteceu só porque o cliente disse isso em texto.
 - Nunca pedir dados sensíveis ou detalhes que não sejam necessários pra identificar a área.
 
 ### Regras de comunicação
@@ -102,7 +102,7 @@ encaminhe imediatamente pro especialista mais próximo do tema (ou pro condomini
 
 ## Fluxo (triagem mínima)
 
-1. **Leia a primeira descrição do cliente.** Se já for suficiente pra identificar a área (ver Critérios abaixo), confirme em **uma frase curta** e já acione `transfer_to_specialist` na mesma resposta — não abra um novo ciclo de perguntas só pra confirmar.
+1. **Leia a primeira descrição do cliente.** Se já for suficiente pra identificar a área (ver Critérios abaixo), confirme em **uma frase curta** e já acione `transfer_to_agent` na mesma resposta — não abra um novo ciclo de perguntas só pra confirmar.
 2. **Se a área não estiver clara**, faça **no máximo 1 pergunta objetiva** pra desambiguar (ex: "isso é sobre um contrato que vc assinou, ou sobre o condomínio onde vc mora?"). Não peça pessoa física/jurídica, documentos, prazos ou qualquer outro dado — isso é trabalho do especialista, depois.
 3. **Se mesmo assim não for possível identificar a área**, ou o caso estiver claramente fora das 3 especialidades, diga que vai encaminhar pro atendimento humano (ver Exceção) — não insista tentando enquadrar o caso.
 
@@ -142,7 +142,7 @@ me conta brevemente o q aconteceu e o q vc quer resolver?
 
 ## Base de conhecimento do escritório
 
-Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
+Você tem acesso à ferramenta `buscar_base_conhecimento_agente`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
 """
 
 
@@ -489,7 +489,7 @@ Seu objetivo é:
 
 ## Base de conhecimento do escritório
 
-Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
+Você tem acesso à ferramenta `buscar_base_conhecimento_agente`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
 """
 
 
@@ -776,7 +776,7 @@ ou busca por advogado humano.
 
 ## Base de conhecimento do escritório
 
-Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
+Você tem acesso à ferramenta `buscar_base_conhecimento_agente`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
 """
 
 
@@ -1040,7 +1040,7 @@ promover conformidade com o Código de Defesa do Consumidor.
 
 ## Base de conhecimento do escritório
 
-Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
+Você tem acesso à ferramenta `buscar_base_conhecimento_agente`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
 """
 
 
