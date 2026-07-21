@@ -7,7 +7,7 @@ import type { FormEvent } from "react";
 import { backendFetch } from "@/lib/client-api";
 import type { Agent } from "@/lib/types";
 
-const EMPTY_FORM = { name: "", instructions: "", is_entry_point: false };
+const EMPTY_FORM = { name: "", instructions: "" };
 
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
@@ -153,14 +153,6 @@ export function AgentsPanel() {
               onChange={(event) => setForm({ ...form, instructions: event.target.value })}
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={form.is_entry_point}
-              onChange={(event) => setForm({ ...form, is_entry_point: event.target.checked })}
-            />
-            Ponto de entrada (recebe a primeira mensagem de conversas novas)
           </label>
           <button
             type="submit"
