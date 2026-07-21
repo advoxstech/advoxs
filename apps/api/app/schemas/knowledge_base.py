@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KnowledgeBaseFileOut(BaseModel):
@@ -14,3 +14,4 @@ class KnowledgeBaseFileOut(BaseModel):
     status: str
     error_message: str | None = None
     uploaded_at: datetime
+    agent_ids: list[uuid.UUID] = Field(default_factory=list)

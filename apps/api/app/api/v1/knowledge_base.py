@@ -177,7 +177,16 @@ async def upload_file(
         tenant_id=str(ctx.tenant_id),
         file_id=str(record.id),
     )
-    return KnowledgeBaseFileOut.model_validate(record)
+    return KnowledgeBaseFileOut(
+        id=record.id,
+        filename=record.filename,
+        size_bytes=record.size_bytes,
+        mime_type=record.mime_type,
+        status=record.status,
+        error_message=record.error_message,
+        uploaded_at=record.uploaded_at,
+        agent_ids=[agent_id],
+    )
 
 
 @router.get("/files")
@@ -194,7 +203,30 @@ async def list_files(
         .limit(limit)
         .offset(offset)
     )
-    return [KnowledgeBaseFileOut.model_validate(f) for f in result.scalars().all()]
+    files = result.scalars().all()
+
+    links_result = await session.execute(
+        select(
+            AgentKnowledgeBaseFile.knowledge_base_file_id, AgentKnowledgeBaseFile.agent_id
+        ).where(AgentKnowledgeBaseFile.knowledge_base_file_id.in_([f.id for f in files]))
+    )
+    agent_ids_by_file: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for file_id, agent_id in links_result.all():
+        agent_ids_by_file.setdefault(file_id, []).append(agent_id)
+
+    return [
+        KnowledgeBaseFileOut(
+            id=f.id,
+            filename=f.filename,
+            size_bytes=f.size_bytes,
+            mime_type=f.mime_type,
+            status=f.status,
+            error_message=f.error_message,
+            uploaded_at=f.uploaded_at,
+            agent_ids=agent_ids_by_file.get(f.id, []),
+        )
+        for f in files
+    ]
 
 
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

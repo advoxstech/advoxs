@@ -132,6 +132,7 @@ class TestUpload:
         body = response.json()
         assert body["status"] == "processing"
         assert body["filename"] == "regimento.pdf"
+        assert body["agent_ids"] == [str(AGENT_ID)]
         session.commit.assert_awaited()
         arq.enqueue_job.assert_awaited_once()
         kwargs = arq.enqueue_job.await_args.kwargs
@@ -287,14 +288,47 @@ class TestUpload:
 
 class TestList:
     def test_lista_arquivos_do_tenant(self, client, session) -> None:
-        result = MagicMock()
-        result.scalars.return_value.all.return_value = [_record()]
-        session.execute.return_value = result
+        files_result = MagicMock()
+        files_result.scalars.return_value.all.return_value = [_record()]
+        links_result = MagicMock()
+        links_result.all.return_value = [(FILE_ID, AGENT_ID)]
+        session.execute.side_effect = [files_result, links_result]
 
         response = client.get("/api/v1/knowledge-base/files")
 
         assert response.status_code == 200
-        assert response.json()[0]["filename"] == "regimento.pdf"
+        body = response.json()
+        assert body[0]["filename"] == "regimento.pdf"
+        assert body[0]["agent_ids"] == [str(AGENT_ID)]
+
+    def test_lista_arquivos_com_multiplos_agentes_e_sem_agente(self, client, session) -> None:
+        """Cobre as 3 cardinalidades que a árvore do frontend precisa
+        distinguir: arquivo em 2+ agentes (aparece nas 2 pastas) e arquivo
+        em 0 agentes (não aparece em nenhuma pasta, mas continua na lista)."""
+        outro_file_id = uuid.uuid4()
+        outro_agent_id = uuid.uuid4()
+        arquivo_sem_agente = SimpleNamespace(
+            id=outro_file_id,
+            tenant_id=TENANT_ID,
+            filename="orfao.pdf",
+            size_bytes=500,
+            mime_type="application/pdf",
+            status="ready",
+            error_message=None,
+            uploaded_at=datetime.now(UTC),
+        )
+        files_result = MagicMock()
+        files_result.scalars.return_value.all.return_value = [_record(), arquivo_sem_agente]
+        links_result = MagicMock()
+        links_result.all.return_value = [(FILE_ID, AGENT_ID), (FILE_ID, outro_agent_id)]
+        session.execute.side_effect = [files_result, links_result]
+
+        response = client.get("/api/v1/knowledge-base/files")
+
+        assert response.status_code == 200
+        regimento, orfao = response.json()
+        assert sorted(regimento["agent_ids"]) == sorted([str(AGENT_ID), str(outro_agent_id)])
+        assert orfao["agent_ids"] == []
 
 
 class TestDelete:
