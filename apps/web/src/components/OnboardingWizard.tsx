@@ -92,21 +92,79 @@ export function OnboardingWizard() {
               Conectar o WhatsApp Business
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-ink">
-              É por ele que os agentes atendem seus clientes. O setup é feito no painel da
-              Meta (developers.facebook.com) e depois colado aqui na plataforma:
+              É pelo WhatsApp que os agentes vão atender seus clientes. Essa conexão é
+              feita direto com a Meta (a empresa dona do WhatsApp) — é uma configuração
+              técnica, mas só precisa ser feita uma vez.
             </p>
-            <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-sm text-ink">
-              <li>Crie (ou acesse) um app na Meta e adicione um System User com role Admin.</li>
+            <p className="mt-3 rounded-sm border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
+              Se travar em qualquer passo abaixo, manda um print pra gente que ajudamos a
+              configurar — não precisa resolver sozinho.
+            </p>
+            <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                Gere um token de acesso permanente com as permissões
-                <code className="mx-1 rounded bg-surface px-1">whatsapp_business_management</code>
-                e
-                <code className="mx-1 rounded bg-surface px-1">whatsapp_business_messaging</code>.
+                Acesse{" "}
+                <a
+                  href="https://developers.facebook.com/apps/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  developers.facebook.com
+                </a>{" "}
+                e crie um app pro seu escritório.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo
+                  WhatsApp, não afeta seu uso normal do Facebook.
+                </span>
               </li>
-              <li>Adicione e verifique o número do escritório (você vai precisar do PIN de 2 fatores).</li>
               <li>
-                Configure o webhook do app com os valores abaixo e assine o campo{" "}
-                <code className="rounded bg-surface px-1">messages</code>:
+                Dentro do app, você vai criar uma{" "}
+                <a
+                  href="https://business.facebook.com/settings/system-users"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  &quot;conta de sistema&quot;
+                </a>
+                .
+                <span className="mt-0.5 block text-xs text-muted">
+                  Pense nela como um crachá de acesso que representa seu escritório
+                  perante o WhatsApp, separado da sua conta pessoal.
+                </span>
+              </li>
+              <li>
+                Gere uma chave de acesso pra essa conta — é como uma senha que a
+                plataforma vai usar pra mandar e receber mensagens em nome do seu
+                escritório. Marque as duas opções de permissão do WhatsApp que
+                aparecerem.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
+                </span>
+              </li>
+              <li>
+                Cadastre o{" "}
+                <a
+                  href="https://business.facebook.com/wa/manage/phone-numbers/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  número de telefone
+                </a>{" "}
+                do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Você inventa esse código na hora — só serve pra essa confirmação, não
+                  precisa anotar.
+                </span>
+              </li>
+              <li>
+                Por fim, cole os dois valores abaixo numa tela de configuração do
+                WhatsApp (chamada &quot;Webhooks&quot;, dentro do mesmo app que você criou):
+                <span className="mt-0.5 block text-xs text-muted">
+                  É isso que liga o número de vocês na nossa plataforma — depois disso,
+                  as mensagens já chegam automaticamente.
+                </span>
               </li>
             </ol>
             {webhookConfig && (
@@ -180,10 +238,15 @@ export function OnboardingWizard() {
               plataforma nunca toca nesse dinheiro.
             </p>
             <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-sm text-ink">
-              <li>Cole a secret key e o webhook secret da sua conta Stripe.</li>
-              <li>Defina a conversão de tokens por crédito e cadastre seus pacotes.</li>
               <li>
-                Aponte um webhook da sua Stripe pra URL exibida na página (evento{" "}
+                Cole a chave secreta e o segredo de webhook da sua conta Stripe (você
+                encontra isso em Configurações → Chaves de API, dentro do painel da
+                Stripe).
+              </li>
+              <li>Cadastre os pacotes de crédito que você quer vender pros seus clientes.</li>
+              <li>
+                Copie a URL exibida na página e cole no Dashboard da sua Stripe, na
+                seção de Webhooks (evento{" "}
                 <code className="rounded bg-surface px-1">checkout.session.completed</code>).
               </li>
             </ol>
