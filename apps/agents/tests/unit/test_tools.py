@@ -3,10 +3,8 @@ import requests
 from unittest.mock import AsyncMock, patch, MagicMock
 from langgraph.types import Command
 from agents.tools import (
-    transfer_to_specialist,
-    bucar_base_conhecimento_condominial,
-    bucar_base_conhecimento_contratos,
-    bucar_base_conhecimento_direito_consumidor,
+    transfer_to_agent,
+    buscar_base_conhecimento_agente,
     bucar_base_conhecimento_usuario,
     enviar_documento,
     gerar_link_pagamento_cliente,
@@ -14,38 +12,41 @@ from agents.tools import (
 
 
 # ──────────────────────────────────────────────
-# transfer_to_specialist
+# transfer_to_agent
 # ──────────────────────────────────────────────
 
 def test_transfer_retorna_command():
-    result = transfer_to_specialist.invoke({"current_specialist": "agente_condominial"})
+    result = transfer_to_agent.invoke({"agent_id": "agent-2", "valid_agent_ids": ["agent-2"]})
     assert isinstance(result, Command)
 
 
-def test_transfer_atualiza_current_specialist():
-    result = transfer_to_specialist.invoke({"current_specialist": "agente_condominial"})
-    assert result.update["current_specialist"] == "agente_condominial"
+def test_transfer_atualiza_current_agent_id():
+    result = transfer_to_agent.invoke({"agent_id": "agent-2", "valid_agent_ids": ["agent-2"]})
+    assert result.update["current_agent_id"] == "agent-2"
 
 
 def test_transfer_ativa_receptive_message():
-    result = transfer_to_specialist.invoke({"current_specialist": "agente_condominial"})
+    result = transfer_to_agent.invoke({"agent_id": "agent-2", "valid_agent_ids": ["agent-2"]})
     assert result.update["receptive_message_specialist"] is True
 
 
-@pytest.mark.parametrize("specialist", [
-    "agente_condominial",
-    "agente_contratos",
-    "agente_direito_consumidor",
-])
-def test_transfer_todos_especialistas_validos(specialist):
-    result = transfer_to_specialist.invoke({"current_specialist": specialist})
-    assert result.update["current_specialist"] == specialist
+def test_transfer_agent_id_fora_da_lista_recusa():
+    result = transfer_to_agent.invoke({"agent_id": "agent-forjado", "valid_agent_ids": ["agent-2"]})
+    assert isinstance(result, str)
+    assert "recusada" in result.lower()
+
+
+def test_transfer_sem_valid_agent_ids_recusa():
+    result = transfer_to_agent.invoke({"agent_id": "agent-2"})
+    assert isinstance(result, str)
+    assert "recusada" in result.lower()
 
 
 def test_transfer_bloqueada_sem_saldo_retorna_string():
-    result = transfer_to_specialist.invoke(
+    result = transfer_to_agent.invoke(
         {
-            "current_specialist": "agente_condominial",
+            "agent_id": "agent-2",
+            "valid_agent_ids": ["agent-2"],
             "end_customer_billing_enabled": True,
             "end_customer_balance": 0,
         }
@@ -55,21 +56,23 @@ def test_transfer_bloqueada_sem_saldo_retorna_string():
 
 
 def test_transfer_liberada_com_saldo_positivo():
-    result = transfer_to_specialist.invoke(
+    result = transfer_to_agent.invoke(
         {
-            "current_specialist": "agente_condominial",
+            "agent_id": "agent-2",
+            "valid_agent_ids": ["agent-2"],
             "end_customer_billing_enabled": True,
             "end_customer_balance": 100,
         }
     )
     assert isinstance(result, Command)
-    assert result.update["current_specialist"] == "agente_condominial"
+    assert result.update["current_agent_id"] == "agent-2"
 
 
 def test_transfer_sem_billing_habilitado_ignora_saldo():
-    result = transfer_to_specialist.invoke(
+    result = transfer_to_agent.invoke(
         {
-            "current_specialist": "agente_condominial",
+            "agent_id": "agent-2",
+            "valid_agent_ids": ["agent-2"],
             "end_customer_billing_enabled": False,
             "end_customer_balance": 0,
         }
@@ -78,63 +81,47 @@ def test_transfer_sem_billing_habilitado_ignora_saldo():
 
 
 # ──────────────────────────────────────────────
-# bucar_base_conhecimento_condominial
+# buscar_base_conhecimento_agente
 # ──────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_buscar_condominial_chama_base_correta():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="resultado")) as mock_fn:
-        result = await bucar_base_conhecimento_condominial.ainvoke({"query": "taxa condominial"})
-        mock_fn.assert_called_once_with("condominial", "taxa condominial")
+async def test_buscar_agente_chama_retrieval_com_doc_ids():
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock(return_value="resultado")) as mock_fn:
+        result = await buscar_base_conhecimento_agente.ainvoke({
+            "query": "regimento",
+            "conversation_id": "tenant-1:5511999998888",
+            "knowledge_base_file_ids": ["f1", "f2"],
+        })
+
+        mock_fn.assert_called_once_with(
+            "tenant-1:5511999998888", "regimento", doc_ids=["f1", "f2"]
+        )
         assert result == "resultado"
 
 
 @pytest.mark.asyncio
-async def test_buscar_condominial_nao_chama_outra_base():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="")) as mock_fn:
-        await bucar_base_conhecimento_condominial.ainvoke({"query": "qualquer"})
-        base_usada = mock_fn.call_args[0][0]
-        assert base_usada == "condominial"
+async def test_buscar_agente_sem_arquivos_nao_chama_retrieval():
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock()) as mock_fn:
+        result = await buscar_base_conhecimento_agente.ainvoke({
+            "query": "regimento",
+            "conversation_id": "tenant-1:5511999998888",
+            "knowledge_base_file_ids": [],
+        })
 
-
-# ──────────────────────────────────────────────
-# bucar_base_conhecimento_contratos
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_buscar_contratos_chama_base_correta():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="resultado")) as mock_fn:
-        result = await bucar_base_conhecimento_contratos.ainvoke({"query": "multa contratual"})
-        mock_fn.assert_called_once_with("contratos", "multa contratual")
-        assert result == "resultado"
+        mock_fn.assert_not_called()
+        assert "não tem" in result.lower()
 
 
 @pytest.mark.asyncio
-async def test_buscar_contratos_nao_chama_outra_base():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="")) as mock_fn:
-        await bucar_base_conhecimento_contratos.ainvoke({"query": "qualquer"})
-        base_usada = mock_fn.call_args[0][0]
-        assert base_usada == "contratos"
+async def test_buscar_agente_sem_knowledge_base_file_ids_nao_chama_retrieval():
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock()) as mock_fn:
+        result = await buscar_base_conhecimento_agente.ainvoke({
+            "query": "regimento",
+            "conversation_id": "tenant-1:5511999998888",
+        })
 
-
-# ──────────────────────────────────────────────
-# bucar_base_conhecimento_direito_consumidor
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_buscar_direito_consumidor_chama_base_correta():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="resultado")) as mock_fn:
-        result = await bucar_base_conhecimento_direito_consumidor.ainvoke({"query": "prazo de garantia"})
-        mock_fn.assert_called_once_with("direito_consumidor", "prazo de garantia")
-        assert result == "resultado"
-
-
-@pytest.mark.asyncio
-async def test_buscar_direito_consumidor_nao_chama_outra_base():
-    with patch("agents.tools.retrieval_sistema", new=AsyncMock(return_value="")) as mock_fn:
-        await bucar_base_conhecimento_direito_consumidor.ainvoke({"query": "qualquer"})
-        base_usada = mock_fn.call_args[0][0]
-        assert base_usada == "direito_consumidor"
+        mock_fn.assert_not_called()
+        assert "não tem" in result.lower()
 
 
 # ──────────────────────────────────────────────

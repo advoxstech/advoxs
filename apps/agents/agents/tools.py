@@ -1,13 +1,12 @@
 from langchain.tools import tool
 from langgraph.types import Command
-from clients.retrieval import retrieval_sistema, retrieval_usuario, retrieval_escritorio
+from clients.retrieval import retrieval_usuario, retrieval_escritorio
 from clients.billing import criar_link_pagamento
 from loguru import logger
 import requests
 import tempfile
 import os
 from urllib.parse import urlparse
-from typing import Literal
 
 ENDPOINT_URL = "http://localhost:8000/documents/users/insert"  # ajuste a URL base
 API_KEY = "LASKDJFLK234LWAK"  # ajuste conforme necessário
@@ -121,51 +120,27 @@ def enviar_documento(url: str, conversation_id: str) -> str:
         logger.error("Resposta inesperada | status={} | response={}", insert_response.status_code, insert_response.text)
         return f"Falha ao inserir documento: resposta inesperada do servidor (HTTP {insert_response.status_code})."
 
-@tool("bucar_base_conhecimento_condominial")
-async def bucar_base_conhecimento_condominial(query: str) -> str:
-    """Busca na base de conhecimento jurídico geral do sistema.
+@tool("buscar_base_conhecimento_agente")
+async def buscar_base_conhecimento_agente(
+    query: str,
+    conversation_id: str,
+    knowledge_base_file_ids: list[str] | None = None,
+) -> str:
+    """Busca na base de conhecimento anexada a este agente.
 
-    Use esta ferramenta na maioria das situações: sempre que precisar de embasamento
-    jurídico, legislação, jurisprudência, conceitos legais ou orientações sobre
-    direito condominial.
-    Prefira esta ferramenta por padrão antes de recorrer à base pessoal do usuário.
-
-    Args:
-        query: Pergunta ou tema jurídico a ser pesquisado.
-    """
-    return await retrieval_sistema("condominial", query)
-
-
-@tool("bucar_base_conhecimento_contratos")
-async def bucar_base_conhecimento_contratos(query: str) -> str:
-    """Busca na base de conhecimento jurídico geral do sistema.
-
-    Use esta ferramenta na maioria das situações: sempre que precisar de embasamento
-    jurídico, legislação, jurisprudência, conceitos legais ou orientações sobre
-    direito de contratos.
-    Prefira esta ferramenta por padrão antes de recorrer à base pessoal do usuário.
+    Use quando a pergunta envolver documentos, materiais, modelos ou
+    orientações que você tenha na sua própria base de conhecimento — cada
+    agente só tem acesso aos arquivos que foram anexados especificamente a
+    ele, nunca à base de outro agente.
 
     Args:
-        query: Pergunta ou tema jurídico a ser pesquisado.
+        query: Pergunta ou tema a ser pesquisado.
+        conversation_id: preenchido automaticamente pelo sistema.
+        knowledge_base_file_ids: preenchido automaticamente pelo sistema.
     """
-    return await retrieval_sistema("contratos", query)
-
-
-
-@tool("bucar_base_conhecimento_direito_consumidor")
-async def bucar_base_conhecimento_direito_consumidor(query: str) -> str:
-    """Busca na base de conhecimento jurídico geral do sistema.
-
-    Use esta ferramenta na maioria das situações: sempre que precisar de embasamento
-    jurídico, legislação, jurisprudência, conceitos legais ou orientações sobre
-    direito do consumidor.
-    Prefira esta ferramenta por padrão antes de recorrer à base pessoal do usuário.
-
-    Args:
-        query: Pergunta ou tema jurídico a ser pesquisado.
-    """
-    return await retrieval_sistema("direito_consumidor", query)
-
+    if not knowledge_base_file_ids:
+        return "Este agente não tem nenhuma base de conhecimento anexada."
+    return await retrieval_escritorio(conversation_id, query, doc_ids=knowledge_base_file_ids)
 
 
 @tool("bucar_base_conhecimento_usuario")
@@ -184,21 +159,6 @@ async def bucar_base_conhecimento_usuario(query: str, conversation_id: str) -> s
     """
     return await retrieval_usuario(conversation_id, query)
 
-
-@tool("buscar_base_conhecimento_escritorio")
-async def buscar_base_conhecimento_escritorio(query: str, conversation_id: str) -> str:
-    """Busca na base de conhecimento própria do escritório de advocacia.
-
-    Use quando a pergunta envolver documentos, materiais, modelos ou
-    orientações internas do próprio escritório — por exemplo regimentos,
-    políticas de atendimento, modelos de contrato do escritório ou qualquer
-    material institucional que o escritório tenha cadastrado na plataforma.
-
-    Args:
-        query: Pergunta ou tema a ser pesquisado nos documentos do escritório.
-        conversation_id: ID da conversa (preenchido automaticamente pelo sistema).
-    """
-    return await retrieval_escritorio(conversation_id, query)
 
 @tool("gerar_link_pagamento_cliente")
 async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) -> str:
@@ -230,29 +190,37 @@ def is_billing_blocked(enabled: bool, balance: float) -> bool:
     return bool(enabled) and balance <= 0
 
 
-@tool("transfer_to_specialist")
-def transfer_to_specialist(
-    current_specialist: Literal["agente_condominial", "agente_contratos", "agente_direito_consumidor"],
+@tool("transfer_to_agent")
+def transfer_to_agent(
+    agent_id: str,
+    valid_agent_ids: list[str] | None = None,
     end_customer_billing_enabled: bool = False,
     end_customer_balance: float = 0,
 ) -> str:
     """
-    Atualiza o estado do agente para transferir a conversa para um especialista.
+    Transfere a conversa para outro agente do escritório.
 
     Args:
-        current_specialist: Nome do especialista a ser transferido.
+        agent_id: id do agente de destino — escolha entre os agentes
+            disponíveis no seu contexto, nunca invente um id.
+        valid_agent_ids: preenchido automaticamente pelo sistema.
         end_customer_billing_enabled: preenchido automaticamente pelo sistema.
         end_customer_balance: preenchido automaticamente pelo sistema.
     """
+    if agent_id not in (valid_agent_ids or []):
+        return (
+            "Transferência recusada: agent_id inválido — escolha um dos agentes "
+            "disponíveis no seu contexto."
+        )
     if is_billing_blocked(end_customer_billing_enabled, end_customer_balance):
         return (
             "Transferência bloqueada: o cliente ainda não tem créditos disponíveis. "
             "Ofereça os pacotes de crédito e gere o link de pagamento antes de "
-            "transferir para um especialista."
+            "transferir para outro agente."
         )
     return Command(
         update={
-            "current_specialist": current_specialist,
+            "current_agent_id": agent_id,
             "receptive_message_specialist": True,
         }
     )
@@ -260,11 +228,8 @@ def transfer_to_specialist(
 
 
 tools = [
-    bucar_base_conhecimento_condominial,
-    bucar_base_conhecimento_contratos,
-    bucar_base_conhecimento_direito_consumidor,
+    buscar_base_conhecimento_agente,
     bucar_base_conhecimento_usuario,
-    buscar_base_conhecimento_escritorio,
     gerar_link_pagamento_cliente,
-    transfer_to_specialist,
+    transfer_to_agent,
 ]

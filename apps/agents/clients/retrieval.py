@@ -89,25 +89,34 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
 KB_CONVERSATION_ID = "kb"
 
 
-async def retrieval_escritorio(conversation_id: str, message: str) -> list[dict]:
+async def retrieval_escritorio(
+    conversation_id: str, message: str, doc_ids: list[str] | None = None
+) -> list[dict]:
     """Busca na base de conhecimento própria do escritório (tenant).
 
     Args:
         conversation_id: thread_id composto "{tenant_id}:{contact_phone_number}" —
             só o tenant_id é usado; a busca é sempre em conversation_id="kb".
         message: Pergunta do usuário.
+        doc_ids: quando informado, restringe a busca a esses ids de
+            knowledge_base_files — a base anexada a um agente específico.
+            Omitido, busca no pool inteiro do tenant.
     """
     tenant_id, _, _ = str(conversation_id).partition(":")
+
+    payload = {
+        "tenant_id": tenant_id,
+        "conversation_id": KB_CONVERSATION_ID,
+        "message": message,
+    }
+    if doc_ids:
+        payload["doc_ids"] = doc_ids
 
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{RAG_API_URL}/retrieval/users",
-                json={
-                    "tenant_id": tenant_id,
-                    "conversation_id": KB_CONVERSATION_ID,
-                    "message": message,
-                },
+                json=payload,
                 headers=HEADERS,
                 timeout=30,
             )

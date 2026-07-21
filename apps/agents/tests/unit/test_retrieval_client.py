@@ -77,3 +77,21 @@ async def test_retrieval_escritorio_usa_conversation_id_kb(monkeypatch) -> None:
     assert body["tenant_id"] == "tenant-1"
     assert body["conversation_id"] == "kb"
     assert body["message"] == "qual o regimento?"
+
+
+async def test_retrieval_escritorio_inclui_doc_ids_quando_informado(monkeypatch) -> None:
+    client = _mock_async_client(monkeypatch, {"results": []})
+
+    await retrieval_escritorio("tenant-1:5511999998888", "regimento", doc_ids=["f1", "f2"])
+
+    body = client.post.await_args.kwargs["json"]
+    assert body["doc_ids"] == ["f1", "f2"]
+
+
+async def test_retrieval_escritorio_sem_doc_ids_nao_inclui_chave(monkeypatch) -> None:
+    client = _mock_async_client(monkeypatch, {"results": []})
+
+    await retrieval_escritorio("tenant-1:5511999998888", "regimento")
+
+    body = client.post.await_args.kwargs["json"]
+    assert "doc_ids" not in body
