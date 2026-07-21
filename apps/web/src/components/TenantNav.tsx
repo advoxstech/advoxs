@@ -37,7 +37,7 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
   {
     key: "config",
     href: "/configuracoes/whatsapp",
-    label: "Config",
+    label: "Config WhatsApp",
     icon: (
       <>
         <rect x="2" y="5" width="20" height="14" rx="2" />

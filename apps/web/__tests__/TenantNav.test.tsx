@@ -25,7 +25,7 @@ describe("TenantNav", () => {
       "href",
       "/base-de-conhecimento",
     );
-    expect(screen.getByText("Config").closest("a")).toHaveAttribute(
+    expect(screen.getByText("Config WhatsApp").closest("a")).toHaveAttribute(
       "href",
       "/configuracoes/whatsapp",
     );
@@ -70,7 +70,7 @@ describe("TenantNav", () => {
 
     expect(screen.getByText("Conversas").closest("a")).not.toBeNull();
     expect(screen.getByText("Base").closest("a")).not.toBeNull();
-    expect(screen.getByText("Config").closest("a")).not.toBeNull();
+    expect(screen.getByText("Config WhatsApp").closest("a")).not.toBeNull();
     expect(screen.getByText("Créditos").closest("a")).not.toBeNull();
   });
 
