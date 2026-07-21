@@ -248,20 +248,31 @@ export function WhatsAppConnectionPanel() {
         {webhookConfig && (
           <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
             <h2 className="font-display text-base font-semibold text-ink">
-              Configurar webhook na Meta
+              Configurar o aviso de mensagens novas (webhook)
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Passo obrigatório: sem o webhook, as mensagens enviadas ao número não chegam à
-              plataforma.
+              Passo obrigatório — sem isso, as mensagens enviadas pros seus clientes chegam no
+              WhatsApp deles, mas não chegam aqui na Advoxs pros agentes responderem.
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                No painel do seu app em developers.facebook.com, abra{" "}
-                <span className="font-medium">WhatsApp → Configuration → Webhook</span> e clique
-                em Edit.
+                No painel do seu app em{" "}
+                <a
+                  href="https://developers.facebook.com/apps/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  developers.facebook.com
+                </a>
+                , abra <span className="font-medium">WhatsApp → Configuration → Webhook</span> e
+                clique em Edit.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É essa tela que recebe as mensagens dos seus clientes e repassa pra Advoxs.
+                </span>
               </li>
               <li>
-                Preencha com os valores abaixo e clique em Verify and save:
+                Cole os dois valores abaixo exatamente como estão e clique em Verify and save:
                 <div className="mt-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <input
@@ -301,6 +312,10 @@ export function WhatsAppConnectionPanel() {
                 Ainda em Webhook, na lista{" "}
                 <span className="font-medium">Webhook fields</span>, clique em Manage e assine o
                 campo <code className="rounded bg-ground px-1">messages</code>.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Sem assinar esse campo específico, o webhook fica configurado mas nunca é
+                  acionado.
+                </span>
               </li>
             </ol>
           </section>
