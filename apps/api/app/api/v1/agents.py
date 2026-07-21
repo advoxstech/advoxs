@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,14 +20,6 @@ from app.schemas.knowledge_base import KnowledgeBaseFileOut
 from app.services.subscriptions import get_active_subscription
 
 router = APIRouter(prefix="/agents", tags=["agents"])
-
-
-async def _unset_current_entry_point(ctx: TenantContext, session: AsyncSession) -> None:
-    await session.execute(
-        update(Agent)
-        .where(Agent.tenant_id == ctx.tenant_id, Agent.is_entry_point.is_(True))
-        .values(is_entry_point=False)
-    )
 
 
 @router.get("")
@@ -66,10 +58,9 @@ async def create_agent(
             ),
         )
 
-    if body.is_entry_point:
-        await _unset_current_entry_point(ctx, session)
-
-    agent = Agent(id=uuid.uuid4(), tenant_id=ctx.tenant_id, **body.model_dump())
+    agent = Agent(
+        id=uuid.uuid4(), tenant_id=ctx.tenant_id, is_entry_point=False, **body.model_dump()
+    )
     session.add(agent)
     await session.commit()
     await session.refresh(agent)
@@ -94,18 +85,6 @@ async def update_agent(
 ) -> AgentOut:
     agent = await _get_agent(agent_id, ctx, session)
 
-    if body.is_entry_point is False and agent.is_entry_point:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Não é possível desmarcar o único ponto de entrada — "
-                "marque outro agente como ponto de entrada antes"
-            ),
-        )
-
-    if body.is_entry_point is True and not agent.is_entry_point:
-        await _unset_current_entry_point(ctx, session)
-
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(agent, field, value)
 
@@ -125,10 +104,7 @@ async def delete_agent(
     if agent.is_entry_point:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Não é possível apagar o agente ponto de entrada — "
-                "marque outro agente como ponto de entrada antes"
-            ),
+            detail="Não é possível apagar o agente ponto de entrada",
         )
 
     total = await session.scalar(

@@ -29,7 +29,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [isEntryPoint, setIsEntryPoint] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState("");
   const [attaching, setAttaching] = useState(false);
@@ -48,7 +47,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
         if (found) {
           setName(found.name);
           setInstructions(found.instructions);
-          setIsEntryPoint(found.is_entry_point);
         }
       }
       if (attachedResponse.ok) {
@@ -73,18 +71,14 @@ export function AgentDetail({ agentId }: { agentId: string }) {
     try {
       const response = await backendFetch(`agents/${agentId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, instructions, is_entry_point: isEntryPoint }),
+        body: JSON.stringify({ name, instructions }),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         setFeedback(extractErrorDetail(body, "Falha ao salvar — tente novamente."));
-        // Reverte o toggle de ponto de entrada pro último valor confirmado —
-        // sem isso a caixa fica marcada mesmo com o PATCH tendo falhado.
-        if (agent) setIsEntryPoint(agent.is_entry_point);
         return;
       }
       setAgent(body);
-      setIsEntryPoint(body.is_entry_point);
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
@@ -190,14 +184,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
               onChange={(event) => setInstructions(event.target.value)}
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={isEntryPoint}
-              onChange={(event) => setIsEntryPoint(event.target.checked)}
-            />
-            Ponto de entrada (recebe a primeira mensagem de conversas novas)
           </label>
           <button
             type="submit"

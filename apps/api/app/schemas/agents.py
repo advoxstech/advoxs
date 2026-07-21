@@ -18,13 +18,11 @@ class AgentOut(BaseModel):
 class AgentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     instructions: str = Field(min_length=1)
-    is_entry_point: bool = False
 
 
 class AgentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     instructions: str | None = Field(default=None, min_length=1)
-    is_entry_point: bool | None = None
 
 
 class AgentKnowledgeBaseFileOut(BaseModel):

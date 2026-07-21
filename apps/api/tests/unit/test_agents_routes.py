@@ -108,18 +108,23 @@ class TestCreate:
 
         response = client.post(
             "/api/v1/agents",
-            json={"name": "Vendas", "instructions": "Você vende planos.", "is_entry_point": False},
+            json={"name": "Vendas", "instructions": "Você vende planos."},
         )
 
         assert response.status_code == 201
         assert response.json()["name"] == "Vendas"
+        assert response.json()["is_entry_point"] is False
         session.add.assert_called_once()
         added = session.add.call_args.args[0]
         assert added.tenant_id == TENANT_ID
         session.commit.assert_awaited()
 
-    def test_criar_como_ponto_de_entrada_desmarca_o_anterior(self, client, session) -> None:
-        session.execute.side_effect = [_active_subscription(), _execute_returning([])]
+    def test_criar_agente_com_is_entry_point_no_payload_e_ignorado(self, client, session) -> None:
+        """is_entry_point não existe mais em AgentCreate — mesmo se vier no
+        payload, é ignorado (Pydantic descarta campo não declarado). Todo
+        agente criado via API nasce sempre com is_entry_point=False, e
+        nenhuma UPDATE de desmarcar o ponto de entrada anterior roda."""
+        session.execute.return_value = _active_subscription()
 
         response = client.post(
             "/api/v1/agents",
@@ -127,9 +132,11 @@ class TestCreate:
         )
 
         assert response.status_code == 201
-        # UPDATE agents SET is_entry_point=false WHERE tenant_id=... roda antes do INSERT.
+        assert response.json()["is_entry_point"] is False
+        added = session.add.call_args.args[0]
+        assert added.is_entry_point is False
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
-        assert any("UPDATE agents" in s for s in statements)
+        assert not any("UPDATE agents" in s for s in statements)
 
     def test_limite_de_agentes_do_plano_retorna_409(self, client, session) -> None:
         session.execute.return_value = _active_subscription({"max_agents": 2})
@@ -175,7 +182,9 @@ class TestUpdate:
 
         assert response.status_code == 404
 
-    def test_marcar_como_ponto_de_entrada_desmarca_o_anterior(self, client, session) -> None:
+    def test_patch_ignora_is_entry_point_true_no_payload(self, client, session) -> None:
+        """is_entry_point não existe mais em AgentUpdate — enviar True não
+        promove o agente a ponto de entrada."""
         session.scalar.return_value = _agent(is_entry_point=False)
 
         response = client.patch(
@@ -183,33 +192,24 @@ class TestUpdate:
         )
 
         assert response.status_code == 200
+        assert response.json()["is_entry_point"] is False
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
-        assert any("UPDATE agents" in s for s in statements)
+        assert not any("UPDATE agents" in s for s in statements)
 
-    def test_desmarcar_o_unico_ponto_de_entrada_retorna_409(self, client, session) -> None:
-        # I1: PATCH is_entry_point=false no agente que É o ponto de entrada
-        # atual deixaria o tenant sem nenhum — precisa ser rejeitado.
+    def test_patch_ignora_is_entry_point_false_no_payload(self, client, session) -> None:
+        """Enviar False também não desmarca — o ponto de entrada atual do
+        tenant nunca muda via PATCH, em nenhuma direção."""
         session.scalar.return_value = _agent(is_entry_point=True)
 
         response = client.patch(
-            f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": False}
-        )
-
-        assert response.status_code == 409
-        session.commit.assert_not_awaited()
-
-    def test_desmarcar_is_entry_point_que_ja_era_false_nao_quebra(
-        self, client, session
-    ) -> None:
-        # Só bloqueia demover o ponto de entrada ATUAL — um agente que já
-        # não é o ponto de entrada pode continuar recebendo is_entry_point=false.
-        session.scalar.return_value = _agent(is_entry_point=False)
-
-        response = client.patch(
-            f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": False}
+            f"/api/v1/agents/{AGENT_ID}", json={"name": "Nome novo", "is_entry_point": False}
         )
 
         assert response.status_code == 200
+        assert response.json()["is_entry_point"] is True
+        assert response.json()["name"] == "Nome novo"
+        statements = [str(call.args[0]) for call in session.execute.await_args_list]
+        assert not any("UPDATE agents" in s for s in statements)
 
 
 class TestDelete:

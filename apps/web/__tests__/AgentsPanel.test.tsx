@@ -91,8 +91,7 @@ describe("AgentsPanel", () => {
         return {
           ok: false,
           json: async () => ({
-            detail:
-              "Não é possível apagar o agente ponto de entrada — marque outro agente como ponto de entrada antes",
+            detail: "Não é possível apagar o agente ponto de entrada",
           }),
         };
       }
