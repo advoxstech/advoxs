@@ -135,7 +135,7 @@ describe("WhatsAppConnectionPanel", () => {
     render(<WhatsAppConnectionPanel />);
 
     await waitFor(() =>
-      expect(screen.getByText("Configurar webhook na Meta")).toBeInTheDocument(),
+      expect(screen.getByText("Conectar o WhatsApp Business")).toBeInTheDocument(),
     );
     expect(screen.getByLabelText("Callback URL")).toHaveValue(
       "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
@@ -162,6 +162,6 @@ describe("WhatsAppConnectionPanel", () => {
     render(<WhatsAppConnectionPanel />);
 
     await waitFor(() => expect(screen.getByText("Phone Number ID")).toBeInTheDocument());
-    expect(screen.queryByText("Configurar webhook na Meta")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conectar o WhatsApp Business")).not.toBeInTheDocument();
   });
 });

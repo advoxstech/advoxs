@@ -248,20 +248,79 @@ export function WhatsAppConnectionPanel() {
         {webhookConfig && (
           <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
             <h2 className="font-display text-base font-semibold text-ink">
-              Configurar webhook na Meta
+              Conectar o WhatsApp Business
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Passo obrigatório: sem o webhook, as mensagens enviadas ao número não chegam à
-              plataforma.
+              Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — dá um pouco
+              de trabalho, mas só precisa ser feita uma única vez.
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                No painel do seu app em developers.facebook.com, abra{" "}
-                <span className="font-medium">WhatsApp → Configuration → Webhook</span> e clique
-                em Edit.
+                Acesse{" "}
+                <a
+                  href="https://developers.facebook.com/apps/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  developers.facebook.com
+                </a>{" "}
+                e crie um app pro seu escritório.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo WhatsApp, não
+                  afeta seu uso normal do Facebook.
+                </span>
               </li>
               <li>
-                Preencha com os valores abaixo e clique em Verify and save:
+                Dentro do app, você vai criar uma{" "}
+                <a
+                  href="https://business.facebook.com/settings/system-users"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  &quot;conta de sistema&quot;
+                </a>
+                .
+                <span className="mt-0.5 block text-xs text-muted">
+                  Pense nela como um crachá de acesso que representa seu escritório perante o
+                  WhatsApp, separado da sua conta pessoal.
+                </span>
+              </li>
+              <li>
+                Gere uma chave de acesso pra essa conta — é como uma senha que a plataforma vai
+                usar pra mandar e receber mensagens em nome do seu escritório. Marque as duas
+                opções de permissão do WhatsApp que aparecerem.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
+                </span>
+              </li>
+              <li>
+                Cadastre o{" "}
+                <a
+                  href="https://business.facebook.com/wa/manage/phone-numbers/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  número de telefone
+                </a>{" "}
+                do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Você inventa esse código na hora — só serve pra essa confirmação, não precisa
+                  anotar.
+                </span>
+              </li>
+              <li>
+                No painel do seu app, abra{" "}
+                <span className="font-medium">WhatsApp → Configuration → Webhook</span> e clique
+                em Edit.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É essa tela que recebe as mensagens dos seus clientes e repassa pra Advoxs.
+                </span>
+              </li>
+              <li>
+                Cole os dois valores abaixo exatamente como estão e clique em Verify and save:
                 <div className="mt-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <input
@@ -301,6 +360,10 @@ export function WhatsAppConnectionPanel() {
                 Ainda em Webhook, na lista{" "}
                 <span className="font-medium">Webhook fields</span>, clique em Manage e assine o
                 campo <code className="rounded bg-ground px-1">messages</code>.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Sem assinar esse campo específico, o webhook fica configurado mas nunca é
+                  acionado.
+                </span>
               </li>
             </ol>
           </section>
