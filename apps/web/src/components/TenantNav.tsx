@@ -143,20 +143,19 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
         pinned ? "w-[232px]" : "w-[72px] hover:w-[232px]"
       }`}
     >
-      <div className="flex h-8 items-center px-[22px]">
-        {hasLogo ? (
+      <div className="flex h-8 items-center gap-3 px-[22px]">
+        <span
+          className="font-display text-2xl font-semibold text-nav-ink"
+          aria-label="Advoxs"
+        >
+          A.
+        </span>
+        {hasLogo && (
           <img
             src="/api/backend/profile/logo"
             alt="Logo do escritório"
-            className="h-8 w-8 shrink-0 rounded-sm object-cover"
+            className={`h-8 w-8 shrink-0 rounded-sm object-cover opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
           />
-        ) : (
-          <span
-            className="font-display text-2xl font-semibold text-nav-ink"
-            aria-label="Advoxs"
-          >
-            A.
-          </span>
         )}
       </div>
 

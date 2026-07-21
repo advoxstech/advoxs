@@ -96,6 +96,15 @@ describe("TenantNav", () => {
     await waitFor(() => expect(screen.getByAltText("Logo do escritório")).toBeInTheDocument());
   });
 
+  it("mantém o monograma visível ao lado da logo, não substituído por ela", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ has_logo: true }) });
+
+    render(<TenantNav active="conversas" />);
+
+    await waitFor(() => expect(screen.getByAltText("Logo do escritório")).toBeInTheDocument());
+    expect(screen.getByLabelText("Advoxs")).toBeInTheDocument();
+  });
+
   it("mantém o monograma quando o tenant não tem logo", async () => {
     mockedFetch.mockResolvedValue({ ok: true, json: async () => ({ has_logo: false }) });
 
