@@ -22,6 +22,7 @@ class UsersRetrievalRequest(BaseModel):
     tenant_id: str
     conversation_id: str
     message: str
+    doc_ids: list[str] | None = None
 
 
 @router_retrieval.post("/system")
@@ -53,16 +54,24 @@ async def retrieval_users(
     service: RetrievalService = Depends(get_retrieval),
     security: str = Depends(verify_api_key),
 ):
-    """Busca nos documentos enviados pelo contato, escopada por tenant + conversa."""
+    """Busca nos documentos enviados pelo contato, escopada por tenant + conversa.
+
+    `doc_ids`, quando informado, restringe a busca a esse subconjunto de
+    documentos (ex: os arquivos anexados a um agente específico do escritório)
+    — omitido, busca em todo o pool de documentos daquela conversation_id.
+    """
     try:
         logger.info(
             f"Busca usuário | tenant={body.tenant_id} | conversa={body.conversation_id}"
             f" | mensagem={body.message}"
         )
+        extra_filters = {"conversation_id": body.conversation_id}
+        if body.doc_ids:
+            extra_filters["doc_id"] = body.doc_ids
         results = await service.search_hybrid(
             query=body.message,
             tenant_id=body.tenant_id,
-            extra_filters={"conversation_id": body.conversation_id},
+            extra_filters=extra_filters,
         )
         return {"results": results}
     except ValueError as e:

@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from qdrant_client.models import PointStruct
+from qdrant_client.models import MatchAny, PointStruct
 
 from clients.qdrant import QdrantClient, _tenant_filter
 
@@ -23,6 +23,13 @@ class TestTenantFilter:
 
         keys = {c.key for c in f.must}
         assert keys == {"tenant_id", "conversation_id", "base"}
+
+    def test_extra_filters_lista_usa_match_any(self) -> None:
+        f = _tenant_filter("t1", {"doc_id": ["d1", "d2"]})
+
+        doc_condition = next(c for c in f.must if c.key == "doc_id")
+        assert isinstance(doc_condition.match, MatchAny)
+        assert doc_condition.match.any == ["d1", "d2"]
 
 
 class TestSearch:

@@ -75,6 +75,39 @@ class TestRetrievalUsers:
             extra_filters={"conversation_id": "c1"},
         )
 
+    def test_repassa_doc_ids_quando_informado(self, client, retrieval_service) -> None:
+        response = client.post(
+            "/retrieval/users",
+            json={
+                "tenant_id": "t1",
+                "conversation_id": "kb",
+                "message": "regimento",
+                "doc_ids": ["f1", "f2"],
+            },
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 200
+        retrieval_service.search_hybrid.assert_awaited_once_with(
+            query="regimento",
+            tenant_id="t1",
+            extra_filters={"conversation_id": "kb", "doc_id": ["f1", "f2"]},
+        )
+
+    def test_sem_doc_ids_nao_inclui_filtro(self, client, retrieval_service) -> None:
+        response = client.post(
+            "/retrieval/users",
+            json={"tenant_id": "t1", "conversation_id": "kb", "message": "regimento"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 200
+        retrieval_service.search_hybrid.assert_awaited_once_with(
+            query="regimento",
+            tenant_id="t1",
+            extra_filters={"conversation_id": "kb"},
+        )
+
 
 class TestRetrievalSystem:
     def test_usa_tenant_reservado_do_sistema(self, client, retrieval_service) -> None:

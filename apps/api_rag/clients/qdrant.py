@@ -11,6 +11,7 @@ from qdrant_client.models import (
     Filter,
     Fusion,
     FusionQuery,
+    MatchAny,
     MatchValue,
     PayloadSchemaType,
     PointStruct,
@@ -34,13 +35,18 @@ def _tenant_filter(tenant_id: str, extra_filters: dict | None = None) -> Filter:
 
     O tenant_id nunca é opcional nem decisão do chamador de alto nível
     (agente): sem ele, qualquer operação de busca/deleção falha aqui.
+    Valores de extra_filters que sejam listas usam MatchAny (ex: doc_ids de
+    um agente específico); valores escalares usam MatchValue como antes.
     """
     if not tenant_id:
         raise ValueError("tenant_id é obrigatório em todo acesso ao Qdrant")
 
     conditions = [FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))]
     for key, value in (extra_filters or {}).items():
-        conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+        if isinstance(value, list):
+            conditions.append(FieldCondition(key=key, match=MatchAny(any=value)))
+        else:
+            conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
     return Filter(must=conditions)
 
 
