@@ -32,8 +32,24 @@ def base_state(**overrides) -> dict:
         "num_before_messages": 10,
         "attachments": [],
         "conversation_id": "conv-test",
-        "current_specialist": None,
+        "current_agent_id": None,
         "receptive_message_specialist": False,
+        "agents": [
+            {
+                "id": "entry-1",
+                "name": "Secretária",
+                "instructions": "Você é a secretária de triagem.",
+                "is_entry_point": True,
+                "knowledge_base_file_ids": [],
+            },
+            {
+                "id": "other-1",
+                "name": "Condominial",
+                "instructions": "Você é o especialista condominial.",
+                "is_entry_point": False,
+                "knowledge_base_file_ids": ["kb-1"],
+            },
+        ],
     }
     state.update(overrides)
     return state

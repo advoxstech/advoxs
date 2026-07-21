@@ -16,40 +16,73 @@ model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 # o tenant_id vive dentro dele (isolamento multi-tenant).
 STATE_SCOPED_TOOLS = {
     "bucar_base_conhecimento_usuario",
-    "buscar_base_conhecimento_escritorio",
+    "buscar_base_conhecimento_agente",
     "gerar_link_pagamento_cliente",
 }
 # Saldo/enabled do cliente final: nunca confiar em valor vindo do LLM.
-BILLING_GATED_TOOLS = {"transfer_to_specialist"}
+BILLING_GATED_TOOLS = {"transfer_to_agent"}
 
 
-async def agente_secretaria(state: dict) -> dict:
+async def agent_node(state: dict) -> Command:
+    agents_by_id = {a["id"]: a for a in state.get("agents", [])}
+    entry_point = next((a for a in state.get("agents", []) if a.get("is_entry_point")), None)
+
+    if not agents_by_id or entry_point is None:
+        logger.error("Nenhum agente disponível no estado — tenant sem agentes configurados")
+        return Command(
+            update={
+                "messages": [
+                    AIMessage(content="Desculpe, houve um erro ao processar sua mensagem.")
+                ]
+            },
+            goto=END,
+        )
+
+    current_agent_id = state.get("current_agent_id")
+    current = agents_by_id.get(current_agent_id) if current_agent_id else None
+    if current is None:
+        current = entry_point
+
+    billing = state.get("end_customer_billing") or {}
+    billing_enabled = bool(billing.get("enabled"))
+    billing_blocked = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
+
+    if billing_blocked and not current["is_entry_point"]:
+        logger.info(
+            "Agente bloqueado por saldo esgotado, devolvendo pro ponto de entrada | agent_id={}",
+            current["id"],
+        )
+        current = entry_point
+
+    is_entry_point = current["is_entry_point"]
+    # O ponto de entrada nunca recebe a instrução de "primeira resposta" —
+    # esse conceito é só do agente que ACABOU de receber uma transferência
+    # (equivalente à antiga distinção secretária vs. especialista).
+    is_first_run = bool(state.get("receptive_message_specialist", False)) and not is_entry_point
+
     logger.info(
-        "agente_secretaria chamado | mensagens={} | histórico={}",
+        "agent_node chamado | agent_id={} | mensagens={} | histórico={} | first_run={}",
+        current["id"],
         len(state["messages"]),
         state["num_before_messages"],
+        is_first_run,
     )
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
 
-    billing = state.get("end_customer_billing") or {}
-    billing_enabled = bool(billing.get("enabled"))
-    billing_blocks_transfer = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
-
     # gerar_link_pagamento_cliente só é bindada quando a cobrança do cliente
     # final está de fato habilitada pro tenant — do contrário, a mera presença
     # da tool na lista já muda o comportamento de function-calling do modelo
-    # (verificado num teste de integração real: a secretária passou a pedir
-    # uma pergunta de esclarecimento antes de transferir mesmo sem a feature
+    # (verificado num teste de integração real: o modelo passou a pedir uma
+    # pergunta de esclarecimento antes de transferir mesmo sem a feature
     # habilitada, só por ter uma tool a mais disponível).
-    tools_secretaria = [transfer_to_specialist, buscar_base_conhecimento_escritorio]
+    tools_for_agent = [transfer_to_agent, buscar_base_conhecimento_agente, bucar_base_conhecimento_usuario]
     if billing_enabled:
-        tools_secretaria.append(gerar_link_pagamento_cliente)
-    model_with_tools = model.bind_tools(tools_secretaria)
+        tools_for_agent.append(gerar_link_pagamento_cliente)
+    model_with_tools = model.bind_tools(tools_for_agent)
 
-    with open("agents/prompts/secretaria.md", "r", encoding="utf-8") as arquivo:
-        prompt = arquivo.read()
-    if billing_blocks_transfer:
+    prompt = current["instructions"]
+    if billing_blocked and is_entry_point:
         packages_text = "\n".join(
             f"- {p['name']}: R$ {p['price_brl']} = {p['credits_granted']} créditos "
             f"(package_id: {p['id']})"
@@ -58,184 +91,44 @@ async def agente_secretaria(state: dict) -> dict:
         prompt += (
             "\n\n---\n"
             "**Instrução:** Este cliente está sem créditos disponíveis. Antes de "
-            "transferir para um especialista, explique que é necessário comprar "
+            "transferir para outro agente, explique que é necessário comprar "
             "créditos e ofereça os pacotes abaixo. Quando o cliente escolher um, "
             "use a tool gerar_link_pagamento_cliente com o package_id correspondente. "
-            "Depois que o cliente confirmar que pagou, chame transfer_to_specialist "
-            "de novo — é essa chamada que efetivamente libera o especialista; nunca "
+            "Depois que o cliente confirmar que pagou, chame transfer_to_agent "
+            "de novo — é essa chamada que efetivamente libera o outro agente; nunca "
             "diga que já transferiu sem chamar essa ferramenta.\n\n"
             f"Pacotes disponíveis:\n{packages_text}"
+        )
+    if is_first_run:
+        prompt += (
+            "\n\n---\n"
+            "**Instrução:** Esta é sua primeira resposta neste atendimento. "
+            "### Se Apresente, diga sua especialidade e diga que dali para frente é responsável pelo atendimento. "
+            "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
         )
 
     response = await model_with_tools.ainvoke([
         SystemMessage(content=prompt),
         *last_messages,
     ])
+
+    update: dict = {"messages": [response], "current_agent_id": current["id"]}
+    if is_first_run:
+        update["receptive_message_specialist"] = False
 
     if response.tool_calls:
         tool_name = response.tool_calls[0]["name"]
         logger.info("Ferramenta selecionada | tool={}", tool_name)
 
-        if tool_name == "transfer_to_specialist" and not response.content and not billing_blocks_transfer:
-            specialist = response.tool_calls[0]["args"].get("current_specialist", "especialista")
-            label = specialist.replace("agente_", "").replace("_", " ")
-            farewell = f"um momento... vou te passar pro especialista de {label} agora."
+        if tool_name == "transfer_to_agent" and not response.content and not billing_blocked:
+            target_id = response.tool_calls[0]["args"].get("agent_id")
+            target = agents_by_id.get(target_id)
+            label = target["name"] if target else "outro agente"
+            farewell = f"um momento... vou te passar pra(o) {label} agora."
             response = AIMessage(content=farewell, tool_calls=response.tool_calls, id=response.id)
-            logger.info("Despedida de transferência injetada | specialist={}", specialist)
+            update["messages"] = [response]
+            logger.info("Despedida de transferência injetada | target={}", target_id)
 
-        return Command(update={"messages": [response]}, goto="tool_node")
-
-    logger.info("Modelo respondeu sem chamar ferramentas")
-    return Command(update={"messages": [response]}, goto=END)
-
-
-async def agente_condominial(state: dict) -> Command:
-    billing = state.get("end_customer_billing") or {}
-    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
-        logger.info(
-            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
-            "agente_condominial",
-        )
-        return Command(update={"current_specialist": None}, goto="agente_secretaria")
-
-    is_first_run = state.get("receptive_message_specialist", False)
-    logger.info(
-        "agente_condominial chamado | mensagens={} | histórico={} | first_run={}",
-        len(state["messages"]),
-        state["num_before_messages"],
-        is_first_run,
-    )
-
-    last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_condominial, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
-
-    with open("agents/prompts/condominial.md", "r", encoding="utf-8") as arquivo:
-        prompt = arquivo.read()
-
-    if is_first_run:
-        prompt += (
-            "\n\n---\n"
-            "**Instrução:** Esta é sua primeira resposta neste atendimento. "
-            "### Se Apresente, diga sua especialidade e diga que dali para frente é responsável pelo atendimento. "
-            "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
-        )
-
-    response = await model_with_tools.ainvoke([
-        SystemMessage(content=prompt),
-        *last_messages,
-    ])
-
-    update = {"messages": [response]}
-    if is_first_run:
-        update["receptive_message_specialist"] = False
-
-    if response.tool_calls:
-        tool_name = response.tool_calls[0]["name"]  
-        logger.info("Ferramenta selecionada | tool={}", response.tool_calls[0]["name"])
-
-        if tool_name == "transfer_to_specialist" and not response.content:
-            specialist = response.tool_calls[0]["args"].get("current_specialist", "especialista")
-            label = specialist.replace("agente_", "").replace("_", " ")
-            farewell = f"um momento... vou te passar pro especialista de {label} agora."
-            response = AIMessage(content=farewell, tool_calls=response.tool_calls, id=response.id)
-            logger.info("Despedida de transferência injetada | specialist={}", specialist)
-
-        return Command(update={"messages": [response]}, goto="tool_node")
-
-    logger.info("Modelo respondeu sem chamar ferramentas")
-    return Command(update=update, goto=END)
-
-
-async def agente_contratos(state: dict) -> Command:
-    billing = state.get("end_customer_billing") or {}
-    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
-        logger.info(
-            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
-            "agente_contratos",
-        )
-        return Command(update={"current_specialist": None}, goto="agente_secretaria")
-
-    is_first_run = state.get("receptive_message_specialist", False)
-    logger.info(
-        "agente_contratos chamado | mensagens={} | histórico={} | first_run={}",
-        len(state["messages"]),
-        state["num_before_messages"],
-        is_first_run,
-    )
-
-    last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_contratos, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
-
-    with open("agents/prompts/contratos.md", "r", encoding="utf-8") as arquivo:
-        prompt = arquivo.read()
-
-    if is_first_run:
-        prompt += (
-            "\n\n---\n"
-            "**Instrução:** Esta é sua primeira resposta neste atendimento. "
-            "### Se Apresente, diga sua especialidade e diga que dali para frente é responsável pelo atendimento. "
-            "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
-        )
-
-    response = await model_with_tools.ainvoke([
-        SystemMessage(content=prompt),
-        *last_messages,
-    ])
-
-    update = {"messages": [response]}
-    if is_first_run:
-        update["receptive_message_specialist"] = False
-
-    if response.tool_calls:
-        logger.info("Ferramenta selecionada | tool={}", response.tool_calls[0]["name"])
-        return Command(update=update, goto="tool_node")
-
-    logger.info("Modelo respondeu sem chamar ferramentas")
-    return Command(update=update, goto=END)
-
-
-async def agente_direito_consumidor(state: dict) -> Command:
-    billing = state.get("end_customer_billing") or {}
-    if is_billing_blocked(billing.get("enabled"), billing.get("balance", 0)):
-        logger.info(
-            "Especialista bloqueado por saldo esgotado, devolvendo pra secretária | specialist={}",
-            "agente_direito_consumidor",
-        )
-        return Command(update={"current_specialist": None}, goto="agente_secretaria")
-
-    is_first_run = state.get("receptive_message_specialist", False)
-    logger.info(
-        "agente_direito_consumidor chamado | mensagens={} | histórico={} | first_run={}",
-        len(state["messages"]),
-        state["num_before_messages"],
-        is_first_run,
-    )
-
-    last_messages = strip_messages(state["messages"], state["num_before_messages"])
-    model_with_tools = model.bind_tools([transfer_to_specialist, bucar_base_conhecimento_direito_consumidor, bucar_base_conhecimento_usuario, buscar_base_conhecimento_escritorio])
-
-    with open("agents/prompts/direito_consumidor.md", "r", encoding="utf-8") as arquivo:
-        prompt = arquivo.read()
-
-    if is_first_run:
-        prompt += (
-            "\n\n---\n"
-            "**Instrução:** Esta é sua primeira resposta neste atendimento. "
-            "### Se Apresente, diga sua especialidade e diga que dali para frente é responsável pelo atendimento. "
-            "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
-        )
-
-    response = await model_with_tools.ainvoke([
-        SystemMessage(content=prompt),
-        *last_messages,
-    ])
-
-    update = {"messages": [response]}
-    if is_first_run:
-        update["receptive_message_specialist"] = False
-
-    if response.tool_calls:
-        logger.info("Ferramenta selecionada | tool={}", response.tool_calls[0]["name"])
         return Command(update=update, goto="tool_node")
 
     logger.info("Modelo respondeu sem chamar ferramentas")
@@ -248,6 +141,8 @@ async def tool_node(state: dict) -> dict:
     tools_by_name = {tool.name: tool for tool in tools}
     tool_calls = state["messages"][-1].tool_calls
     logger.info("Processando {} tool call(s)", len(tool_calls))
+
+    agents_by_id = {a["id"]: a for a in state.get("agents", [])}
 
     messages = []
     state_updates = {}
@@ -262,6 +157,11 @@ async def tool_node(state: dict) -> dict:
         args = dict(tool_call["args"])
         if tool_call["name"] in STATE_SCOPED_TOOLS:
             args["conversation_id"] = state["conversation_id"]
+        if tool_call["name"] == "buscar_base_conhecimento_agente":
+            current = agents_by_id.get(state.get("current_agent_id"))
+            args["knowledge_base_file_ids"] = (current or {}).get("knowledge_base_file_ids", [])
+        if tool_call["name"] == "transfer_to_agent":
+            args["valid_agent_ids"] = list(agents_by_id.keys())
         if tool_call["name"] in BILLING_GATED_TOOLS:
             billing = state.get("end_customer_billing") or {}
             args["end_customer_billing_enabled"] = bool(billing.get("enabled"))
