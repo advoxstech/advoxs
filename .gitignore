@@ -32,3 +32,6 @@ infra/redis/data/
 
 # Logs
 *.log
+
+# Scratch de execução do superpowers (task briefs, relatórios, diffs de review)
+.superpowers/
