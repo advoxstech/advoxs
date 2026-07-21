@@ -304,6 +304,51 @@ def test_sem_end_customer_billing_repassa_none(client, monkeypatch):
     assert run_agent.call_args.kwargs["end_customer_billing"] is None
 
 
+def test_agents_do_payload_e_repassado_ao_run_agent(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["oi"], {"input_tokens": 70, "output_tokens": 30, "total_tokens": 100}, "Secretária")
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    _mock_whatsapp_client(monkeypatch)
+
+    agents_payload = [
+        {
+            "id": "a1",
+            "name": "Secretária",
+            "instructions": "Você é a secretária.",
+            "is_entry_point": True,
+            "knowledge_base_file_ids": [],
+        }
+    ]
+    payload = {**PAYLOAD, "agents": agents_payload}
+
+    response = client.post("/messages", json=payload)
+
+    assert response.status_code == 200
+    assert run_agent.call_args.kwargs["agents"] == agents_payload
+
+
+def test_sem_agents_no_payload_repassa_lista_vazia(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["oi"], {"input_tokens": 70, "output_tokens": 30, "total_tokens": 100}, None)
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    _mock_whatsapp_client(monkeypatch)
+
+    response = client.post("/messages", json=PAYLOAD)
+
+    assert response.status_code == 200
+    assert run_agent.call_args.kwargs["agents"] == []
+
+
 CONTEXT_PAYLOAD = {
     "messages": [
         {"role": "contact", "content": "oi"},

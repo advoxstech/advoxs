@@ -38,6 +38,9 @@ class IncomingMessage(BaseModel):
     `send_to_whatsapp=False` (usado pelo playground de admin) roda o grafo
     normalmente mas pula o envio pela Graph API — phone_number_id/access_token
     ficam vazios nesse caso.
+
+    `agents`: a lista completa de agentes do tenant, resolvida pelo chamador
+    (worker/api) — nunca lida pelo agents service do Postgres principal.
     """
 
     tenant_id: str
@@ -48,6 +51,7 @@ class IncomingMessage(BaseModel):
     access_token: str = ""
     send_to_whatsapp: bool = True
     end_customer_billing: dict | None = None
+    agents: list[dict] = Field(default_factory=list)
 
 
 class SummaryMessageIn(BaseModel):
@@ -125,6 +129,7 @@ async def receive(body: IncomingMessage):
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
             end_customer_billing=body.end_customer_billing,
+            agents=body.agents,
         )
 
         delivery_failures: list[int] = []

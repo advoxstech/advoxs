@@ -50,12 +50,14 @@ async def run_agent(
     num_before_messages: int = 35,
     extra_data: dict = {},
     end_customer_billing: dict | None = None,
-) -> tuple[list[str], dict, str]:
+    agents: list[dict] | None = None,
+) -> tuple[list[str], dict, str | None]:
     started_at = time.perf_counter()
     config = {
         "configurable": {"thread_id": conversation_id},
         "callbacks": [langfuse_handler],
     }
+    agents = agents or []
 
     logger.info(
         "Preparando agente | conversation_id={} | num_before_messages={} | has_whatsapp={}",
@@ -81,6 +83,7 @@ async def run_agent(
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
                 "end_customer_billing": end_customer_billing,
+                "agents": agents,
             },
             config=config,
         )
@@ -89,7 +92,9 @@ async def run_agent(
     answers = [m.content for m in new_messages if m.type == "ai" and m.content]
     usage = sum_usage_breakdown(new_messages)
 
-    current_agent = response.get("current_specialist") or "agente_secretaria"
+    agents_by_id = {a["id"]: a for a in agents}
+    current_agent_entry = agents_by_id.get(response.get("current_agent_id"))
+    current_agent = current_agent_entry["name"] if current_agent_entry else None
 
     elapsed = round(time.perf_counter() - started_at, 3)
     logger.info(
