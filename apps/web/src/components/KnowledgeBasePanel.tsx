@@ -1,48 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { AgentFolder } from "@/components/AgentFolder";
+import type { KbFile } from "@/components/AgentFolder";
 import { backendFetch } from "@/lib/client-api";
 import type { Agent } from "@/lib/types";
 
-type KbFile = {
-  id: string;
-  filename: string;
-  size_bytes: number;
-  mime_type: string;
-  status: "processing" | "ready" | "error";
-  error_message: string | null;
-  uploaded_at: string;
-};
-
-const ACCEPTED = ".pdf,.docx,.txt";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-
-const STATUS_LABEL: Record<KbFile["status"], string> = {
-  processing: "processando",
-  ready: "pronto",
-  error: "erro",
-};
-
-const STATUS_CLASS: Record<KbFile["status"], string> = {
-  processing: "bg-brass-soft text-brass",
-  ready: "bg-accent-soft text-accent",
-  error: "bg-danger/10 text-danger",
-};
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
 
 export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [files, setFiles] = useState<KbFile[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [focusedAgentId] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("agent_id"),
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -63,19 +39,9 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     async function loadAgents() {
       try {
         const response = await backendFetch("agents");
-        if (!response.ok) return;
-        const body: Agent[] = await response.json();
-        setAgents(body);
-
-        const fromUrl = new URLSearchParams(window.location.search).get("agent_id");
-        if (fromUrl && body.some((a) => a.id === fromUrl)) {
-          setSelectedAgentId(fromUrl);
-          return;
-        }
-        const entryPoint = body.find((a) => a.is_entry_point);
-        if (entryPoint) setSelectedAgentId(entryPoint.id);
+        if (response.ok) setAgents(await response.json());
       } catch {
-        // fail-safe: sem agentes carregados, o select fica vazio e o upload exige escolha manual
+        // fail-safe: sem agentes carregados, nenhuma pasta é exibida
       }
     }
     void loadAgents();
@@ -89,7 +55,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     return () => clearInterval(interval);
   }, [load, pollMs, hasProcessing]);
 
-  async function handleUpload(selected: File) {
+  async function handleUpload(agentId: string, selected: File) {
     setFeedback(null);
     const extension = selected.name.slice(selected.name.lastIndexOf(".")).toLowerCase();
     if (![".pdf", ".docx", ".txt"].includes(extension)) {
@@ -100,20 +66,12 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       setFeedback("Arquivo excede o limite de 20 MB.");
       return;
     }
-    if (!selectedAgentId) {
-      setFeedback("Escolha o agente de destino antes de enviar.");
-      return;
-    }
-
     const form = new FormData();
     form.append("file", selected);
-    form.append("agent_id", selectedAgentId);
+    form.append("agent_id", agentId);
     setUploading(true);
     try {
-      const response = await backendFetch("knowledge-base/files", {
-        method: "POST",
-        body: form,
-      });
+      const response = await backendFetch("knowledge-base/files", { method: "POST", body: form });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         setFeedback(body?.detail ?? "Falha no upload — tente novamente.");
@@ -124,7 +82,41 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setUploading(false);
-      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function handleAttach(fileId: string, agentId: string) {
+    setFeedback(null);
+    try {
+      const response = await backendFetch(`agents/${agentId}/knowledge-base-files`, {
+        method: "POST",
+        body: JSON.stringify({ knowledge_base_file_id: fileId }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(body?.detail ?? "Falha ao anexar — tente novamente.");
+        return;
+      }
+      await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
+  async function handleDetach(agentId: string, fileId: string) {
+    setFeedback(null);
+    try {
+      const response = await backendFetch(`agents/${agentId}/knowledge-base-files/${fileId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(body?.detail ?? "Falha ao desanexar — tente novamente.");
+        return;
+      }
+      await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
     }
   }
 
@@ -145,48 +137,12 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
-      <header className="flex items-center justify-between border-b border-line px-8 py-5">
-        <div>
-          <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
-          <p className="text-sm text-muted">
-            PDF, DOCX ou TXT, até 20 MB — cada arquivo fica anexado a um agente específico.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex flex-col gap-1 text-xs text-muted">
-            Agente de destino
-            <select
-              required
-              value={selectedAgentId}
-              onChange={(event) => setSelectedAgentId(event.target.value)}
-              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
-            >
-              <option value="" disabled>
-                Selecione um agente
-              </option>
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label
-            className={`cursor-pointer rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
-          >
-            {uploading ? "Enviando..." : "Enviar arquivo"}
-            <input
-              ref={inputRef}
-              type="file"
-              accept={ACCEPTED}
-              className="hidden"
-              onChange={(event) => {
-                const selected = event.target.files?.[0];
-                if (selected) void handleUpload(selected);
-              }}
-            />
-          </label>
-        </div>
+      <header className="border-b border-line px-8 py-5">
+        <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
+        <p className="text-sm text-muted">
+          PDF, DOCX ou TXT, até 20 MB — organizada por agente. Um arquivo pode ser anexado a mais
+          de um.
+        </p>
       </header>
 
       {feedback && (
@@ -195,43 +151,25 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         </p>
       )}
 
-      <ul className="flex-1 overflow-y-auto px-8 py-4">
-        {files.length === 0 && (
-          <li className="py-10 text-center text-sm text-muted">
-            Nenhum arquivo na base de conhecimento ainda.
-          </li>
+      <div className="flex-1 overflow-y-auto px-8 py-4">
+        {agents.length === 0 && (
+          <p className="py-10 text-center text-sm text-muted">Nenhum agente cadastrado ainda.</p>
         )}
-        {files.map((file) => (
-          <li
-            key={file.id}
-            className="flex items-center gap-4 border-b border-line py-4 last:border-b-0"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-ink">{file.filename}</p>
-              <p className="text-xs text-muted">
-                {formatSize(file.size_bytes)} ·{" "}
-                {new Date(file.uploaded_at).toLocaleDateString("pt-BR")}
-              </p>
-              {file.status === "error" && file.error_message && (
-                <p className="mt-1 text-xs text-danger">{file.error_message}</p>
-              )}
-            </div>
-            <span
-              className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] ${STATUS_CLASS[file.status]}`}
-            >
-              {STATUS_LABEL[file.status]}
-            </span>
-            <button
-              type="button"
-              onClick={() => void handleDelete(file)}
-              disabled={file.status === "processing"}
-              className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-40"
-            >
-              Excluir
-            </button>
-          </li>
+        {agents.map((agent) => (
+          <AgentFolder
+            key={agent.id}
+            agent={agent}
+            files={files.filter((f) => f.agent_ids.includes(agent.id))}
+            allAgents={agents}
+            defaultExpanded={focusedAgentId ? agent.id === focusedAgentId : agent.is_entry_point}
+            uploading={uploading}
+            onUpload={handleUpload}
+            onAttach={handleAttach}
+            onDetach={handleDetach}
+            onDelete={handleDelete}
+          />
         ))}
-      </ul>
+      </div>
     </main>
   );
 }

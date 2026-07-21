@@ -10,27 +10,6 @@ vi.mock("@/lib/client-api", () => ({
 
 const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
 
-const files = [
-  {
-    id: "f1",
-    filename: "regimento.pdf",
-    size_bytes: 1048576,
-    mime_type: "application/pdf",
-    status: "ready",
-    error_message: null,
-    uploaded_at: "2026-07-08T12:00:00Z",
-  },
-  {
-    id: "f2",
-    filename: "contrato.docx",
-    size_bytes: 2048,
-    mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    status: "error",
-    error_message: "Falha na ingestão (HTTP 400)",
-    uploaded_at: "2026-07-08T11:00:00Z",
-  },
-];
-
 const agents = [
   {
     id: "a1",
@@ -50,15 +29,40 @@ const agents = [
   },
 ];
 
-function mockRouting(uploadHandler?: (init: RequestInit) => unknown) {
+const files = [
+  {
+    id: "f1",
+    filename: "regimento.pdf",
+    size_bytes: 1048576,
+    mime_type: "application/pdf",
+    status: "ready",
+    error_message: null,
+    uploaded_at: "2026-07-08T12:00:00Z",
+    agent_ids: ["a1"],
+  },
+  {
+    id: "f2",
+    filename: "contrato.docx",
+    size_bytes: 2048,
+    mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    status: "error",
+    error_message: "Falha na ingestão (HTTP 400)",
+    uploaded_at: "2026-07-08T11:00:00Z",
+    agent_ids: ["a1", "a2"],
+  },
+];
+
+function mockRouting(postHandler?: (path: string, init: RequestInit) => unknown) {
   mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
     if (path === "agents") return { ok: true, status: 200, json: async () => agents };
-    if (path === "knowledge-base/files" && init?.method === "POST") {
-      return uploadHandler
-        ? uploadHandler(init)
-        : { ok: true, status: 202, json: async () => files[0] };
+    if (path === "knowledge-base/files" && (!init || !init.method)) {
+      return { ok: true, status: 200, json: async () => files };
     }
-    if (path === "knowledge-base/files") return { ok: true, status: 200, json: async () => files };
+    if (init?.method === "POST" || init?.method === "DELETE") {
+      return postHandler
+        ? postHandler(path, init)
+        : { ok: true, status: 200, json: async () => null };
+    }
     return { ok: true, status: 200, json: async () => null };
   });
 }
@@ -69,65 +73,116 @@ describe("KnowledgeBasePanel", () => {
     window.history.pushState({}, "", "/base-de-conhecimento");
   });
 
-  it("lista os arquivos com status", async () => {
+  it("renderiza 1 pasta por agente, incluindo agente sem arquivos", async () => {
     mockRouting();
 
     render(<KnowledgeBasePanel pollMs={0} />);
 
-    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
-    expect(screen.getByText("contrato.docx")).toBeInTheDocument();
-    expect(screen.getByText(/pronto/i)).toBeInTheDocument();
-    expect(screen.getByText(/Falha na ingestão/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+    expect(screen.getByText("Condominial")).toBeInTheDocument();
+    expect(screen.getByText("[2 arquivos]")).toBeInTheDocument();
+    expect(screen.getByText("[1 arquivo]")).toBeInTheDocument();
   });
 
-  it("pré-seleciona o agente ponto de entrada por padrão", async () => {
+  it("um arquivo em 2 agentes aparece nas 2 pastas", async () => {
     mockRouting();
 
     render(<KnowledgeBasePanel pollMs={0} />);
 
-    await waitFor(() => expect(screen.getByLabelText("Agente de destino")).toHaveValue("a1"));
+    // Secretária (ponto de entrada) começa expandida por padrão.
+    await waitFor(() => expect(screen.getByText("contrato.docx")).toBeInTheDocument());
+    expect(screen.getByText("regimento.pdf")).toBeInTheDocument();
+
+    // Condominial começa recolhida — expande pra confirmar que o mesmo
+    // arquivo também aparece lá.
+    fireEvent.click(screen.getByText("Condominial"));
+    await waitFor(() => expect(screen.getAllByText("contrato.docx")).toHaveLength(2));
+    expect(screen.queryAllByText("regimento.pdf")).toHaveLength(1);
   });
 
-  it("pré-seleciona o agente vindo da URL (?agent_id=)", async () => {
+  it("pré-expande a pasta vinda da URL (?agent_id=)", async () => {
     window.history.pushState({}, "", "/base-de-conhecimento?agent_id=a2");
     mockRouting();
 
     render(<KnowledgeBasePanel pollMs={0} />);
 
-    await waitFor(() => expect(screen.getByLabelText("Agente de destino")).toHaveValue("a2"));
+    await waitFor(() => expect(screen.getByText("contrato.docx")).toBeInTheDocument());
+    expect(screen.queryByText("regimento.pdf")).not.toBeInTheDocument();
   });
 
-  it("envia o agent_id selecionado no FormData do upload", async () => {
+  it("envia o agent_id certo no upload de cada pasta", async () => {
     let capturedForm: FormData | null = null;
-    mockRouting((init) => {
+    mockRouting((_path, init) => {
       capturedForm = init.body as FormData;
       return { ok: true, status: 202, json: async () => files[0] };
     });
 
     render(<KnowledgeBasePanel pollMs={0} />);
-    await waitFor(() => expect(screen.getByLabelText("Agente de destino")).toHaveValue("a1"));
+    await waitFor(() => expect(screen.getByText("Condominial")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByLabelText("Agente de destino"), { target: { value: "a2" } });
     const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
-    fireEvent.change(screen.getByLabelText("Enviar arquivo"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("Enviar arquivo para Condominial"), {
+      target: { files: [file] },
+    });
 
     await waitFor(() => expect(capturedForm).not.toBeNull());
     expect(capturedForm!.get("agent_id")).toBe("a2");
   });
 
-  it("mostra erro se tentar enviar sem nenhum agente disponível", async () => {
-    mockedFetch.mockImplementation(async (path: string) => {
-      if (path === "agents") return { ok: true, status: 200, json: async () => [] };
-      if (path === "knowledge-base/files") return { ok: true, status: 200, json: async () => [] };
+  it("anexa um arquivo já existente a outro agente pelo seletor inline", async () => {
+    let capturedPath = "";
+    let capturedBody = "";
+    mockRouting((path, init) => {
+      capturedPath = path;
+      capturedBody = init.body as string;
+      return { ok: true, status: 201, json: async () => ({ knowledge_base_file_id: "f1" }) };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Anexar regimento.pdf a outro agente"), {
+      target: { value: "a2" },
+    });
+
+    await waitFor(() => expect(capturedPath).toBe("agents/a2/knowledge-base-files"));
+    expect(JSON.parse(capturedBody).knowledge_base_file_id).toBe("f1");
+  });
+
+  it("desabilita 'desanexar' quando o arquivo só tem 1 agente", async () => {
+    mockRouting();
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
+
+    expect(screen.getByLabelText("Desanexar regimento.pdf deste agente")).toBeDisabled();
+    expect(screen.getByLabelText("Desanexar contrato.docx deste agente")).not.toBeDisabled();
+  });
+
+  it("exclui um arquivo após confirmação", async () => {
+    // handleDelete chama load() de novo após o DELETE — o mock precisa
+    // simular o backend removendo o arquivo, senão o GET seguinte devolve
+    // a mesma lista estática e o teste nunca vê o arquivo desaparecer.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let deleted = false;
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (path === "knowledge-base/files/f1" && init?.method === "DELETE") {
+        deleted = true;
+        return { ok: true, status: 204, json: async () => null };
+      }
+      if (path === "knowledge-base/files") {
+        return { ok: true, status: 200, json: async () => (deleted ? files.slice(1) : files) };
+      }
       return { ok: true, status: 200, json: async () => null };
     });
 
     render(<KnowledgeBasePanel pollMs={0} />);
-    await waitFor(() => expect(mockedFetch).toHaveBeenCalledWith("agents"));
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
 
-    const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
-    fireEvent.change(screen.getByLabelText("Enviar arquivo"), { target: { files: [file] } });
+    fireEvent.click(screen.getByLabelText("Excluir regimento.pdf"));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/escolha o agente/i));
+    await waitFor(() => expect(screen.queryByText("regimento.pdf")).not.toBeInTheDocument());
+    confirmSpy.mockRestore();
   });
 });
