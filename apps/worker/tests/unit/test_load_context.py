@@ -10,7 +10,15 @@ MESSAGE_ID = str(uuid.uuid4())
 
 
 def _session_with(
-    conversation, content, number, credit_balance, billing_settings, balance, packages
+    conversation,
+    content,
+    number,
+    credit_balance,
+    billing_settings,
+    balance,
+    packages,
+    agents_rows=None,
+    agent_kb_links=None,
 ):
     session = AsyncMock()
 
@@ -19,6 +27,7 @@ def _session_with(
         result.one_or_none.return_value = value
         result.scalar_one_or_none.return_value = scalar
         result.scalar_one.return_value = scalar
+        result.all.return_value = rows or []
         result.__iter__ = lambda self: iter(rows or [])
         return result
 
@@ -29,6 +38,8 @@ def _session_with(
             _result(value=number),
             _result(scalar=credit_balance),
             _result(value=billing_settings),
+            _result(rows=agents_rows),
+            _result(rows=agent_kb_links),
             _result(scalar=balance),
             _result(rows=packages),
         ]
@@ -108,3 +119,67 @@ async def test_billing_habilitado_sem_saldo_ainda_usa_zero() -> None:
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert context.end_customer_balance == 0
+
+
+async def test_carrega_agentes_do_tenant_com_arquivos_anexados() -> None:
+    agent_id = uuid.uuid4()
+    other_agent_id = uuid.uuid4()
+    file_id = uuid.uuid4()
+    agent_row = SimpleNamespace(
+        id=agent_id, name="Secretária", instructions="instruções", is_entry_point=True
+    )
+    other_row = SimpleNamespace(
+        id=other_agent_id,
+        name="Condominial",
+        instructions="outras instruções",
+        is_entry_point=False,
+    )
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+        agents_rows=[agent_row, other_row],
+        agent_kb_links=[(agent_id, file_id)],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.agents == [
+        {
+            "id": str(agent_id),
+            "name": "Secretária",
+            "instructions": "instruções",
+            "is_entry_point": True,
+            "knowledge_base_file_ids": [str(file_id)],
+        },
+        {
+            "id": str(other_agent_id),
+            "name": "Condominial",
+            "instructions": "outras instruções",
+            "is_entry_point": False,
+            "knowledge_base_file_ids": [],
+        },
+    ]
+
+
+async def test_sem_agentes_retorna_lista_vazia() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+        agents_rows=[],
+        agent_kb_links=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.agents == []
+    assert session.execute.await_count == 7

@@ -49,6 +49,7 @@ def _inbound(
         end_customer_billing_enabled=False,
         end_customer_balance=Decimal(0),
         end_customer_packages=[],
+        agents=[],
         human_last_seen_at=human_last_seen_at,
     )
 
@@ -334,6 +335,7 @@ def _inbound_com_billing(balance: int, credit_balance: int = 1000) -> InboundCon
         end_customer_packages=[
             {"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}
         ],
+        agents=[],
     )
 
 
@@ -397,3 +399,31 @@ async def test_billing_desabilitado_nao_manda_bloco_e_nao_debita(patched) -> Non
 
     assert "end_customer_billing" not in patched["send"].await_args.kwargs
     patched["debitar_cliente_final"].assert_not_awaited()
+
+
+async def test_agents_do_inbound_e_repassado_ao_send_message(patched) -> None:
+    agents_payload = [
+        {
+            "id": "a1",
+            "name": "Secretária",
+            "instructions": "x",
+            "is_entry_point": True,
+            "knowledge_base_file_ids": [],
+        }
+    ]
+    patched["load"].return_value = InboundContext(
+        conversation_state="agent",
+        contact_phone_number="5511888888888",
+        message_content="Olá",
+        phone_number_id="PNID",
+        access_token_encrypted="token-cifrado",
+        credit_balance=Decimal(1000),
+        end_customer_billing_enabled=False,
+        end_customer_balance=Decimal(0),
+        end_customer_packages=[],
+        agents=agents_payload,
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert patched["send"].await_args.kwargs["agents"] == agents_payload

@@ -12,6 +12,7 @@ async def send_message_to_agents(
     phone_number_id: str,
     access_token: str,
     end_customer_billing: dict | None = None,
+    agents: list[dict] | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
 
@@ -25,6 +26,11 @@ async def send_message_to_agents(
     `end_customer_billing` (quando não None) leva {"enabled", "balance",
     "packages"} do cliente final — nenhum dado sensível, a secret key da
     Stripe do tenant nunca sai do api.
+
+    `agents`: a lista de agentes do tenant (id, name, instructions,
+    is_entry_point, knowledge_base_file_ids) — resolvida aqui a partir do
+    Postgres do monorepo antes da chamada; o agents service nunca acessa
+    esse banco diretamente.
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
     payload = {
@@ -34,6 +40,7 @@ async def send_message_to_agents(
         "attachments": [],
         "phone_number_id": phone_number_id,
         "access_token": access_token,
+        "agents": agents or [],
     }
     if end_customer_billing is not None:
         # balance vem de end_customer_balances.credit_balance (Numeric(12,4)

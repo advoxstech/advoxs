@@ -98,6 +98,23 @@ knowledge_base_files = Table(
     Column("error_message", Text),
 )
 
+agents = Table(
+    "agents",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("name", String),
+    Column("instructions", Text),
+    Column("is_entry_point", Boolean),
+)
+
+agent_knowledge_base_files = Table(
+    "agent_knowledge_base_files",
+    metadata,
+    Column("agent_id", Uuid, primary_key=True),
+    Column("knowledge_base_file_id", Uuid, primary_key=True),
+)
+
 tenant_billing_settings = Table(
     "tenant_billing_settings",
     metadata,

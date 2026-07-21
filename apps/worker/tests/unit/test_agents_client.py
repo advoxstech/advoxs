@@ -116,6 +116,37 @@ async def test_omite_end_customer_billing_quando_none() -> None:
     assert "end_customer_billing" not in body
 
 
+async def test_inclui_agents_quando_informado() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+    agents = [
+        {
+            "id": "a1",
+            "name": "Secretária",
+            "instructions": "x",
+            "is_entry_point": True,
+            "knowledge_base_file_ids": [],
+        }
+    ]
+
+    await send_message_to_agents(http, **KWARGS, agents=agents)
+
+    body = http.post.await_args.kwargs["json"]
+    assert body["agents"] == agents
+
+
+async def test_sem_agents_manda_lista_vazia() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+
+    await send_message_to_agents(http, **KWARGS)
+
+    body = http.post.await_args.kwargs["json"]
+    assert body["agents"] == []
+
+
 async def test_balance_decimal_e_serializavel_de_verdade() -> None:
     """Regressão: end_customer_balances.credit_balance é Numeric(12,4) desde a
     Etapa 1/2 (moeda única) — vem como Decimal do banco. Um AsyncMock em

@@ -35,6 +35,7 @@ class InboundContext:
     end_customer_billing_enabled: bool
     end_customer_balance: Decimal
     end_customer_packages: list[dict]
+    agents: list[dict]
     human_last_seen_at: datetime | None = None
 
 
@@ -44,6 +45,46 @@ def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
         return True
     idade = (datetime.now(UTC) - human_last_seen_at).total_seconds()
     return idade > settings.human_takeover_timeout_seconds
+
+
+async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
+    """Carrega os agentes do tenant + os ids dos arquivos de KB anexados a
+    cada um — nunca lido pelo agents service diretamente do Postgres
+    principal, só propagado por aqui em cada POST /messages. Sempre faz as
+    duas queries (mesmo com 0 agentes) — o contrato da API garante que todo
+    tenant tem ao menos 1 agente, então o caso vazio é só defensivo."""
+    agents_result = await session.execute(
+        select(
+            tables.agents.c.id,
+            tables.agents.c.name,
+            tables.agents.c.instructions,
+            tables.agents.c.is_entry_point,
+        ).where(tables.agents.c.tenant_id == uuid.UUID(tenant_id))
+    )
+    agents_rows = agents_result.all()
+
+    links_result = await session.execute(
+        select(
+            tables.agent_knowledge_base_files.c.agent_id,
+            tables.agent_knowledge_base_files.c.knowledge_base_file_id,
+        ).where(
+            tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows])
+        )
+    )
+    kb_by_agent: dict[uuid.UUID, list[str]] = {}
+    for agent_id, file_id in links_result.all():
+        kb_by_agent.setdefault(agent_id, []).append(str(file_id))
+
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "instructions": row.instructions,
+            "is_entry_point": row.is_entry_point,
+            "knowledge_base_file_ids": kb_by_agent.get(row.id, []),
+        }
+        for row in agents_rows
+    ]
 
 
 async def _sync_context(
@@ -141,6 +182,7 @@ async def process_inbound_message(
             message=inbound.message_content,
             phone_number_id=inbound.phone_number_id,
             access_token=access_token,
+            agents=inbound.agents,
             **extra_kwargs,
         )
     except Exception as exc:
@@ -291,6 +333,8 @@ async def _load_context(
         )
     ).one_or_none()
 
+    agents = await _load_agents(session, tenant_id)
+
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
     end_customer_balance = Decimal(0)
     end_customer_packages: list[dict] = []
@@ -338,6 +382,7 @@ async def _load_context(
         end_customer_billing_enabled=end_customer_billing_enabled,
         end_customer_balance=end_customer_balance,
         end_customer_packages=end_customer_packages,
+        agents=agents,
         human_last_seen_at=conversation.human_last_seen_at,
     )
 
