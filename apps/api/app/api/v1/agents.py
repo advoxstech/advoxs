@@ -168,6 +168,20 @@ async def detach_knowledge_base_file(
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vínculo não encontrado")
 
+    total_links = await session.scalar(
+        select(func.count())
+        .select_from(AgentKnowledgeBaseFile)
+        .where(AgentKnowledgeBaseFile.knowledge_base_file_id == file_id)
+    )
+    if total_links <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Não é possível desanexar o último agente deste arquivo — "
+                "exclua o arquivo se não for mais usar"
+            ),
+        )
+
     await session.delete(link)
     await session.commit()
 

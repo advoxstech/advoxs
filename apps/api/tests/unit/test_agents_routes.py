@@ -293,7 +293,8 @@ class TestAttachKnowledgeBaseFile:
 
 class TestDetachKnowledgeBaseFile:
     def test_desanexa_arquivo(self, client, session) -> None:
-        session.scalar.return_value = _agent()
+        # 1ª scalar: _get_agent; 2ª: contagem de vínculos do arquivo (>1, permite).
+        session.scalar.side_effect = [_agent(), 2]
         link = SimpleNamespace(agent_id=AGENT_ID, knowledge_base_file_id=uuid.uuid4())
         session.get = AsyncMock(return_value=link)
 
@@ -303,6 +304,18 @@ class TestDetachKnowledgeBaseFile:
 
         assert response.status_code == 204
         session.delete.assert_awaited_once_with(link)
+
+    def test_desanexar_ultimo_vinculo_retorna_409(self, client, session) -> None:
+        session.scalar.side_effect = [_agent(), 1]
+        link = SimpleNamespace(agent_id=AGENT_ID, knowledge_base_file_id=uuid.uuid4())
+        session.get = AsyncMock(return_value=link)
+
+        response = client.delete(
+            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{link.knowledge_base_file_id}"
+        )
+
+        assert response.status_code == 409
+        session.delete.assert_not_awaited()
 
     def test_vinculo_inexistente_retorna_404(self, client, session) -> None:
         session.scalar.return_value = _agent()
