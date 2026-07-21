@@ -32,6 +32,28 @@ def _record(status: str = "ready") -> SimpleNamespace:
     )
 
 
+def _active_subscription(
+    plan_overrides: dict | None = None, subscription_overrides: dict | None = None
+) -> MagicMock:
+    plan_defaults = {
+        "id": uuid.uuid4(),
+        "name": "Profissional",
+        "max_agents": None,
+        "max_extra_tools": None,
+        "max_knowledge_base_files": None,
+        "max_knowledge_base_storage_bytes": None,
+        "monthly_credits_granted": 1000,
+        "is_legacy": False,
+        "active": True,
+    }
+    plan = SimpleNamespace(**{**plan_defaults, **(plan_overrides or {})})
+    subscription_defaults = {"status": "active"}
+    subscription = SimpleNamespace(**{**subscription_defaults, **(subscription_overrides or {})})
+    result = MagicMock()
+    result.one_or_none.return_value = (subscription, plan)
+    return result
+
+
 @pytest.fixture
 def session():
     mock = AsyncMock()
@@ -94,9 +116,12 @@ def test_sem_token_retorna_401() -> None:
 
 class TestUpload:
     def test_upload_feliz_enfileira_apos_commit(self, client, session, arq, tmp_path) -> None:
-        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
+        session.execute.return_value = _active_subscription()
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado;
+        # 3ª: contagem de arquivos; 4ª: checagem de duplicado.
         session.scalar.side_effect = [
             SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID),
+            0,
             0,
             None,
         ]
@@ -114,33 +139,41 @@ class TestUpload:
         saved = tmp_path / str(TENANT_ID) / kwargs["file_id"]
         assert saved.read_bytes() == b"%PDF-1.4 conteudo"
 
-    def test_extensao_invalida_400(self, client) -> None:
+    def test_extensao_invalida_400(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+
         response = _upload(client, filename="malware.exe", mime="application/octet-stream")
 
         assert response.status_code == 400
 
-    def test_mime_incompativel_400(self, client) -> None:
+    def test_mime_incompativel_400(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+
         response = _upload(client, filename="regimento.pdf", mime="text/plain")
 
         assert response.status_code == 400
 
     def test_arquivo_vazio_400(self, client, session) -> None:
-        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado.
-        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0]
+        session.execute.return_value = _active_subscription()
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: contagem de arquivos.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, 0]
 
         response = _upload(client, content=b"")
 
         assert response.status_code == 400
 
-    def test_arquivo_grande_413(self, client, monkeypatch) -> None:
+    def test_arquivo_grande_413(self, client, session, monkeypatch) -> None:
+        session.execute.return_value = _active_subscription()
         monkeypatch.setattr(settings, "kb_max_file_size_bytes", 10)
 
         response = _upload(client, content=b"x" * 11)
 
         assert response.status_code == 413
 
-    def test_storage_estourado_413(self, client, session, monkeypatch) -> None:
-        monkeypatch.setattr(settings, "kb_max_total_size_bytes", 100)
+    def test_storage_estourado_413(self, client, session) -> None:
+        session.execute.return_value = _active_subscription(
+            {"max_knowledge_base_storage_bytes": 100}
+        )
         # 1ª scalar: agente-destino válido; 2ª: soma do storage usado.
         session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 95]
 
@@ -150,18 +183,27 @@ class TestUpload:
         assert "restam" in response.json()["detail"]
 
     def test_nome_duplicado_409(self, client, session) -> None:
-        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
-        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, FILE_ID]
+        session.execute.return_value = _active_subscription()
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado;
+        # 3ª: contagem de arquivos; 4ª: checagem de duplicado.
+        session.scalar.side_effect = [
+            SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID),
+            0,
+            0,
+            FILE_ID,
+        ]
 
         response = _upload(client)
 
         assert response.status_code == 409
 
     def test_corrida_de_duplicado_no_commit_409(self, client, session, tmp_path) -> None:
+        session.execute.return_value = _active_subscription()
         # Dois uploads concorrentes passam pelo check de duplicado; a unique
         # constraint (tenant_id, filename) estoura no commit do segundo.
-        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado; 3ª: checagem de duplicado.
-        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, None]
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado;
+        # 3ª: contagem de arquivos; 4ª: checagem de duplicado.
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, 0, None]
         session.commit.side_effect = IntegrityError("stmt", {}, Exception("uq"))
 
         response = _upload(client)
@@ -184,9 +226,11 @@ class TestUpload:
     ) -> None:
         # Sem agent_id no form (cliente web atual, que não manda esse campo)
         # cai no fallback: o ponto de entrada do tenant vira o agente-destino.
+        session.execute.return_value = _active_subscription()
         entry_point_id = uuid.uuid4()
         session.scalar.side_effect = [
             SimpleNamespace(id=entry_point_id, tenant_id=TENANT_ID, is_entry_point=True),
+            0,
             0,
             None,
         ]
@@ -217,6 +261,28 @@ class TestUpload:
         )
 
         assert response.status_code == 500
+
+    def test_limite_de_arquivos_do_plano_retorna_409(self, client, session) -> None:
+        session.execute.return_value = _active_subscription({"max_knowledge_base_files": 2})
+        # 1ª scalar: agente-destino válido; 2ª: soma do storage usado;
+        # 3ª: contagem de arquivos (no teto).
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, 2]
+
+        response = _upload(client)
+
+        assert response.status_code == 409
+        assert "arquivos" in response.json()["detail"].lower()
+
+    def test_assinatura_inativa_retorna_409(self, client, session) -> None:
+        session.execute.return_value = _active_subscription(
+            subscription_overrides={"status": "past_due"}
+        )
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID)]
+
+        response = _upload(client)
+
+        assert response.status_code == 409
+        assert "assinatura" in response.json()["detail"].lower()
 
 
 class TestList:

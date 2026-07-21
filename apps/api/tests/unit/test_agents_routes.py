@@ -26,6 +26,30 @@ def _agent(name: str = "Secretária", is_entry_point: bool = True) -> SimpleName
     )
 
 
+def _active_subscription(
+    plan_overrides: dict | None = None, subscription_overrides: dict | None = None
+) -> MagicMock:
+    plan_defaults = {
+        "id": uuid.uuid4(),
+        "name": "Profissional",
+        "max_agents": None,
+        "max_extra_tools": None,
+        "max_knowledge_base_files": None,
+        "max_knowledge_base_storage_bytes": None,
+        "monthly_credits_granted": 1000,
+        "is_legacy": False,
+        "active": True,
+    }
+    plan = SimpleNamespace(**{**plan_defaults, **(plan_overrides or {})})
+    subscription_defaults = {"status": "active"}
+    subscription = SimpleNamespace(
+        **{**subscription_defaults, **(subscription_overrides or {})}
+    )
+    result = MagicMock()
+    result.one_or_none.return_value = (subscription, plan)
+    return result
+
+
 @pytest.fixture
 def session():
     mock = AsyncMock()
@@ -80,6 +104,8 @@ class TestList:
 
 class TestCreate:
     def test_cria_agente(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+
         response = client.post(
             "/api/v1/agents",
             json={"name": "Vendas", "instructions": "Você vende planos.", "is_entry_point": False},
@@ -93,7 +119,7 @@ class TestCreate:
         session.commit.assert_awaited()
 
     def test_criar_como_ponto_de_entrada_desmarca_o_anterior(self, client, session) -> None:
-        session.execute.return_value = _execute_returning([])
+        session.execute.side_effect = [_active_subscription(), _execute_returning([])]
 
         response = client.post(
             "/api/v1/agents",
@@ -104,6 +130,31 @@ class TestCreate:
         # UPDATE agents SET is_entry_point=false WHERE tenant_id=... roda antes do INSERT.
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert any("UPDATE agents" in s for s in statements)
+
+    def test_limite_de_agentes_do_plano_retorna_409(self, client, session) -> None:
+        session.execute.return_value = _active_subscription({"max_agents": 2})
+        session.scalar.return_value = 2
+
+        response = client.post(
+            "/api/v1/agents",
+            json={"name": "Novo", "instructions": "x", "is_entry_point": False},
+        )
+
+        assert response.status_code == 409
+        assert "agentes" in response.json()["detail"].lower()
+
+    def test_assinatura_inativa_retorna_409(self, client, session) -> None:
+        session.execute.return_value = _active_subscription(
+            subscription_overrides={"status": "past_due"}
+        )
+
+        response = client.post(
+            "/api/v1/agents",
+            json={"name": "Novo", "instructions": "x", "is_entry_point": False},
+        )
+
+        assert response.status_code == 409
+        assert "assinatura" in response.json()["detail"].lower()
 
 
 class TestUpdate:

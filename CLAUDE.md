@@ -239,6 +239,28 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `description`
 - `created_at`
 
+### `subscription_plans` (global)
+- `id` (uuid, PK)
+- `name` (string — "Essencial", "Profissional", "Escritório Completo", "Legado")
+- `price_brl` (numeric)
+- `max_agents` (integer, nullable = sem limite)
+- `max_extra_tools` (integer, nullable — reservado, sem enforcement)
+- `max_knowledge_base_files` (integer, nullable = sem limite)
+- `max_knowledge_base_storage_bytes` (bigint, nullable = sem limite)
+- `monthly_credits_granted` (integer, default `0`)
+- `is_legacy` (bool, default `false`) — marca o plano de migração, nunca vendido
+- `active` (bool, default `true`)
+- `created_at`, `updated_at`
+
+### `tenant_subscriptions` (tenant-scoped, 1:1 com tenant)
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`, `UNIQUE`)
+- `plan_id` (FK → `subscription_plans`)
+- `stripe_subscription_id` (nullable, `UNIQUE` — `NULL` só pros tenants no plano Legado)
+- `status` (`active` | `past_due` | `canceled`)
+- `current_period_end` (nullable — `NULL` pros tenants Legado, que nunca expiram)
+- `created_at`, `updated_at`
+
 ### Relacionamentos (resumo)
 ```
 tenants 1───N users
@@ -255,6 +277,8 @@ tenants 1───N end_customer_credit_transactions
 credit_packages 1───N credit_transactions (quando type = purchase)
 messages 1───N credit_transactions (quando type = consumption, via related_message_id)
 end_customer_credit_packages 1───N end_customer_credit_transactions (quando type = purchase)
+tenants 1───1 tenant_subscriptions
+tenant_subscriptions N───1 subscription_plans
 ```
 
 ### Migrations
@@ -281,7 +305,7 @@ Páginas principais previstas:
 - **`/inicio`** — ✅ implementada: página inicial pós-login (dashboard do escritório) — não confundir com a página pública `/` (cadastro, sem sessão). Stat tiles com saldo de créditos (crítico quando `<= 0`, link pra `/creditos`), status do WhatsApp (número mascarado, link pro setup), conversas (total + aguardando humano), consumo dos últimos 30 dias (respostas do agente + créditos consumidos) e base de conhecimento (prontos/erros), mais a lista das 5 conversas mais recentes. Alimentada por **`GET /api/v1/dashboard`** — endpoint agregado tenant-scoped (`get_current_tenant` + `get_tenant_session`, toda query com filtro explícito de `tenant_id`), mesmo desenho do dashboard do admin. O pós-login (server action de login + redirects do middleware pra `/` e `/login` com sessão) aponta pra cá.
 - **`/base-de-conhecimento`** — ✅ implementada: gestão da base de conhecimento própria do escritório, com o upload direcionado a um agente específico (seletor de agente de destino, pré-selecionado com o ponto de entrada ou com o agente vindo de `?agent_id=` — ver `/agentes/{id}` a seguir).
   - ✅ **API pronta** (`/api/v1/knowledge-base/files`, autenticada e tenant-scoped): `POST` upload (multipart, PDF/DOCX/TXT — extensão é a fonte da verdade, mime genérico aceito; campo `agent_id` opcional — direciona o arquivo a um agente específico do tenant, ver seção "Agentes por Tenant"; omitido, cai no ponto de entrada), `GET` lista (paginado, por `uploaded_at`), `DELETE /{id}` exclusão (recusa com 409 durante `processing`). Upload grava o arquivo no volume compartilhado `kb_uploads` (`{tenant_id}/{file_id}`), registra `knowledge_base_files` com `status=processing`, vincula ao agente (`agent_knowledge_base_files`, mesma transação) e enfileira `ingest_knowledge_base_file` no Arq **após o commit**.
-  - ✅ **Limites**: 20 MB por arquivo (`KB_MAX_FILE_SIZE_BYTES`) e 500 MB de storage por tenant (`KB_MAX_TOTAL_SIZE_BYTES`), ambos configuráveis por env — variação por plano fica como pendência futura.
+  - ✅ **Limites**: 20 MB por arquivo (`KB_MAX_FILE_SIZE_BYTES`, configurável por env) e storage total por tenant vindo do **plano de assinatura** do tenant (`max_knowledge_base_storage_bytes` em `subscription_plans`/`tenant_subscriptions` — ver seção "Planos de Assinatura"; o antigo env global `KB_MAX_TOTAL_SIZE_BYTES` foi removido).
   - ✅ **Nome duplicado**: rejeitado com `409` (unique constraint `(tenant_id, filename)` como backstop de corrida entre uploads concorrentes) — o usuário exclui o arquivo antigo antes de re-subir; sem versionamento.
   - ✅ **Ingestão assíncrona** (`worker`/Arq): lê o arquivo do volume, chama `api_rag` (`doc_id` = id do registro, `conversation_id` reservado `"kb"` — ver seção RAG Service) e atualiza `status` → `ready`/`error` (com `error_message` legível, retry com backoff em erro transiente).
   - ✅ **Front pronto em `/base-de-conhecimento`**: upload com validação client-side (extensão/tamanho), seletor de agente de destino, listagem com badge de status (`processando`/`pronto`/`erro`, latão/verde/vermelho), polling condicionado a haver arquivo `processing`, exclusão com confirmação (desabilitada durante `processing`).
@@ -413,6 +437,22 @@ O comando imprime um `whsec_...` — copiar pra `STRIPE_WEBHOOK_SECRET` no `.env
 ### Pendências de billing
 - [ ] Definir a margem desejada sobre o custo do LLM para calibrar o N (tokens por crédito).
 - [ ] Definir custo fixo em créditos de cada tool (geração de documento, etc.).
+
+## Planos de Assinatura — ✅ modelo de dados + enforcement implementados (Etapa 1)
+
+> Segunda dimensão de billing, independente da wallet de créditos acima — governa quantos **agentes**, **arquivos de base de conhecimento** e (reservado pro futuro) **ferramentas extras** cada tenant pode ter. Ver `docs/superpowers/specs/2026-07-21-planos-assinatura-design.md` pro desenho completo.
+
+- **3 planos públicos + 1 plano "Legado"** (`subscription_plans`, seedados na migration `0017`): Essencial (R$ 97/mês, até 5 agentes, até 50 arquivos de KB/250MB, 300 créditos/mês), Profissional (R$ 247, até 12 agentes, até 150 arquivos/750MB, 1.000 créditos/mês), Escritório Completo (R$ 497, até 30 agentes, até 400 arquivos/1,5GB, 3.000 créditos/mês). Números sujeitos a reajuste — a estrutura (5 dimensões escalando junto) é o que importa. "Legado" tem todo teto `NULL` (sem limite) — nunca aparece pra venda, só migra tenants já existentes e provisiona tenants novos até a Etapa 2 existir (ver abaixo).
+- **`get_active_subscription`** (`app/services/subscriptions.py`): resolve a assinatura + plano vigente de um tenant — levanta `RuntimeError` se não encontrar (ausência é erro de deploy, mesmo princípio de `get_current_pricing_config`).
+- **Enforcement em 2 pontos**: `POST /api/v1/agents` (limite de `max_agents`, contagem fresca a cada chamada) e `POST /api/v1/knowledge-base/files` (limite de `max_knowledge_base_files` por contagem + `max_knowledge_base_storage_bytes` — substituiu o antigo env global `KB_MAX_TOTAL_SIZE_BYTES`, removido). Os dois também recusam (`409`) quando `tenant_subscriptions.status != "active"`.
+- **`max_extra_tools` é só reservado** — nenhuma tool extra existe ainda, zero enforcement.
+- ✅ **Todo tenant já existente foi migrado pro plano Legado** (backfill na migration `0017`) — zero regressão, ninguém foi bloqueado retroativamente por já ter mais agentes/arquivos do que os planos públicos permitiriam.
+- ✅ **Todo tenant NOVO** (via o cadastro self-service atual, ainda baseado em pacote de crédito único) **também recebe o plano Legado por padrão** (`app/services/default_subscription.py`, mesma transação do provisionamento dos 4 agentes padrão) — comportamento provisório até a Etapa 2.
+
+### Pendências / próximas etapas
+- [ ] **Etapa 2**: Stripe Subscriptions de verdade — cadastro público passa a vender os 3 planos (não mais pacote de crédito único), webhook de concessão mensal de créditos (`invoice.payment_succeeded`), endpoint de upgrade de plano (com proration, só upgrade nesta v1).
+- [ ] **Etapa 3**: frontend (`apps/web`) — seleção de plano no cadastro, tela de upgrade.
+- [ ] Downgrade de plano, cancelamento self-service, catálogo de ferramentas extras — fora de escopo de todas as etapas por ora.
 
 ## Integração WhatsApp Business
 

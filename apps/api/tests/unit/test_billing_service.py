@@ -167,7 +167,7 @@ class TestProcessCheckoutCompleted:
         session.add.assert_not_called()
 
     async def test_cria_tenant_user_e_transacao(self, session) -> None:
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -181,9 +181,9 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._stripe_session())
 
-        # tenant + user + transaction + os 4 agentes padrão (ver C2/finding
-        # do review final — provisionamento de agentes na mesma transação).
-        assert len(added) == 7
+        # tenant + user + transaction + os 4 agentes padrão + a assinatura
+        # padrão (plano Legado) — ver default_subscription.py.
+        assert len(added) == 8
         tenant, user, transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         assert tenant.credit_balance == 2750
@@ -199,7 +199,7 @@ class TestProcessCheckoutCompleted:
         """C2: signup precisa provisionar os 4 agentes padrão (Secretária
         ponto de entrada + 3 especialistas) na MESMA transação — senão o
         tenant novo nasce sem nenhum agente (upload de KB/fallback quebram)."""
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -230,7 +230,7 @@ class TestProcessCheckoutCompleted:
         (não um dict de teste) — .get() não existe nele nem em .metadata,
         só []/in. Sem isso, o webhook real quebra com AttributeError('get')
         mesmo com os testes com dict passando."""
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -244,7 +244,7 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._real_stripe_session())
 
-        assert len(added) == 7
+        assert len(added) == 8
         tenant, _user, _transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         session.commit.assert_awaited_once()
@@ -274,7 +274,7 @@ class TestProcessCheckoutCompleted:
         session.add.assert_not_called()
 
     async def test_integrity_error_no_commit_e_tratado(self, session) -> None:
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         session.add = MagicMock()
 
@@ -290,7 +290,7 @@ class TestProcessCheckoutCompleted:
         session.rollback.assert_awaited_once()
 
     async def test_signup_gera_token_de_auto_login(self, session, monkeypatch) -> None:
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -316,7 +316,7 @@ class TestProcessCheckoutCompleted:
         assert store_mock.await_args.args[2] == user.id
 
     async def test_falha_no_redis_nao_quebra_o_webhook(self, session, monkeypatch) -> None:
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -351,6 +351,33 @@ class TestProcessCheckoutCompleted:
         await process_checkout_completed(session, {"id": "cs_789", "metadata": metadata})
 
         store_mock.assert_not_awaited()
+
+    async def test_cria_assinatura_legado_para_o_tenant_novo(self, session) -> None:
+        """Até a Etapa 2 (Stripe/planos) substituir por escolha real de plano
+        no cadastro, todo tenant novo recebe uma tenant_subscriptions
+        apontando pro plano Legado — sem isso, POST /api/v1/agents e
+        /knowledge-base/files quebrariam (RuntimeError de
+        get_active_subscription) pra todo tenant criado nessa janela."""
+        legado_plan = SimpleNamespace(id=uuid.uuid4(), is_legacy=True)
+        session.scalar.side_effect = [None, legado_plan]
+        session.get.return_value = _package()
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+
+        await process_checkout_completed(session, self._stripe_session())
+
+        tenant = added[0]
+        subscriptions_added = [obj for obj in added if type(obj).__name__ == "TenantSubscription"]
+        assert len(subscriptions_added) == 1
+        assert subscriptions_added[0].tenant_id == tenant.id
+        assert subscriptions_added[0].plan_id == legado_plan.id
 
 
 class TestProcessCheckoutCompletedRecompra:
@@ -440,7 +467,7 @@ class TestProcessCheckoutCompletedRecompra:
     async def test_signup_sem_flow_continua_funcionando(self, session) -> None:
         """Regressão: metadata sem 'flow' (formato antigo, já em produção)
         continua indo pro fluxo de cadastro — nenhuma mudança observável."""
-        session.scalar.return_value = None
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
         session.get.return_value = _package()
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
@@ -460,5 +487,5 @@ class TestProcessCheckoutCompletedRecompra:
         }
         await process_checkout_completed(session, {"id": "cs_999", "metadata": metadata})
 
-        assert len(added) == 7
+        assert len(added) == 8
         session.commit.assert_awaited_once()

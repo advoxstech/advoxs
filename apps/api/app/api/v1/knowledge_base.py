@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.queue import get_arq_pool
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
+from app.services.subscriptions import get_active_subscription
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,13 @@ async def upload_file(
             )
         agent_id = agent.id
 
+    subscription, plan = await get_active_subscription(session, ctx.tenant_id)
+    if subscription.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sua assinatura não está ativa — regularize o pagamento para continuar",
+        )
+
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
     expected_mime = ALLOWED_EXTENSIONS.get(extension)
@@ -89,11 +97,28 @@ async def upload_file(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id
         )
     )
-    if used + len(data) > settings.kb_max_total_size_bytes:
-        remaining = max(settings.kb_max_total_size_bytes - used, 0)
+    if (
+        plan.max_knowledge_base_storage_bytes is not None
+        and used + len(data) > plan.max_knowledge_base_storage_bytes
+    ):
+        remaining = max(plan.max_knowledge_base_storage_bytes - used, 0)
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Limite de storage do escritório atingido — restam {remaining} bytes",
+        )
+
+    file_count = await session.scalar(
+        select(func.count())
+        .select_from(KnowledgeBaseFile)
+        .where(KnowledgeBaseFile.tenant_id == ctx.tenant_id)
+    )
+    if plan.max_knowledge_base_files is not None and file_count >= plan.max_knowledge_base_files:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Seu plano atual ({plan.name}) permite até {plan.max_knowledge_base_files} "
+                "arquivos — faça upgrade para enviar mais"
+            ),
         )
 
     if not data:

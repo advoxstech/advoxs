@@ -20,6 +20,7 @@ from app.core.redis import get_redis
 from app.core.security import hash_password
 from app.models import CreditPackage, CreditTransaction, Tenant, User
 from app.services.default_agents import build_default_agents
+from app.services.default_subscription import build_default_subscription
 from app.services.signup_tokens import store_login_token
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,12 @@ async def _process_signup(session: AsyncSession, session_id: str, metadata: dict
     # nasce sem nenhum agente (C2 do review final da Etapa 1).
     for agent in build_default_agents(tenant.id):
         session.add(agent)
+
+    # Mesma transação do tenant/user/transação — sem isso, o tenant novo
+    # nasce sem assinatura, e POST /api/v1/agents e /knowledge-base/files
+    # quebram (RuntimeError de get_active_subscription) até a Etapa 2
+    # substituir isso por escolha real de plano no cadastro.
+    session.add(await build_default_subscription(session, tenant.id))
 
     try:
         await session.commit()
