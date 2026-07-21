@@ -12,6 +12,7 @@ from app.models.end_customer_billing import (
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
 from app.models.platform_admin import PlatformAdmin
+from app.models.subscription import SubscriptionPlan, TenantSubscription
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.whatsapp_number import WhatsAppNumber
@@ -31,8 +32,10 @@ __all__ = [
     "Message",
     "PlatformAdmin",
     "PricingConfig",
+    "SubscriptionPlan",
     "Tenant",
     "TenantBillingSettings",
+    "TenantSubscription",
     "User",
     "WhatsAppNumber",
 ]
