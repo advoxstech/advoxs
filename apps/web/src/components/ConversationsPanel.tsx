@@ -6,11 +6,10 @@ import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
 
 import { ConversationList } from "./ConversationList";
-import { ConversationsUsageReport } from "./ConversationsUsageReport";
 import { ConversationThread } from "./ConversationThread";
 import { TestConversationThread } from "./TestConversationThread";
 
-type Tab = "real" | "test" | "usage";
+type Tab = "real" | "test";
 
 export function ConversationsPanel({
   pollMs = 5000,
@@ -26,7 +25,6 @@ export function ConversationsPanel({
   const [creating, setCreating] = useState(false);
 
   const loadConversations = useCallback(async () => {
-    if (tab === "usage") return;
     try {
       const response = await backendFetch(`conversations?origin=${tab}`);
       if (response.ok) {
@@ -40,7 +38,6 @@ export function ConversationsPanel({
   }, [tab]);
 
   useEffect(() => {
-    if (tab === "usage") return;
     setLoaded(false);
     void loadConversations();
     if (!pollMs) {
@@ -108,73 +105,59 @@ export function ConversationsPanel({
           >
             Testes
           </button>
-          <button
-            type="button"
-            onClick={() => switchTab("usage")}
-            aria-pressed={tab === "usage"}
-            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
-              tab === "usage" ? "bg-ink text-ground" : "text-muted hover:text-ink"
-            }`}
-          >
-            Consumo
-          </button>
         </div>
       </header>
 
-      {tab === "usage" ? (
-        <ConversationsUsageReport />
-      ) : (
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <aside className="flex w-80 shrink-0 flex-col border-r border-line">
-            <div className="flex items-center justify-end px-5 py-3">
-              <span className="font-mono text-xs text-muted">{conversations.length}</span>
-            </div>
-            {tab === "test" ? (
-              <button
-                type="button"
-                onClick={() => void createTestConversation()}
-                disabled={creating}
-                className="border-b border-line px-5 py-3 text-left text-sm font-medium text-accent transition-colors hover:bg-surface/60 disabled:opacity-50"
-              >
-                {creating ? "Criando…" : "Nova conversa de teste"}
-              </button>
-            ) : null}
-            <ConversationList
-              conversations={conversations}
-              loaded={loaded}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-          </aside>
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <aside className="flex w-80 shrink-0 flex-col border-r border-line">
+          <div className="flex items-center justify-end px-5 py-3">
+            <span className="font-mono text-xs text-muted">{conversations.length}</span>
+          </div>
+          {tab === "test" ? (
+            <button
+              type="button"
+              onClick={() => void createTestConversation()}
+              disabled={creating}
+              className="border-b border-line px-5 py-3 text-left text-sm font-medium text-accent transition-colors hover:bg-surface/60 disabled:opacity-50"
+            >
+              {creating ? "Criando…" : "Nova conversa de teste"}
+            </button>
+          ) : null}
+          <ConversationList
+            conversations={conversations}
+            loaded={loaded}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        </aside>
 
-          <section className="flex min-w-0 flex-1 flex-col bg-surface/40">
-            {selected ? (
-              selected.is_test ? (
-                <TestConversationThread
-                  key={selected.id}
-                  conversation={selected}
-                  onDeleted={() => handleDeleted(selected.id)}
-                />
-              ) : (
-                <ConversationThread
-                  key={selected.id}
-                  conversation={selected}
-                  onConversationUpdate={handleConversationUpdate}
-                  onDeleted={() => handleDeleted(selected.id)}
-                />
-              )
+        <section className="flex min-w-0 flex-1 flex-col bg-surface/40">
+          {selected ? (
+            selected.is_test ? (
+              <TestConversationThread
+                key={selected.id}
+                conversation={selected}
+                onDeleted={() => handleDeleted(selected.id)}
+              />
             ) : (
-              <div className="flex flex-1 items-center justify-center p-8">
-                <p className="max-w-xs text-center text-sm leading-relaxed text-muted">
-                  {tab === "test"
-                    ? "Crie uma conversa de teste para experimentar os agentes sem WhatsApp."
-                    : "Selecione uma conversa para acompanhar o atendimento."}
-                </p>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+              <ConversationThread
+                key={selected.id}
+                conversation={selected}
+                onConversationUpdate={handleConversationUpdate}
+                onDeleted={() => handleDeleted(selected.id)}
+              />
+            )
+          ) : (
+            <div className="flex flex-1 items-center justify-center p-8">
+              <p className="max-w-xs text-center text-sm leading-relaxed text-muted">
+                {tab === "test"
+                  ? "Crie uma conversa de teste para experimentar os agentes sem WhatsApp."
+                  : "Selecione uma conversa para acompanhar o atendimento."}
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
