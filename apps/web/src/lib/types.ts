@@ -10,6 +10,8 @@ export interface Conversation {
   summary: string | null;
   summary_generated_at: string | null;
   end_customer_balance?: number | null;
+  end_customer_cycle_total?: number | null;
+  end_customer_cycle_consumed?: number | null;
 }
 
 export type SenderType = "agent" | "human" | "contact";

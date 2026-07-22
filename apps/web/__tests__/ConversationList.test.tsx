@@ -92,4 +92,36 @@ describe("ConversationList", () => {
 
     expect(screen.queryByText(/créditos/)).not.toBeInTheDocument();
   });
+
+  it("mostra o ciclo de créditos (comprado/consumido) quando presente", () => {
+    render(
+      <ConversationList
+        conversations={[
+          {
+            ...conversations[0],
+            end_customer_cycle_total: 200,
+            end_customer_cycle_consumed: 20,
+          },
+        ]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("20 de 200 créditos usados")).toBeInTheDocument();
+  });
+
+  it("não mostra o ciclo quando end_customer_cycle_total é null", () => {
+    render(
+      <ConversationList
+        conversations={[{ ...conversations[0], end_customer_cycle_total: null }]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/usados/)).not.toBeInTheDocument();
+  });
 });
