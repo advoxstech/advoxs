@@ -5,8 +5,6 @@ import type { FormEvent } from "react";
 
 import { backendFetch } from "@/lib/client-api";
 
-import { EndCustomerList } from "./EndCustomerList";
-
 type Settings = {
   tenant_id: string;
   enabled: boolean;
@@ -296,8 +294,6 @@ export function EndCustomerBillingPanel() {
             {creatingPackage ? "Adicionando..." : "Adicionar pacote"}
           </button>
         </form>
-
-        {settings.enabled && <EndCustomerList />}
       </div>
     </main>
   );

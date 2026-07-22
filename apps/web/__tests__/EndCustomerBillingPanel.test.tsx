@@ -295,47 +295,4 @@ describe("EndCustomerBillingPanel", () => {
     confirmSpy.mockRestore();
   });
 
-  it("mostra a lista de clientes finais quando a cobrança está habilitada", async () => {
-    mockLoad(
-      {
-        enabled: true,
-        billing_mode: "credits",
-        stripe_secret_key_configured: true,
-        stripe_webhook_secret_configured: true,
-        end_customer_tokens_per_credit: 500,
-      },
-      [],
-      [
-        {
-          contact_phone_number: "5511999990001",
-          credit_balance: 120,
-          total_purchased: 500,
-          total_consumed: 380,
-        },
-      ],
-    );
-
-    render(<EndCustomerBillingPanel />);
-
-    await waitFor(() => expect(screen.getByText("+55 11 99999-0001")).toBeInTheDocument());
-    expect(screen.getByText("Clientes finais")).toBeInTheDocument();
-  });
-
-  it("não busca clientes finais quando a cobrança está desligada", async () => {
-    mockLoad({
-      enabled: false,
-      billing_mode: "credits",
-      stripe_secret_key_configured: false,
-      stripe_webhook_secret_configured: false,
-      end_customer_tokens_per_credit: null,
-    });
-
-    render(<EndCustomerBillingPanel />);
-
-    await waitFor(() => expect(screen.getByLabelText(/cobrar meus clientes/i)).not.toBeChecked());
-    expect(screen.queryByText("Clientes finais")).not.toBeInTheDocument();
-    expect(
-      mockedFetch.mock.calls.some(([p]) => p === "end-customer-billing/customers"),
-    ).toBe(false);
-  });
 });
