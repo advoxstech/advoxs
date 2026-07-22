@@ -53,6 +53,11 @@ def session():
     return AsyncMock()
 
 
+@pytest.fixture
+def arq():
+    return AsyncMock()
+
+
 class TestCreateEndCustomerCheckoutSession:
     async def test_sem_settings_levanta_erro(self, session) -> None:
         session.scalar = AsyncMock(return_value=None)
@@ -158,48 +163,48 @@ def _checkout_session(**metadata_overrides) -> dict:
 
 
 class TestProcessEndCustomerCheckoutCompleted:
-    async def test_ja_processado_nao_faz_nada(self, session) -> None:
+    async def test_ja_processado_nao_faz_nada(self, session, arq) -> None:
         session.scalar = AsyncMock(return_value=uuid.uuid4())
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
 
         session.add.assert_not_called()
 
-    async def test_metadata_sem_kind_correto_e_ignorada(self, session) -> None:
+    async def test_metadata_sem_kind_correto_e_ignorada(self, session, arq) -> None:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(kind="outra_coisa")
+            session, TENANT_ID, _checkout_session(kind="outra_coisa"), arq
         )
 
         session.add.assert_not_called()
 
-    async def test_metadata_sem_contact_phone_number_nao_processa(self, session) -> None:
+    async def test_metadata_sem_contact_phone_number_nao_processa(self, session, arq) -> None:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(contact_phone_number=None)
+            session, TENANT_ID, _checkout_session(contact_phone_number=None), arq
         )
 
         session.add.assert_not_called()
 
-    async def test_metadata_sem_package_id_nao_processa(self, session) -> None:
+    async def test_metadata_sem_package_id_nao_processa(self, session, arq) -> None:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(package_id=None)
+            session, TENANT_ID, _checkout_session(package_id=None), arq
         )
 
         session.add.assert_not_called()
 
-    async def test_pacote_nao_encontrado_nao_processa(self, session) -> None:
+    async def test_pacote_nao_encontrado_nao_processa(self, session, arq) -> None:
         session.scalar = AsyncMock(side_effect=[None, None])
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
 
         session.add.assert_not_called()
 
-    async def test_credita_saldo_novo_e_manda_confirmacao(self, session, monkeypatch) -> None:
+    async def test_credita_saldo_novo_e_manda_confirmacao(self, session, arq, monkeypatch) -> None:
         package = _package()
         conversation = _conversation()
         number = _number()
@@ -211,19 +216,31 @@ class TestProcessEndCustomerCheckoutCompleted:
         monkeypatch.setattr(service, "send_text_message", send)
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
 
-        balance, transaction, message = added
+        balance, transaction, message, trigger_message = added
         assert balance.credit_balance == package.credits_granted
         assert transaction.type == "purchase"
         assert transaction.amount_credits == package.credits_granted
         assert transaction.stripe_payment_id == "cs_end_999"
         assert message.sender_type == "system"
+        assert trigger_message.sender_type == "system"
+        assert "pagamento" in trigger_message.content.lower()
         send.assert_awaited_once()
         assert send.await_args.kwargs["to"] == CONTACT
         session.commit.assert_awaited()
 
-    async def test_credita_saldo_existente_soma(self, session, monkeypatch) -> None:
+        # Aciona o agente pela mesma fila do webhook do WhatsApp, com o id da
+        # mensagem de gatilho — é isso que faz a Sofia reagir sozinha, sem
+        # depender do cliente digitar "já paguei".
+        arq.enqueue_job.assert_awaited_once_with(
+            "process_inbound_message",
+            tenant_id=str(TENANT_ID),
+            conversation_id=str(conversation.id),
+            message_id=str(trigger_message.id),
+        )
+
+    async def test_credita_saldo_existente_soma(self, session, arq, monkeypatch) -> None:
         package = _package()
         existing_balance = SimpleNamespace(
             tenant_id=TENANT_ID,
@@ -236,12 +253,12 @@ class TestProcessEndCustomerCheckoutCompleted:
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
 
         assert existing_balance.credit_balance == 100 + package.credits_granted
 
     async def test_falha_ao_confirmar_via_whatsapp_nao_impede_credito(
-        self, session, monkeypatch
+        self, session, arq, monkeypatch
     ) -> None:
         package = _package()
         session.scalar = AsyncMock(side_effect=[None, package, None, None, None])
@@ -250,7 +267,10 @@ class TestProcessEndCustomerCheckoutCompleted:
             service, "send_text_message", AsyncMock(side_effect=RuntimeError("falhou"))
         )
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+
+        # Falha antes de chegar na mensagem de gatilho — não deve acionar o agente.
+        arq.enqueue_job.assert_not_called()
 
         session.commit.assert_awaited()
 
