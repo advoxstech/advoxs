@@ -214,6 +214,52 @@ async def test_injeta_pacotes_no_prompt_quando_sem_saldo_no_ponto_de_entrada(mon
 
 
 @pytest.mark.asyncio
+async def test_instrui_a_nao_revelar_package_id_ao_cliente(monkeypatch) -> None:
+    """Bug real reportado pelo usuário: a secretária repetiu o package_id
+    (um uuid grande) na mensagem pro cliente, porque a instrução nunca
+    dizia que esse id é só de uso interno."""
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(
+        end_customer_billing={
+            "enabled": True,
+            "balance": 0,
+            "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+        }
+    )
+    await agent_node(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "NUNCA mencione o package_id ao cliente" in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_instrui_a_colar_o_link_retornado_na_resposta(monkeypatch) -> None:
+    """Bug real reportado pelo usuário: a secretária disse 'gerei o link de
+    pagamento' sem colar o link de verdade, porque a instrução nunca dizia
+    explicitamente pra copiar o retorno da tool na resposta ao cliente."""
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    state = base_state(
+        end_customer_billing={
+            "enabled": True,
+            "balance": 0,
+            "packages": [{"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}],
+        }
+    )
+    await agent_node(state)
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "copie esse link literalmente na sua resposta ao cliente" in prompt_arg.content
+
+
+@pytest.mark.asyncio
 async def test_nao_injeta_pacotes_quando_billing_desabilitado(monkeypatch) -> None:
     from agents.nodes import agent_node
 
