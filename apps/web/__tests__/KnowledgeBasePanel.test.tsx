@@ -110,6 +110,19 @@ describe("KnowledgeBasePanel", () => {
     expect(screen.queryByText("regimento.pdf")).not.toBeInTheDocument();
   });
 
+  it("cai no ponto de entrada quando o agent_id da URL não existe mais", async () => {
+    window.history.pushState({}, "", "/base-de-conhecimento?agent_id=agente-apagado");
+    mockRouting();
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    // Secretária (ponto de entrada) expande por padrão — regimento.pdf (só nela) aparece,
+    // e contrato.docx (compartilhado com Condominial) aparece 1x, não 2x, provando que
+    // a pasta Condominial permanece recolhida (não foi confundida com o agent_id inválido).
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
+    expect(screen.queryAllByText("contrato.docx")).toHaveLength(1);
+  });
+
   it("envia o agent_id certo no upload de cada pasta", async () => {
     let capturedForm: FormData | null = null;
     mockRouting((_path, init) => {

@@ -16,10 +16,6 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    setFocusedAgentId(new URLSearchParams(window.location.search).get("agent_id"));
-  }, []);
-
   const load = useCallback(async () => {
     try {
       const response = await backendFetch("knowledge-base/files");
@@ -39,7 +35,14 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     async function loadAgents() {
       try {
         const response = await backendFetch("agents");
-        if (response.ok) setAgents(await response.json());
+        if (!response.ok) return;
+        const body: Agent[] = await response.json();
+        setAgents(body);
+
+        const fromUrl = new URLSearchParams(window.location.search).get("agent_id");
+        if (fromUrl && body.some((a) => a.id === fromUrl)) {
+          setFocusedAgentId(fromUrl);
+        }
       } catch {
         // fail-safe: sem agentes carregados, nenhuma pasta é exibida
       }

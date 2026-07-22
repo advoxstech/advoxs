@@ -79,7 +79,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
     }
   }
 
-
   if (!loaded) {
     return (
       <main className="flex flex-1 items-center justify-center bg-ground text-sm text-muted">
