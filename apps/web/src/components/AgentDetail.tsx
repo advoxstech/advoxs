@@ -24,21 +24,17 @@ function extractErrorDetail(body: unknown, fallback: string): string {
 export function AgentDetail({ agentId }: { agentId: string }) {
   const [agent, setAgent] = useState<Agent | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [allFiles, setAllFiles] = useState<AttachedFile[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [instructions, setInstructions] = useState("");
   const [saving, setSaving] = useState(false);
-  const [selectedFileId, setSelectedFileId] = useState("");
-  const [attaching, setAttaching] = useState(false);
 
   async function load() {
     try {
-      const [agentsResponse, attachedResponse, allFilesResponse] = await Promise.all([
+      const [agentsResponse, attachedResponse] = await Promise.all([
         backendFetch("agents"),
         backendFetch(`agents/${agentId}/knowledge-base-files`),
-        backendFetch("knowledge-base/files"),
       ]);
       if (agentsResponse.ok) {
         const agents: Agent[] = await agentsResponse.json();
@@ -51,9 +47,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
       }
       if (attachedResponse.ok) {
         setAttachedFiles(await attachedResponse.json());
-      }
-      if (allFilesResponse.ok) {
-        setAllFiles(await allFilesResponse.json());
       }
     } finally {
       setLoaded(true);
@@ -86,46 +79,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
     }
   }
 
-  async function handleAttach(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedFileId) return;
-    setFeedback(null);
-    setAttaching(true);
-    try {
-      const response = await backendFetch(`agents/${agentId}/knowledge-base-files`, {
-        method: "POST",
-        body: JSON.stringify({ knowledge_base_file_id: selectedFileId }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        setFeedback(extractErrorDetail(body, "Falha ao anexar — tente novamente."));
-        return;
-      }
-      setSelectedFileId("");
-      await load();
-    } catch {
-      setFeedback("Falha de conexão — tente novamente.");
-    } finally {
-      setAttaching(false);
-    }
-  }
-
-  async function handleDetach(file: AttachedFile) {
-    if (!window.confirm(`Desanexar "${file.filename}" deste agente?`)) return;
-    try {
-      const response = await backendFetch(`agents/${agentId}/knowledge-base-files/${file.id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        setFeedback(extractErrorDetail(body, "Falha ao desanexar — tente novamente."));
-        return;
-      }
-      setAttachedFiles(attachedFiles.filter((f) => f.id !== file.id));
-    } catch {
-      setFeedback("Falha de conexão — tente novamente.");
-    }
-  }
 
   if (!loaded) {
     return (
@@ -145,9 +98,6 @@ export function AgentDetail({ agentId }: { agentId: string }) {
       </main>
     );
   }
-
-  const attachedIds = new Set(attachedFiles.map((f) => f.id));
-  const availableFiles = allFiles.filter((f) => !attachedIds.has(f.id));
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
@@ -197,59 +147,14 @@ export function AgentDetail({ agentId }: { agentId: string }) {
         <hr className="my-6 border-line" />
 
         <h2 className="font-display text-lg font-semibold text-ink">Base de conhecimento</h2>
-        <ul className="mt-4 max-w-md">
-          {attachedFiles.length === 0 && (
-            <li className="py-4 text-sm text-muted">Nenhum arquivo anexado ainda.</li>
-          )}
-          {attachedFiles.map((file) => (
-            <li
-              key={file.id}
-              className="flex items-center justify-between border-b border-line py-3"
-            >
-              <p className="truncate text-ink">{file.filename}</p>
-              <button
-                type="button"
-                onClick={() => void handleDetach(file)}
-                className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
-              >
-                Desanexar
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <form onSubmit={handleAttach} className="mt-4 flex max-w-md items-end gap-2">
-          <label className="flex flex-1 flex-col gap-1 text-sm text-ink">
-            Anexar arquivo já enviado
-            <select
-              value={selectedFileId}
-              onChange={(event) => setSelectedFileId(event.target.value)}
-              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
-            >
-              <option value="">Selecione um arquivo</option>
-              {availableFiles.map((file) => (
-                <option key={file.id} value={file.id}>
-                  {file.filename}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="submit"
-            disabled={attaching || !selectedFileId}
-            className="rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
-          >
-            {attaching ? "Anexando..." : "Anexar"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-sm text-muted">
-          Ou{" "}
+        <p className="mt-4 max-w-md text-sm text-muted">
+          {attachedFiles.length} arquivo{attachedFiles.length === 1 ? "" : "s"} anexado
+          {attachedFiles.length === 1 ? "" : "s"} —{" "}
           <Link
             href={`/base-de-conhecimento?agent_id=${agent.id}`}
             className="text-accent hover:underline"
           >
-            envie um arquivo novo direto pra este agente
+            gerenciar na base de conhecimento
           </Link>
           .
         </p>

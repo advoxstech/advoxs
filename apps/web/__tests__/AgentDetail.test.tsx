@@ -19,14 +19,11 @@ const AGENT = {
   updated_at: "2026-07-20T00:00:00Z",
 };
 
-function mockLoad(overrides?: { attached?: unknown[]; all?: unknown[] }) {
+function mockLoad(overrides?: { attached?: unknown[] }) {
   mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
     if (!init && path === "agents") return { ok: true, json: async () => [AGENT] };
     if (!init && path === "agents/a1/knowledge-base-files") {
       return { ok: true, json: async () => overrides?.attached ?? [] };
-    }
-    if (!init && path === "knowledge-base/files") {
-      return { ok: true, json: async () => overrides?.all ?? [] };
     }
     return { ok: true, json: async () => null };
   });
@@ -57,10 +54,20 @@ describe("AgentDetail", () => {
     await waitFor(() => expect(screen.getByText("Agente não encontrado.")).toBeInTheDocument());
   });
 
-  it("lista os arquivos anexados e omite eles do seletor de anexar", async () => {
+  it("mostra a contagem de arquivos anexados com link pra base de conhecimento", async () => {
+    mockLoad({ attached: [{ id: "f1", filename: "regimento.pdf", status: "ready" }] });
+
+    render(<AgentDetail agentId="a1" />);
+
+    await waitFor(() => expect(screen.getByText(/1 arquivo anexado/)).toBeInTheDocument());
+    expect(
+      screen.getByRole("link", { name: /gerenciar na base de conhecimento/ }),
+    ).toHaveAttribute("href", "/base-de-conhecimento?agent_id=a1");
+  });
+
+  it("mostra plural quando há mais de um arquivo anexado", async () => {
     mockLoad({
-      attached: [{ id: "f1", filename: "regimento.pdf", status: "ready" }],
-      all: [
+      attached: [
         { id: "f1", filename: "regimento.pdf", status: "ready" },
         { id: "f2", filename: "modelo.docx", status: "ready" },
       ],
@@ -68,32 +75,7 @@ describe("AgentDetail", () => {
 
     render(<AgentDetail agentId="a1" />);
 
-    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
-    expect(screen.getByRole("option", { name: "modelo.docx" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "regimento.pdf" })).not.toBeInTheDocument();
-  });
-
-  it("desanexa um arquivo após confirmação", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (init?.method === "DELETE") return { ok: true, json: async () => null };
-      if (path === "agents") return { ok: true, json: async () => [AGENT] };
-      if (path === "agents/a1/knowledge-base-files") {
-        return {
-          ok: true,
-          json: async () => [{ id: "f1", filename: "regimento.pdf", status: "ready" }],
-        };
-      }
-      return { ok: true, json: async () => [] };
-    });
-
-    render(<AgentDetail agentId="a1" />);
-    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "Desanexar" }));
-
-    await waitFor(() => expect(screen.queryByText("regimento.pdf")).not.toBeInTheDocument());
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(screen.getByText(/2 arquivos anexados/)).toBeInTheDocument());
   });
 
   it("salva as alterações do formulário", async () => {
