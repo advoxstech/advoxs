@@ -79,7 +79,7 @@ describe("KnowledgeBasePanel", () => {
     render(<KnowledgeBasePanel pollMs={0} />);
 
     await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
-    expect(screen.getByText("Condominial")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Condominial/ })).toBeInTheDocument();
     expect(screen.getByText("[2 arquivos]")).toBeInTheDocument();
     expect(screen.getByText("[1 arquivo]")).toBeInTheDocument();
   });
@@ -95,7 +95,7 @@ describe("KnowledgeBasePanel", () => {
 
     // Condominial começa recolhida — expande pra confirmar que o mesmo
     // arquivo também aparece lá.
-    fireEvent.click(screen.getByText("Condominial"));
+    fireEvent.click(screen.getByRole("button", { name: /Condominial/ }));
     await waitFor(() => expect(screen.getAllByText("contrato.docx")).toHaveLength(2));
     expect(screen.queryAllByText("regimento.pdf")).toHaveLength(1);
   });
@@ -118,7 +118,7 @@ describe("KnowledgeBasePanel", () => {
     });
 
     render(<KnowledgeBasePanel pollMs={0} />);
-    await waitFor(() => expect(screen.getByText("Condominial")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Condominial/ })).toBeInTheDocument());
 
     const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByLabelText("Enviar arquivo para Condominial"), {

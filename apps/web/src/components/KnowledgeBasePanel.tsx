@@ -12,13 +12,13 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [files, setFiles] = useState<KbFile[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [focusedAgentId] = useState<string | null>(() =>
-    typeof window === "undefined"
-      ? null
-      : new URLSearchParams(window.location.search).get("agent_id"),
-  );
+  const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    setFocusedAgentId(new URLSearchParams(window.location.search).get("agent_id"));
+  }, []);
 
   const load = useCallback(async () => {
     try {

@@ -138,7 +138,7 @@ export function AgentFolder({
                     <option value="">+ anexar a outro agente</option>
                     {availableToAttach.map((a) => (
                       <option key={a.id} value={a.id}>
-                        + {a.name}
+                        {a.name}
                       </option>
                     ))}
                   </select>
