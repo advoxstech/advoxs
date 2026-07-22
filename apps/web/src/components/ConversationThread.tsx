@@ -203,6 +203,12 @@ export function ConversationThread({
               saldo do cliente: {formatCredits(conversation.end_customer_balance)} créditos
             </span>
           ) : null}
+          {conversation.end_customer_cycle_total != null ? (
+            <span className="font-mono text-xs text-muted">
+              {formatCredits(conversation.end_customer_cycle_consumed ?? 0)} de{" "}
+              {formatCredits(conversation.end_customer_cycle_total)} créditos usados
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">

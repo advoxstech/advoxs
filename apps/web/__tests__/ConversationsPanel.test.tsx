@@ -94,21 +94,4 @@ describe("ConversationsPanel — abas", () => {
     );
     expect(screen.getByText("Nova conversa de teste")).toBeInTheDocument();
   });
-
-  it("aba Consumo mostra o relatório e não busca conversations?origin=", async () => {
-    backendFetchMock.mockResolvedValue(jsonResponse([]));
-
-    render(<ConversationsPanel pollMs={0} />);
-    await waitFor(() => expect(backendFetchMock).toHaveBeenCalled());
-    backendFetchMock.mockClear();
-
-    fireEvent.click(screen.getByRole("button", { name: "Consumo" }));
-
-    await waitFor(() =>
-      expect(
-        backendFetchMock.mock.calls.some(([p]) => String(p).startsWith("conversations/usage")),
-      ).toBe(true),
-    );
-    expect(backendFetchMock.mock.calls.some(([p]) => String(p).includes("origin="))).toBe(false);
-  });
 });

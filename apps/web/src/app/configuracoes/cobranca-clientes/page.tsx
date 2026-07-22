@@ -1,4 +1,4 @@
-import { EndCustomerBillingPanel } from "@/components/EndCustomerBillingPanel";
+import { EndCustomerBillingTabs } from "@/components/EndCustomerBillingTabs";
 import { LowBalanceBanner } from "@/components/LowBalanceBanner";
 import { TenantNav } from "@/components/TenantNav";
 
@@ -8,7 +8,7 @@ export default function ConfiguracoesCobrancaClientesPage() {
       <TenantNav active="cobranca" />
       <div className="flex flex-1 flex-col overflow-hidden">
         <LowBalanceBanner />
-        <EndCustomerBillingPanel />
+        <EndCustomerBillingTabs />
       </div>
     </div>
   );

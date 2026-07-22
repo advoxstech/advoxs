@@ -17,6 +17,8 @@ class ConversationOut(BaseModel):
     summary: str | None
     summary_generated_at: datetime | None
     end_customer_balance: float | None = None
+    end_customer_cycle_total: float | None = None
+    end_customer_cycle_consumed: float | None = None
 
 
 class MessageOut(BaseModel):

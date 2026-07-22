@@ -613,4 +613,36 @@ describe("ConversationThread", () => {
 
     expect(screen.queryByText(/saldo do cliente/)).not.toBeInTheDocument();
   });
+
+  it("mostra o ciclo de créditos (comprado/consumido) quando presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{
+          ...conversation("agent"),
+          end_customer_cycle_total: 200,
+          end_customer_cycle_consumed: 20,
+        }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(screen.getByText(/20 de 200 créditos usados/)).toBeInTheDocument();
+  });
+
+  it("não mostra o ciclo quando end_customer_cycle_total é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_cycle_total: null }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(screen.queryByText(/créditos usados/)).not.toBeInTheDocument();
+  });
 });

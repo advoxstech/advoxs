@@ -73,6 +73,12 @@ export function ConversationList({
                     {formatCredits(conversation.end_customer_balance)} créditos
                   </span>
                 ) : null}
+                {conversation.end_customer_cycle_total != null ? (
+                  <span className="font-mono text-[11px] text-muted">
+                    {formatCredits(conversation.end_customer_cycle_consumed ?? 0)} de{" "}
+                    {formatCredits(conversation.end_customer_cycle_total)} créditos usados
+                  </span>
+                ) : null}
               </span>
             </button>
           </li>
