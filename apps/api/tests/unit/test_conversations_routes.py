@@ -521,9 +521,7 @@ class TestDeleteConversation:
 
 
 class TestEndCustomerBalance:
-    def test_lista_inclui_saldo_do_cliente_final_quando_ha_registro(
-        self, client, session
-    ) -> None:
+    def test_lista_inclui_saldo_do_cliente_final_quando_ha_registro(self, client, session) -> None:
         session.execute.side_effect = [
             _execute_returning([_conversation()]),
             _balance_result(
@@ -569,18 +567,12 @@ class TestEndCustomerBalance:
         session.scalar.return_value = conversation
         session.execute.side_effect = [
             _balance_result(
-                [
-                    SimpleNamespace(
-                        contact_phone_number="5511999998888", credit_balance=Decimal("7")
-                    )
-                ]
+                [SimpleNamespace(contact_phone_number="5511999998888", credit_balance=Decimal("7"))]
             ),
             _balance_result([]),
         ]
 
-        response = client.patch(
-            f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "human"}
-        )
+        response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "human"})
 
         assert response.status_code == 200
         assert response.json()["end_customer_balance"] == 7.0
