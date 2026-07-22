@@ -42,7 +42,9 @@ describe("OnboardingWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Começar" }));
 
     await waitFor(() =>
-      expect(screen.getByText(/WhatsApp Business/)).toBeInTheDocument(),
+      expect(
+        screen.getByRole("heading", { name: "Conectar o WhatsApp Business" }),
+      ).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: "Próximo" }));
 
