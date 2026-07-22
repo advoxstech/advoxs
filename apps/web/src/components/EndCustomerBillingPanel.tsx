@@ -182,6 +182,79 @@ export function EndCustomerBillingPanel() {
       )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <section className="mb-8 max-w-xl rounded border border-line bg-surface p-6">
+          <h2 className="font-display text-base font-semibold text-ink">
+            Como configurar a cobrança pelos seus clientes
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Isso é opcional — sem configurar, os agentes atendem seus clientes
+            normalmente, sem nenhuma cobrança.
+          </p>
+          <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
+            <li>
+              Se seu escritório ainda não tem conta na{" "}
+              <a
+                href="https://dashboard.stripe.com/register"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline"
+              >
+                Stripe
+              </a>
+              , crie uma.
+              <span className="mt-0.5 block text-xs text-muted">
+                É a plataforma de pagamento que processa as cobranças dos seus clientes
+                com segurança — grátis pra criar, só cobra uma taxa pequena quando
+                processar um pagamento de verdade.
+              </span>
+            </li>
+            <li>
+              No painel da Stripe, gere uma{" "}
+              <a
+                href="https://dashboard.stripe.com/apikeys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline"
+              >
+                chave restrita de API
+              </a>
+              , marcando só a permissão &quot;Checkout Sessions: Write&quot;.
+              <span className="mt-0.5 block text-xs text-muted">
+                Isso limita o que essa chave pode fazer caso ela vaze algum dia — mais
+                seguro do que usar a chave secreta completa da sua conta.
+              </span>
+            </li>
+            <li>Cole essa chave no campo abaixo.</li>
+            <li>
+              Cadastre os pacotes de crédito que você quer vender pros seus clientes
+              (nome, preço e quantidade de créditos), na seção logo abaixo do
+              formulário.
+            </li>
+            <li>
+              Ainda no painel da Stripe, crie um{" "}
+              <a
+                href="https://dashboard.stripe.com/webhooks"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline"
+              >
+                destino de evento (webhook)
+              </a>
+              , escolhendo &quot;Sua conta&quot; como escopo e o evento{" "}
+              <code className="rounded bg-ground px-1">checkout.session.completed</code>,
+              apontando pra URL do webhook que aparece no formulário abaixo.
+              <span className="mt-0.5 block text-xs text-muted">
+                É isso que avisa a gente quando um cliente seu termina de pagar.
+              </span>
+            </li>
+            <li>
+              Depois de criar, revele o &quot;Signing secret&quot; (começa com{" "}
+              <code className="rounded bg-ground px-1">whsec_</code>) e cole no campo
+              &quot;Webhook Secret&quot; abaixo.
+            </li>
+          </ol>
+        </section>
+
         <form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-4">
           <label className="flex items-center gap-2 text-sm text-ink">
             <input
