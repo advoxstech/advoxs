@@ -247,17 +247,64 @@ export function OnboardingWizard() {
               agentes: eles compram créditos seus, pagos direto na SUA conta Stripe — a
               plataforma nunca toca nesse dinheiro.
             </p>
-            <ol className="mt-3 flex list-decimal flex-col gap-2 pl-5 text-sm text-ink">
+            <ol className="mt-3 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                Cole a chave secreta e o segredo de webhook da sua conta Stripe (você
-                encontra isso em Configurações → Chaves de API, dentro do painel da
-                Stripe).
+                Se seu escritório ainda não tem conta na{" "}
+                <a
+                  href="https://dashboard.stripe.com/register"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  Stripe
+                </a>
+                , crie uma.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É a plataforma de pagamento que processa as cobranças dos seus
+                  clientes com segurança — grátis pra criar, só cobra uma taxa pequena
+                  quando processar um pagamento de verdade.
+                </span>
               </li>
-              <li>Cadastre os pacotes de crédito que você quer vender pros seus clientes.</li>
               <li>
-                Copie a URL exibida na página e cole no Dashboard da sua Stripe, na
-                seção de Webhooks (evento{" "}
-                <code className="rounded bg-surface px-1">checkout.session.completed</code>).
+                No painel da Stripe, gere uma{" "}
+                <a
+                  href="https://dashboard.stripe.com/apikeys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  chave restrita de API
+                </a>
+                , marcando só a permissão &quot;Checkout Sessions: Write&quot;.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Isso limita o que essa chave pode fazer caso ela vaze algum dia —
+                  mais seguro do que usar a chave secreta completa da sua conta.
+                </span>
+              </li>
+              <li>
+                Cadastre os pacotes de crédito que você quer vender pros seus clientes
+                (nome, preço e quantidade de créditos) — isso é feito aqui mesmo na
+                Advoxs.
+              </li>
+              <li>
+                Ainda no painel da Stripe, crie um{" "}
+                <a
+                  href="https://dashboard.stripe.com/webhooks"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  destino de evento (webhook)
+                </a>
+                , escolhendo &quot;Sua conta&quot; como escopo e o evento{" "}
+                <code className="rounded bg-surface px-1">checkout.session.completed</code>.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É isso que avisa a gente quando um cliente seu termina de pagar.
+                </span>
+              </li>
+              <li>
+                Por fim, cole a chave (passo 2) e a URL + segredo desse webhook (passo
+                4) na tela de cobrança da Advoxs, usando o botão abaixo.
               </li>
             </ol>
             <p className="mt-3 text-sm leading-relaxed text-muted">
