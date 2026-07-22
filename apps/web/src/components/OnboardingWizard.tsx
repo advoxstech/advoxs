@@ -102,6 +102,16 @@ export function OnboardingWizard() {
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
+                Consiga um número de telefone que ainda não esteja em uso no WhatsApp
+                comum nem no WhatsApp Business App — pode ser um chip novo, comprado só
+                pra isso, ou um número que o escritório já tenha disponível.
+                <span className="mt-0.5 block text-xs text-muted">
+                  É esse número que vai enviar e receber as mensagens dos seus clientes
+                  — ele fica exclusivo pra isso, então recomendamos não ser o número
+                  pessoal de ninguém.
+                </span>
+              </li>
+              <li>
                 Acesse{" "}
                 <a
                   href="https://developers.facebook.com/apps/"
