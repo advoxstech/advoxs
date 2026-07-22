@@ -533,16 +533,19 @@ class TestEndCustomerBalance:
                     )
                 ]
             ),
+            _balance_result([]),
         ]
 
         response = client.get("/api/v1/conversations")
 
         assert response.status_code == 200
         assert response.json()[0]["end_customer_balance"] == 42.0
+        assert response.json()[0]["end_customer_cycle_total"] is None
 
     def test_lista_sem_saldo_encontrado_retorna_null(self, client, session) -> None:
         session.execute.side_effect = [
             _execute_returning([_conversation()]),
+            _balance_result([]),
             _balance_result([]),
         ]
 
@@ -572,6 +575,7 @@ class TestEndCustomerBalance:
                     )
                 ]
             ),
+            _balance_result([]),
         ]
 
         response = client.patch(
@@ -594,6 +598,7 @@ class TestEndCustomerBalance:
                     )
                 ]
             ),
+            _balance_result([]),
         ]
         monkeypatch.setattr(
             conversations_module,
@@ -619,6 +624,7 @@ class TestEndCustomerBalance:
         session.execute.side_effect = [
             _execute_returning([_conversation()]),
             _balance_result([]),
+            _balance_result([]),
         ]
 
         client.get("/api/v1/conversations")
@@ -627,3 +633,111 @@ class TestEndCustomerBalance:
         compiled = str(balance_query.compile(compile_kwargs={"literal_binds": True}))
         assert "tenant_billing_settings" in compiled
         assert "enabled IS true" in compiled
+
+
+class TestEndCustomerCycleCalculation:
+    async def test_sem_nenhuma_compra_retorna_vazio(self) -> None:
+        from app.api.v1.conversations import _end_customer_cycles_by_phone
+
+        session = AsyncMock()
+        session.execute.return_value = _balance_result([])
+
+        result = await _end_customer_cycles_by_phone(session, TENANT_ID, ["5511999998888"])
+
+        assert result == {}
+        session.execute.assert_awaited_once()
+
+    async def test_uma_compra_sem_consumo(self) -> None:
+        from app.api.v1.conversations import _end_customer_cycles_by_phone
+
+        session = AsyncMock()
+        purchased_at = datetime.now(UTC)
+        session.execute.side_effect = [
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("200"),
+                        created_at=purchased_at,
+                    )
+                ]
+            ),
+            _balance_result([]),
+        ]
+
+        result = await _end_customer_cycles_by_phone(session, TENANT_ID, ["5511999998888"])
+
+        assert result == {"5511999998888": (Decimal("200"), Decimal("0"))}
+
+    async def test_uma_compra_com_consumo_parcial(self) -> None:
+        from app.api.v1.conversations import _end_customer_cycles_by_phone
+
+        session = AsyncMock()
+        purchased_at = datetime(2026, 7, 1, tzinfo=UTC)
+        session.execute.side_effect = [
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("200"),
+                        created_at=purchased_at,
+                    )
+                ]
+            ),
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("-30"),
+                        created_at=datetime(2026, 7, 5, tzinfo=UTC),
+                    )
+                ]
+            ),
+        ]
+
+        result = await _end_customer_cycles_by_phone(session, TENANT_ID, ["5511999998888"])
+
+        assert result == {"5511999998888": (Decimal("200"), Decimal("30"))}
+
+    async def test_duas_compras_so_conta_consumo_depois_da_mais_recente(self) -> None:
+        from app.api.v1.conversations import _end_customer_cycles_by_phone
+
+        session = AsyncMock()
+        first_purchase = datetime(2026, 6, 1, tzinfo=UTC)
+        second_purchase = datetime(2026, 7, 1, tzinfo=UTC)
+        session.execute.side_effect = [
+            _balance_result(
+                [
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("100"),
+                        created_at=first_purchase,
+                    ),
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("200"),
+                        created_at=second_purchase,
+                    ),
+                ]
+            ),
+            _balance_result(
+                [
+                    # consumo ANTES da 2ª compra — não deve contar
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("-50"),
+                        created_at=datetime(2026, 6, 15, tzinfo=UTC),
+                    ),
+                    # consumo DEPOIS da 2ª compra — deve contar
+                    SimpleNamespace(
+                        contact_phone_number="5511999998888",
+                        amount_credits=Decimal("-20"),
+                        created_at=datetime(2026, 7, 10, tzinfo=UTC),
+                    ),
+                ]
+            ),
+        ]
+
+        result = await _end_customer_cycles_by_phone(session, TENANT_ID, ["5511999998888"])
+
+        assert result == {"5511999998888": (Decimal("200"), Decimal("20"))}

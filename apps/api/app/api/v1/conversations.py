@@ -64,11 +64,14 @@ async def list_conversations(
         .offset(offset)
     )
     conversations = result.scalars().all()
-    balances = await _end_customer_balances_by_phone(
-        session, ctx.tenant_id, [c.contact_phone_number for c in conversations]
-    )
+    phone_numbers = [c.contact_phone_number for c in conversations]
+    balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, phone_numbers)
+    cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, phone_numbers)
     return [
-        _to_conversation_out(c, balances.get(c.contact_phone_number)) for c in conversations
+        _to_conversation_out(
+            c, balances.get(c.contact_phone_number), cycles.get(c.contact_phone_number)
+        )
+        for c in conversations
     ]
 
 
@@ -127,7 +130,14 @@ async def update_state(
     balances = await _end_customer_balances_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
-    return _to_conversation_out(conversation, balances.get(conversation.contact_phone_number))
+    cycles = await _end_customer_cycles_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
+    return _to_conversation_out(
+        conversation,
+        balances.get(conversation.contact_phone_number),
+        cycles.get(conversation.contact_phone_number),
+    )
 
 
 @router.post("/{conversation_id}/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
@@ -286,7 +296,14 @@ async def generate_summary(
     balances = await _end_customer_balances_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
-    return _to_conversation_out(conversation, balances.get(conversation.contact_phone_number))
+    cycles = await _end_customer_cycles_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
+    return _to_conversation_out(
+        conversation,
+        balances.get(conversation.contact_phone_number),
+        cycles.get(conversation.contact_phone_number),
+    )
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -348,13 +365,84 @@ async def _end_customer_balances_by_phone(
     return {row.contact_phone_number: row.credit_balance for row in result.all()}
 
 
+async def _end_customer_cycles_by_phone(
+    session: AsyncSession, tenant_id: uuid.UUID, phone_numbers: list[str]
+) -> dict[str, tuple[Decimal, Decimal]]:
+    """Ciclo de créditos atual por contato: total da compra mais recente e
+    quanto já foi consumido desde ela — reseta a cada nova compra (não é o
+    total/consumo vitalício, que fica na aba "Clientes" de
+    /configuracoes/cobranca-clientes). Só populado quando a cobrança do
+    cliente final está habilitada pro tenant (mesmo gate de
+    _end_customer_balances_by_phone); contato sem nenhuma compra não
+    aparece no dict retornado."""
+    if not phone_numbers:
+        return {}
+
+    purchases_result = await session.execute(
+        select(
+            EndCustomerCreditTransaction.contact_phone_number,
+            EndCustomerCreditTransaction.amount_credits,
+            EndCustomerCreditTransaction.created_at,
+        )
+        .join(
+            TenantBillingSettings,
+            TenantBillingSettings.tenant_id == EndCustomerCreditTransaction.tenant_id,
+        )
+        .where(
+            TenantBillingSettings.enabled.is_(True),
+            EndCustomerCreditTransaction.tenant_id == tenant_id,
+            EndCustomerCreditTransaction.contact_phone_number.in_(phone_numbers),
+            EndCustomerCreditTransaction.type == "purchase",
+        )
+    )
+    latest_purchase: dict[str, tuple[Decimal, datetime]] = {}
+    for row in purchases_result.all():
+        current = latest_purchase.get(row.contact_phone_number)
+        if current is None or row.created_at > current[1]:
+            latest_purchase[row.contact_phone_number] = (row.amount_credits, row.created_at)
+
+    if not latest_purchase:
+        return {}
+
+    consumption_result = await session.execute(
+        select(
+            EndCustomerCreditTransaction.contact_phone_number,
+            EndCustomerCreditTransaction.amount_credits,
+            EndCustomerCreditTransaction.created_at,
+        ).where(
+            EndCustomerCreditTransaction.tenant_id == tenant_id,
+            EndCustomerCreditTransaction.contact_phone_number.in_(latest_purchase.keys()),
+            EndCustomerCreditTransaction.type == "consumption",
+        )
+    )
+    consumption_rows = consumption_result.all()
+
+    cycles: dict[str, tuple[Decimal, Decimal]] = {}
+    for phone, (total, purchased_at) in latest_purchase.items():
+        consumed = sum(
+            (
+                -row.amount_credits
+                for row in consumption_rows
+                if row.contact_phone_number == phone and row.created_at > purchased_at
+            ),
+            start=Decimal(0),
+        )
+        cycles[phone] = (total, consumed)
+    return cycles
+
+
 def _to_conversation_out(
-    conversation: Conversation, end_customer_balance: Decimal | None
+    conversation: Conversation,
+    end_customer_balance: Decimal | None,
+    end_customer_cycle: tuple[Decimal, Decimal] | None = None,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
     out.end_customer_balance = (
         float(end_customer_balance) if end_customer_balance is not None else None
     )
+    if end_customer_cycle is not None:
+        out.end_customer_cycle_total = float(end_customer_cycle[0])
+        out.end_customer_cycle_consumed = float(end_customer_cycle[1])
     return out
 
 
