@@ -42,9 +42,7 @@ def _active_subscription(
     }
     plan = SimpleNamespace(**{**plan_defaults, **(plan_overrides or {})})
     subscription_defaults = {"status": "active"}
-    subscription = SimpleNamespace(
-        **{**subscription_defaults, **(subscription_overrides or {})}
-    )
+    subscription = SimpleNamespace(**{**subscription_defaults, **(subscription_overrides or {})})
     result = MagicMock()
     result.one_or_none.return_value = (subscription, plan)
     return result
@@ -168,9 +166,7 @@ class TestUpdate:
     def test_edita_nome_e_instrucoes(self, client, session) -> None:
         session.scalar.return_value = _agent()
 
-        response = client.patch(
-            f"/api/v1/agents/{AGENT_ID}", json={"name": "Secretária Nova"}
-        )
+        response = client.patch(f"/api/v1/agents/{AGENT_ID}", json={"name": "Secretária Nova"})
 
         assert response.status_code == 200
         assert response.json()["name"] == "Secretária Nova"
@@ -187,9 +183,7 @@ class TestUpdate:
         promove o agente a ponto de entrada."""
         session.scalar.return_value = _agent(is_entry_point=False)
 
-        response = client.patch(
-            f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": True}
-        )
+        response = client.patch(f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": True})
 
         assert response.status_code == 200
         assert response.json()["is_entry_point"] is False
@@ -321,9 +315,7 @@ class TestDetachKnowledgeBaseFile:
         session.scalar.return_value = _agent()
         session.get = AsyncMock(return_value=None)
 
-        response = client.delete(
-            f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{uuid.uuid4()}"
-        )
+        response = client.delete(f"/api/v1/agents/{AGENT_ID}/knowledge-base-files/{uuid.uuid4()}")
 
         assert response.status_code == 404
 
