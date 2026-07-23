@@ -427,3 +427,25 @@ async def test_agents_do_inbound_e_repassado_ao_send_message(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert patched["send"].await_args.kwargs["agents"] == agents_payload
+
+
+async def test_entra_no_billing_gate_e_nao_chama_agents(monkeypatch) -> None:
+    entrada_mock = AsyncMock(return_value=True)
+    handle_mock = AsyncMock()
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", entrada_mock)
+    monkeypatch.setattr(messages_task, "handle_billing_gate", handle_mock)
+    ctx = _ctx()
+    session = AsyncMock()
+    ctx["session_factory"].return_value.__aenter__ = AsyncMock(return_value=session)
+
+    monkeypatch.setattr(
+        messages_task,
+        "_load_context",
+        AsyncMock(return_value=_inbound(state="agent", credit_balance=1000)),
+    )
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    entrada_mock.assert_awaited_once()
+    handle_mock.assert_awaited_once()
+    ctx["http"].post.assert_not_called()

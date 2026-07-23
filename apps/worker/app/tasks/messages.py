@@ -1,6 +1,5 @@
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -10,11 +9,13 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
+from app.billing_gate import handle_billing_gate, maybe_enter_gate
 from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
 from app.pricing import calcular_creditos, get_current_pricing_config
+from app.tasks.inbound_context import InboundContext
 
 logger = logging.getLogger(__name__)
 
@@ -22,26 +23,6 @@ logger = logging.getLogger(__name__)
 # default de max_tries do Arq também é 5 — manter em sincronia, mesmo padrão
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
-
-
-@dataclass
-class InboundContext:
-    conversation_state: str
-    contact_phone_number: str
-    message_content: str
-    phone_number_id: str
-    access_token_encrypted: str
-    credit_balance: Decimal
-    end_customer_billing_enabled: bool
-    end_customer_balance: Decimal
-    end_customer_packages: list[dict]
-    agents: list[dict]
-    human_last_seen_at: datetime | None = None
-    billing_gate_step: str | None = None
-    billing_gate_retries: int = 0
-    billing_gate_checkout_url: str | None = None
-    insufficient_balance_policy: str = "block_with_message"
-    billing_gate_welcome_text: str | None = None
 
 
 def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
@@ -125,6 +106,13 @@ async def process_inbound_message(
         inbound = await _load_context(session, tenant_id, conversation_id, message_id)
 
     if inbound is None:
+        return
+
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
+    if entrou_no_gate:
+        async with open_tenant_session(session_factory, tenant_id) as session:
+            await handle_billing_gate(session, tenant_id, conversation_id, inbound)
         return
 
     if inbound.conversation_state != "agent":
