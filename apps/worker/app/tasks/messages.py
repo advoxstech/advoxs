@@ -351,7 +351,6 @@ async def _load_context(
         await session.execute(
             select(
                 tables.tenant_billing_settings.c.enabled,
-                tables.tenant_billing_settings.c.insufficient_balance_policy,
                 tables.tenant_billing_settings.c.billing_gate_welcome_text,
             ).where(tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id))
         )
@@ -411,11 +410,6 @@ async def _load_context(
         billing_gate_step=conversation.billing_gate_step,
         billing_gate_retries=conversation.billing_gate_retries,
         billing_gate_checkout_url=conversation.billing_gate_checkout_url,
-        insufficient_balance_policy=(
-            billing_settings.insufficient_balance_policy
-            if billing_settings is not None
-            else "block_with_message"
-        ),
         billing_gate_welcome_text=(
             billing_settings.billing_gate_welcome_text if billing_settings is not None else None
         ),

@@ -85,9 +85,7 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
 
 
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
-    billing_settings = SimpleNamespace(
-        enabled=True, insufficient_balance_policy="block_with_message", billing_gate_welcome_text=None
-    )
+    billing_settings = SimpleNamespace(enabled=True, billing_gate_welcome_text=None)
     package_row = SimpleNamespace(
         id=uuid.uuid4(), name="Básico", price_brl=49.9, credits_granted=500
     )
@@ -116,9 +114,7 @@ async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
 
 
 async def test_billing_habilitado_sem_saldo_ainda_usa_zero() -> None:
-    billing_settings = SimpleNamespace(
-        enabled=True, insufficient_balance_policy="block_with_message", billing_gate_welcome_text=None
-    )
+    billing_settings = SimpleNamespace(enabled=True, billing_gate_welcome_text=None)
     session = _session_with(
         conversation=_conversation(),
         content="Olá",
@@ -221,11 +217,9 @@ async def test_carrega_campos_do_billing_gate_da_conversa() -> None:
     assert context.billing_gate_checkout_url == "https://checkout.stripe.com/xyz"
 
 
-async def test_carrega_policy_e_texto_de_boas_vindas_do_tenant() -> None:
+async def test_carrega_texto_de_boas_vindas_do_tenant() -> None:
     billing_settings = SimpleNamespace(
-        enabled=True,
-        insufficient_balance_policy="deterministic_gate",
-        billing_gate_welcome_text="Bem-vindo ao nosso escritório!",
+        enabled=True, billing_gate_welcome_text="Bem-vindo ao nosso escritório!"
     )
     session = _session_with(
         conversation=_conversation(),
@@ -239,11 +233,10 @@ async def test_carrega_policy_e_texto_de_boas_vindas_do_tenant() -> None:
 
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
-    assert context.insufficient_balance_policy == "deterministic_gate"
     assert context.billing_gate_welcome_text == "Bem-vindo ao nosso escritório!"
 
 
-async def test_sem_billing_settings_usa_policy_default() -> None:
+async def test_sem_billing_settings_usa_welcome_text_none() -> None:
     session = _session_with(
         conversation=_conversation(),
         content="Olá",
@@ -256,7 +249,6 @@ async def test_sem_billing_settings_usa_policy_default() -> None:
 
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
-    assert context.insufficient_balance_policy == "block_with_message"
     assert context.billing_gate_welcome_text is None
 
 

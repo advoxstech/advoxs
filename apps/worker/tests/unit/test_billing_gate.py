@@ -28,7 +28,6 @@ def _inbound(**overrides) -> InboundContext:
         end_customer_balance=Decimal(0),
         end_customer_packages=PACKAGES,
         agents=[],
-        insufficient_balance_policy="deterministic_gate",
         billing_gate_step=None,
         billing_gate_retries=0,
         billing_gate_checkout_url=None,
@@ -45,7 +44,7 @@ def crypto(monkeypatch):
 
 
 class TestMaybeEnterGate:
-    async def test_entra_no_gate_quando_policy_deterministic_e_sem_saldo(self) -> None:
+    async def test_entra_no_gate_quando_habilitado_e_sem_saldo(self) -> None:
         session = AsyncMock()
         inbound = _inbound(conversation_state="agent", end_customer_balance=Decimal(0))
 
@@ -54,15 +53,6 @@ class TestMaybeEnterGate:
         assert entered is True
         session.execute.assert_awaited_once()
         session.commit.assert_awaited_once()
-
-    async def test_nao_entra_quando_policy_e_block_with_message(self) -> None:
-        session = AsyncMock()
-        inbound = _inbound(insufficient_balance_policy="block_with_message")
-
-        entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
-
-        assert entered is False
-        session.execute.assert_not_called()
 
     async def test_nao_entra_com_saldo_positivo(self) -> None:
         session = AsyncMock()

@@ -26,6 +26,5 @@ class InboundContext:
     billing_gate_step: str | None = None
     billing_gate_retries: int = 0
     billing_gate_checkout_url: str | None = None
-    insufficient_balance_policy: str = "block_with_message"
     billing_gate_welcome_text: str | None = None
     end_customer_billing_exempt: bool = False

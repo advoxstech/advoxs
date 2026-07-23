@@ -1,10 +1,8 @@
 """Máquina de estados do billing gate determinístico — conduz o diálogo
 mecânico (sem LLM) de "sem saldo -> escolher pacote -> pagar -> liberado"
-pro cliente final, só pra tenants com insufficient_balance_policy =
-"deterministic_gate" (rollout gradual, ver
-docs/superpowers/specs/2026-07-22-billing-gate-deterministico-design.md).
-Tenants ainda em "block_with_message" (o default) nunca chegam aqui — o
-fluxo antigo (dentro do agents) continua valendo pra eles, sem mudança."""
+pro cliente final, sempre que tenant_billing_settings.enabled = true — é o
+único mecanismo de cobrança do cliente final que existe (ver
+docs/superpowers/specs/2026-07-23-gate-unico-deterministico-design.md)."""
 
 import uuid
 
@@ -41,7 +39,6 @@ async def maybe_enter_gate(
         inbound.conversation_state == "agent"
         and inbound.end_customer_billing_enabled
         and not inbound.end_customer_billing_exempt
-        and inbound.insufficient_balance_policy == "deterministic_gate"
         and inbound.end_customer_balance <= 0
     ):
         await session.execute(
