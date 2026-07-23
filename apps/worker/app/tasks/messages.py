@@ -303,6 +303,7 @@ async def _load_context(
                 tables.conversations.c.billing_gate_step,
                 tables.conversations.c.billing_gate_retries,
                 tables.conversations.c.billing_gate_checkout_url,
+                tables.conversations.c.end_customer_billing_exempt,
             ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
         )
     ).one_or_none()
@@ -414,6 +415,7 @@ async def _load_context(
         billing_gate_welcome_text=(
             billing_settings.billing_gate_welcome_text if billing_settings is not None else None
         ),
+        end_customer_billing_exempt=conversation.end_customer_billing_exempt,
     )
 
 

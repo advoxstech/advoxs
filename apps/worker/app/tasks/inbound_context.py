@@ -28,3 +28,4 @@ class InboundContext:
     billing_gate_checkout_url: str | None = None
     insufficient_balance_policy: str = "block_with_message"
     billing_gate_welcome_text: str | None = None
+    end_customer_billing_exempt: bool = False
