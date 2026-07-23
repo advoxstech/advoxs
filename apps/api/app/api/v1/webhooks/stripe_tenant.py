@@ -10,14 +10,12 @@ import logging
 import uuid
 
 import stripe
-from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_tenant_secret
 from app.core.db import get_system_session
-from app.core.queue import get_arq_pool
 from app.models import TenantBillingSettings
 from app.services.end_customer_billing import process_end_customer_checkout_completed
 
@@ -36,7 +34,6 @@ async def receive_tenant_webhook(
     request: Request,
     stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
     session: AsyncSession = Depends(get_system_session),
-    arq: ArqRedis = Depends(get_arq_pool),
 ) -> dict:
     billing_settings = await session.scalar(
         select(TenantBillingSettings).where(TenantBillingSettings.tenant_id == tenant_id)
@@ -57,8 +54,6 @@ async def receive_tenant_webhook(
         raise _ASSINATURA_INVALIDA
 
     if event["type"] == "checkout.session.completed":
-        await process_end_customer_checkout_completed(
-            session, tenant_id, event["data"]["object"], arq
-        )
+        await process_end_customer_checkout_completed(session, tenant_id, event["data"]["object"])
 
     return {"status": "ok"}

@@ -11,7 +11,6 @@ import uuid
 from datetime import UTC, datetime
 
 import stripe
-from arq.connections import ArqRedis
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,7 +106,7 @@ async def create_end_customer_checkout_session(
 
 
 async def process_end_customer_checkout_completed(
-    session: AsyncSession, tenant_id: uuid.UUID, stripe_session: dict, arq: ArqRedis
+    session: AsyncSession, tenant_id: uuid.UUID, stripe_session: dict
 ) -> None:
     """Credita o pacote comprado pelo cliente final e confirma via WhatsApp.
 
@@ -174,40 +173,20 @@ async def process_end_customer_checkout_completed(
     )
     await session.commit()
 
-    policy = await session.scalar(
-        select(TenantBillingSettings.insufficient_balance_policy).where(
-            TenantBillingSettings.tenant_id == tenant_id
-        )
-    )
-    await _send_purchase_confirmation(
-        session, tenant_id, contact_phone_number, arq, policy or "block_with_message"
-    )
+    await _send_purchase_confirmation(session, tenant_id, contact_phone_number)
 
 
 async def _send_purchase_confirmation(
-    session: AsyncSession,
-    tenant_id: uuid.UUID,
-    contact_phone_number: str,
-    arq: ArqRedis,
-    insufficient_balance_policy: str,
+    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str
 ) -> None:
     """Best-effort: uma falha ao mandar a confirmação não desfaz o crédito
     já commitado acima — o cliente só não recebe o aviso, mas o saldo está lá.
 
-    Além do aviso instantâneo (fixo, via WhatsApp direto), o comportamento
-    depois disso depende de insufficient_balance_policy (rollout gradual do
-    billing gate determinístico, ver
-    docs/superpowers/specs/2026-07-22-billing-gate-deterministico-design.md):
-    - "block_with_message" (default, tenant ainda não migrado): aciona o
-      próprio agente com uma mensagem de sistema avisando que o pagamento
-      foi concluído — mesma fila (process_inbound_message) que o webhook do
-      WhatsApp usa. Isso faz a Sofia reagir e efetivar a transferência
-      sozinha, sem depender do cliente digitar "já paguei".
-    - "deterministic_gate" (tenant migrado): a conversa, se estiver em
-      billing_gate, volta direto pra "agent" — sem acionar o agents, já que
-      o checkpoint do LangGraph nunca foi tocado por essa mudança de estado
-      e a conversa retoma de onde estava (ou começa do zero pelo ponto de
-      entrada, se nunca tinha sido atendida).
+    Além do aviso instantâneo (fixo, via WhatsApp direto), a conversa (se
+    estiver em billing_gate) volta direto pra "agent" — sem acionar o
+    agents, já que o checkpoint do LangGraph nunca foi tocado por essa
+    mudança de estado e a conversa retoma de onde estava (ou começa do zero
+    pelo ponto de entrada, se nunca tinha sido atendida).
     """
     try:
         conversation = await session.scalar(
@@ -247,33 +226,11 @@ async def _send_purchase_confirmation(
         )
         conversation.last_message_at = datetime.now(UTC)
 
-        if insufficient_balance_policy == "deterministic_gate":
-            if conversation.state == "billing_gate":
-                conversation.state = "agent"
-                conversation.billing_gate_step = None
-                conversation.billing_gate_retries = 0
-            await session.commit()
-            return
-
-        trigger_message = Message(
-            conversation_id=conversation.id,
-            tenant_id=tenant_id,
-            sender_type="system",
-            content=(
-                "O cliente concluiu o pagamento do pacote de créditos com sucesso"
-                " — saldo já disponível."
-            ),
-        )
-        session.add(trigger_message)
+        if conversation.state == "billing_gate":
+            conversation.state = "agent"
+            conversation.billing_gate_step = None
+            conversation.billing_gate_retries = 0
         await session.commit()
-        await session.refresh(trigger_message)
-
-        await arq.enqueue_job(
-            "process_inbound_message",
-            tenant_id=str(tenant_id),
-            conversation_id=str(conversation.id),
-            message_id=str(trigger_message.id),
-        )
     except WhatsAppSendError:
         logger.exception(
             "Falha ao confirmar pagamento via WhatsApp | tenant=%s contato=%s",

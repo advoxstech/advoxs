@@ -147,6 +147,7 @@ def _conversation(**overrides):
         tenant_id=TENANT_ID,
         contact_phone_number=CONTACT,
         last_message_at=None,
+        state="agent",
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -180,7 +181,7 @@ class TestProcessEndCustomerCheckoutCompleted:
     async def test_ja_processado_nao_faz_nada(self, session, arq) -> None:
         session.scalar = AsyncMock(return_value=uuid.uuid4())
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         session.add.assert_not_called()
 
@@ -188,7 +189,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(kind="outra_coisa"), arq
+            session, TENANT_ID, _checkout_session(kind="outra_coisa")
         )
 
         session.add.assert_not_called()
@@ -197,7 +198,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(contact_phone_number=None), arq
+            session, TENANT_ID, _checkout_session(contact_phone_number=None)
         )
 
         session.add.assert_not_called()
@@ -206,7 +207,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(return_value=None)
 
         await process_end_customer_checkout_completed(
-            session, TENANT_ID, _checkout_session(package_id=None), arq
+            session, TENANT_ID, _checkout_session(package_id=None)
         )
 
         session.add.assert_not_called()
@@ -214,7 +215,7 @@ class TestProcessEndCustomerCheckoutCompleted:
     async def test_pacote_nao_encontrado_nao_processa(self, session, arq) -> None:
         session.scalar = AsyncMock(side_effect=[None, None])
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         session.add.assert_not_called()
 
@@ -222,9 +223,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         package = _package()
         conversation = _conversation()
         number = _number()
-        session.scalar = AsyncMock(
-            side_effect=[None, package, None, "block_with_message", conversation, number]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
         session.flush = AsyncMock()
@@ -232,29 +231,20 @@ class TestProcessEndCustomerCheckoutCompleted:
         monkeypatch.setattr(service, "send_text_message", send)
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
-        balance, transaction, message, trigger_message = added
+        balance, transaction, message = added
         assert balance.credit_balance == package.credits_granted
         assert transaction.type == "purchase"
         assert transaction.amount_credits == package.credits_granted
         assert transaction.stripe_payment_id == "cs_end_999"
         assert message.sender_type == "system"
-        assert trigger_message.sender_type == "system"
-        assert "pagamento" in trigger_message.content.lower()
         send.assert_awaited_once()
         assert send.await_args.kwargs["to"] == CONTACT
         session.commit.assert_awaited()
-
-        # Aciona o agente pela mesma fila do webhook do WhatsApp, com o id da
-        # mensagem de gatilho — é isso que faz a Sofia reagir sozinha, sem
-        # depender do cliente digitar "já paguei".
-        arq.enqueue_job.assert_awaited_once_with(
-            "process_inbound_message",
-            tenant_id=str(TENANT_ID),
-            conversation_id=str(conversation.id),
-            message_id=str(trigger_message.id),
-        )
+        # Mecanismo antigo (mensagem de gatilho pro agents) foi removido —
+        # nunca mais aciona nada por fila.
+        arq.enqueue_job.assert_not_called()
 
     async def test_credita_saldo_existente_soma(self, session, arq, monkeypatch) -> None:
         package = _package()
@@ -264,14 +254,12 @@ class TestProcessEndCustomerCheckoutCompleted:
             credit_balance=100,
             updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
-        session.scalar = AsyncMock(
-            side_effect=[None, package, existing_balance, "block_with_message", None, None]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, existing_balance, None, None])
         session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         assert existing_balance.credit_balance == 100 + package.credits_granted
 
@@ -279,57 +267,45 @@ class TestProcessEndCustomerCheckoutCompleted:
         self, session, arq, monkeypatch
     ) -> None:
         package = _package()
-        session.scalar = AsyncMock(
-            side_effect=[None, package, None, "block_with_message", None, None]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, None, None, None])
         session.add = MagicMock()
         monkeypatch.setattr(
             service, "send_text_message", AsyncMock(side_effect=RuntimeError("falhou"))
         )
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
-        # Falha antes de chegar na mensagem de gatilho — não deve acionar o agente.
         arq.enqueue_job.assert_not_called()
-
         session.commit.assert_awaited()
 
-    async def test_transiciona_billing_gate_para_agent_quando_deterministic_gate(
-        self, session, arq, monkeypatch
-    ) -> None:
+    async def test_transiciona_billing_gate_para_agent(self, session, arq, monkeypatch) -> None:
         package = _package()
         conversation = _conversation(
             state="billing_gate", billing_gate_step="aguardando_pagamento", billing_gate_retries=1
         )
         number = _number()
-        session.scalar = AsyncMock(
-            side_effect=[None, package, None, "deterministic_gate", conversation, number]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         assert conversation.state == "agent"
         assert conversation.billing_gate_step is None
         assert conversation.billing_gate_retries == 0
         arq.enqueue_job.assert_not_called()
 
-    async def test_nao_transiciona_conversa_em_human_mesmo_com_deterministic_gate(
-        self, session, arq, monkeypatch
-    ) -> None:
+    async def test_nao_transiciona_conversa_em_human(self, session, arq, monkeypatch) -> None:
         package = _package()
         conversation = _conversation(state="human")
         number = _number()
-        session.scalar = AsyncMock(
-            side_effect=[None, package, None, "deterministic_gate", conversation, number]
-        )
+        session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
-        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
         assert conversation.state == "human"
 

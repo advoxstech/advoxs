@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 import app.api.v1.webhooks.stripe_tenant as webhook_module
 from app.core.db import get_system_session
-from app.core.queue import get_arq_pool
 from app.main import app
 
 TENANT_ID = uuid.uuid4()
@@ -32,11 +31,7 @@ def client(session):
     async def override_session():
         yield session
 
-    async def override_arq():
-        return AsyncMock()
-
     app.dependency_overrides[get_system_session] = override_session
-    app.dependency_overrides[get_arq_pool] = override_arq
     yield TestClient(app)
     app.dependency_overrides.clear()
 
