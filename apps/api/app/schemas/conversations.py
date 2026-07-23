@@ -10,7 +10,7 @@ class ConversationOut(BaseModel):
 
     id: uuid.UUID
     contact_phone_number: str
-    state: Literal["agent", "human"]
+    state: Literal["agent", "human", "billing_gate"]
     is_test: bool
     last_message_at: datetime | None
     created_at: datetime

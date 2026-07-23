@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -26,7 +27,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
-        CheckConstraint("state IN ('agent', 'human')", name="state"),
+        CheckConstraint("state IN ('agent', 'human', 'billing_gate')", name="state"),
         UniqueConstraint("tenant_id", "contact_phone_number"),
     )
 
@@ -41,6 +42,11 @@ class Conversation(Base):
     summary: Mapped[str | None] = mapped_column(Text)
     summary_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     human_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    billing_gate_step: Mapped[str | None] = mapped_column(String)
+    billing_gate_retries: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    billing_gate_checkout_url: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
