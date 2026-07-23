@@ -1,7 +1,7 @@
 """Chama o endpoint interno de checkout do cliente final (apps/api) direto do
-worker — mesmo endpoint que a tool gerar_link_pagamento_cliente do agents já
-usa hoje pros tenants ainda em insufficient_balance_policy=block_with_message.
-Autenticado pela mesma INTERNAL_SERVICE_KEY (ver apps/api/app/api/internal_deps.py)."""
+worker — único chamador desse endpoint (o mecanismo antigo, embutido no
+agents, foi removido). Autenticado pela mesma INTERNAL_SERVICE_KEY (ver
+apps/api/app/api/internal_deps.py)."""
 
 import httpx
 

@@ -126,7 +126,6 @@ tenant_billing_settings = Table(
     Column("tenant_id", Uuid),
     Column("enabled", Boolean),
     Column("end_customer_tokens_per_credit", Integer),
-    Column("insufficient_balance_policy", String),
     Column("billing_gate_welcome_text", Text),
 )
 

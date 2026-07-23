@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     graph_api_base_url: str = "https://graph.facebook.com"
     graph_api_version: str = "v23.0"
 
-    # api (endpoint interno de checkout do cliente final — mesma chave que o
-    # agents já usa, ver INTERNAL_SERVICE_KEY em apps/api/app/core/config.py).
+    # api (endpoint interno de checkout do cliente final — mesma chave
+    # configurada em apps/api/app/core/config.py::INTERNAL_SERVICE_KEY).
     api_url: str = "http://api:8000"
     internal_service_key: str = ""
 
