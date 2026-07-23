@@ -350,7 +350,6 @@ async def test_moeda_unica_debita_so_o_cliente_final(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["send"].assert_awaited_once()
-    assert patched["send"].await_args.kwargs["end_customer_billing"]["balance"] == 1000
     # Moeda única: o turno custeado pelo cliente NÃO debita o tenant de novo.
     patched["debitar"].assert_not_awaited()
     patched["debitar_cliente_final"].assert_awaited_once()
@@ -372,15 +371,6 @@ async def test_tenant_zerado_mas_cliente_final_com_saldo_roda_o_agente(patched) 
     patched["send"].assert_awaited_once()
     patched["debitar_cliente_final"].assert_awaited_once()
     patched["debitar"].assert_not_awaited()
-
-
-async def test_billing_desabilitado_nao_manda_bloco_e_nao_debita(patched) -> None:
-    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    assert "end_customer_billing" not in patched["send"].await_args.kwargs
-    patched["debitar_cliente_final"].assert_not_awaited()
 
 
 async def test_agents_do_inbound_e_repassado_ao_send_message(patched) -> None:
@@ -469,7 +459,8 @@ async def test_contato_isento_nunca_e_customer_funded(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["send"].assert_awaited_once()
-    assert "end_customer_billing" not in patched["send"].await_args.kwargs
+    patched["debitar_cliente_final"].assert_not_awaited()
+    patched["debitar"].assert_awaited_once()
 
 
 async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patched) -> None:

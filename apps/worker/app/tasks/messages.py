@@ -184,14 +184,6 @@ async def process_inbound_message(
 
     access_token = decrypt_access_token(inbound.access_token_encrypted)
 
-    extra_kwargs: dict = {}
-    if inbound.end_customer_billing_enabled and not inbound.end_customer_billing_exempt:
-        extra_kwargs["end_customer_billing"] = {
-            "enabled": True,
-            "balance": inbound.end_customer_balance,
-            "packages": inbound.end_customer_packages,
-        }
-
     try:
         result = await send_message_to_agents(
             http,
@@ -201,7 +193,6 @@ async def process_inbound_message(
             phone_number_id=inbound.phone_number_id,
             access_token=access_token,
             agents=inbound.agents,
-            **extra_kwargs,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um

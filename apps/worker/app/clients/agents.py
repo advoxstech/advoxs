@@ -11,7 +11,6 @@ async def send_message_to_agents(
     message: str,
     phone_number_id: str,
     access_token: str,
-    end_customer_billing: dict | None = None,
     agents: list[dict] | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
@@ -22,10 +21,6 @@ async def send_message_to_agents(
     andamento — as respostas virão pela execução que está rodando).
     tokens_input/tokens_output valem 0 quando o agents ainda não devolve o
     breakdown (versão antiga durante o deploy).
-
-    `end_customer_billing` (quando não None) leva {"enabled", "balance",
-    "packages"} do cliente final — nenhum dado sensível, a secret key da
-    Stripe do tenant nunca sai do api.
 
     `agents`: a lista de agentes do tenant (id, name, instructions,
     is_entry_point, knowledge_base_file_ids) — resolvida aqui a partir do
@@ -42,15 +37,6 @@ async def send_message_to_agents(
         "access_token": access_token,
         "agents": agents or [],
     }
-    if end_customer_billing is not None:
-        # balance vem de end_customer_balances.credit_balance (Numeric(12,4)
-        # desde a Etapa 1/2 da wallet unificada) — chega aqui como Decimal,
-        # que o encoder JSON padrão não serializa. Converte na fronteira,
-        # defensivo contra qualquer chamador (só há um hoje).
-        payload["end_customer_billing"] = {
-            **end_customer_billing,
-            "balance": float(end_customer_billing["balance"]),
-        }
 
     response = await http.post("/messages", json=payload, headers=headers)
     if response.status_code == 202:
