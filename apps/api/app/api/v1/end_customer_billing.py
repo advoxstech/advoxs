@@ -98,6 +98,18 @@ async def update_settings(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Configure a secret key da Stripe antes de ativar a cobrança",
         )
+    if body.enabled is True:
+        has_active_package = await session.scalar(
+            select(EndCustomerCreditPackage.id).where(
+                EndCustomerCreditPackage.tenant_id == ctx.tenant_id,
+                EndCustomerCreditPackage.active.is_(True),
+            )
+        )
+        if has_active_package is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cadastre ao menos um pacote de créditos ativo antes de ativar a cobrança",
+            )
     if body.enabled is not None:
         row.enabled = body.enabled
 

@@ -145,6 +145,30 @@ def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:
     assert response.json()["enabled"] is True
 
 
+def test_patch_habilitar_sem_pacote_ativo_retorna_400(client, session) -> None:
+    session.scalar.side_effect = [
+        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
+        None,  # checagem de pacote ativo — nenhum cadastrado
+    ]
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 400
+    assert "pacote" in response.json()["detail"].lower()
+
+
+def test_patch_habilitar_com_pacote_ativo_funciona(client, session) -> None:
+    session.scalar.side_effect = [
+        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
+        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
+    ]
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
 def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
     client, session
 ) -> None:
@@ -164,7 +188,10 @@ def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
 
 
 def test_patch_secret_key_tokens_e_enabled_juntos_funciona(client, session, monkeypatch) -> None:
-    session.scalar.return_value = None
+    session.scalar.side_effect = [
+        None,  # _get_settings_row — ainda não existe registro
+        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
+    ]
     monkeypatch.setattr(
         "app.api.v1.end_customer_billing.encrypt_tenant_secret", lambda v: f"cifrado:{v}"
     )
