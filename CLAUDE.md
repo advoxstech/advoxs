@@ -157,7 +157,7 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `billing_gate_step` (nullable — step do gate determinístico: `null` | `aguardando_selecao_pacote` | `aguardando_pagamento`)
 - `billing_gate_retries` (integer, default `0` — tentativas não reconhecidas dentro do step atual; reseta a cada mudança de step)
 - `billing_gate_checkout_url` (nullable — link de pagamento já gerado, reenviado enquanto aguarda pagamento, nunca recriado)
-- `end_customer_billing_exempt` (boolean, default `false` — isenção de cobrança por contato, ver seção "Cobrança do cliente final"; enquanto `true`, o TENANT absorve o custo do turno e nem o billing gate determinístico nem o gate antigo embutido no `agents` são acionados pro contato)
+- `end_customer_billing_exempt` (boolean, default `false` — isenção de cobrança por contato, ver seção "Cobrança do cliente final"; enquanto `true`, o TENANT absorve o custo do turno e o billing gate determinístico não é acionado pro contato)
 - `last_message_at`
 - `created_at`
 - `UNIQUE (tenant_id, contact_phone_number)` — uma conversa por contato por tenant, espelha o `thread_id` do checkpoint no `agents`
@@ -442,7 +442,7 @@ O tenant pode isentar um contato específico da cobrança do cliente final — s
 - **Botão só aparece com a cobrança habilitada**: `ConversationOut.end_customer_billing_enabled` (calculado a partir de `tenant_billing_settings.enabled`, não do saldo do contato — um contato isento que nunca comprou nada teria saldo `null` mesmo com a cobrança habilitada) é o que o painel usa pra decidir se mostra o switch "Cobrança gratuita" em `/conversas`.
 - **Fora de escopo**: sem histórico de quem ligou/desligou (só o estado atual da flag); sem expiração automática; a flag persiste mesmo se a cobrança do cliente final for desabilitada depois (silenciosamente inofensivo, já que nada debita o cliente final com a cobrança desligada de qualquer forma).
 
-⚠️ **Segredos obrigatórios em produção**: `TENANT_STRIPE_KEY_ENCRYPTION_KEY` (Fernet própria) precisa estar setada, senão salvar a secret key de um tenant quebra com `RuntimeError`. `INTERNAL_SERVICE_KEY` precisa ser o **mesmo valor** no `.env` do `api` e do `agents` — se não setada, a verificação do endpoint interno é **pulada** (mesmo padrão já existente do `AGENTS_API_KEY`), então tratar como obrigatória antes de ir ao ar (hoje falha aberto, não fechado).
+⚠️ **Segredos obrigatórios em produção**: `TENANT_STRIPE_KEY_ENCRYPTION_KEY` (Fernet própria) precisa estar setada, senão salvar a secret key de um tenant quebra com `RuntimeError`. `INTERNAL_SERVICE_KEY` precisa ser o **mesmo valor** no `.env` do `api` e do `worker` — se não setada, a verificação do endpoint interno é **pulada** (mesmo padrão já existente do `AGENTS_API_KEY`), então tratar como obrigatória antes de ir ao ar (hoje falha aberto, não fechado).
 
 #### Pendências da cobrança do cliente final
 - [ ] Nenhuma validação impede habilitar a cobrança sem nenhum pacote ativo cadastrado — o cliente final fica sem saldo e sem nada pra comprar até o tenant cadastrar ao menos 1 pacote.
