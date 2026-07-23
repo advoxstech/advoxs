@@ -37,6 +37,11 @@ class InboundContext:
     end_customer_packages: list[dict]
     agents: list[dict]
     human_last_seen_at: datetime | None = None
+    billing_gate_step: str | None = None
+    billing_gate_retries: int = 0
+    billing_gate_checkout_url: str | None = None
+    insufficient_balance_policy: str = "block_with_message"
+    billing_gate_welcome_text: str | None = None
 
 
 def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
@@ -286,6 +291,9 @@ async def _load_context(
                 tables.conversations.c.state,
                 tables.conversations.c.contact_phone_number,
                 tables.conversations.c.human_last_seen_at,
+                tables.conversations.c.billing_gate_step,
+                tables.conversations.c.billing_gate_retries,
+                tables.conversations.c.billing_gate_checkout_url,
             ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
         )
     ).one_or_none()
@@ -327,9 +335,11 @@ async def _load_context(
 
     billing_settings = (
         await session.execute(
-            select(tables.tenant_billing_settings.c.enabled).where(
-                tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id)
-            )
+            select(
+                tables.tenant_billing_settings.c.enabled,
+                tables.tenant_billing_settings.c.insufficient_balance_policy,
+                tables.tenant_billing_settings.c.billing_gate_welcome_text,
+            ).where(tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id))
         )
     ).one_or_none()
 
@@ -384,6 +394,17 @@ async def _load_context(
         end_customer_packages=end_customer_packages,
         agents=agents,
         human_last_seen_at=conversation.human_last_seen_at,
+        billing_gate_step=conversation.billing_gate_step,
+        billing_gate_retries=conversation.billing_gate_retries,
+        billing_gate_checkout_url=conversation.billing_gate_checkout_url,
+        insufficient_balance_policy=(
+            billing_settings.insufficient_balance_policy
+            if billing_settings is not None
+            else "block_with_message"
+        ),
+        billing_gate_welcome_text=(
+            billing_settings.billing_gate_welcome_text if billing_settings is not None else None
+        ),
     )
 
 
