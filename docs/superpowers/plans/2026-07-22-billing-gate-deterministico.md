@@ -255,28 +255,29 @@ automático só por reusar o endpoint).
 - Depois de creditar `end_customer_balances` e lançar
   `end_customer_credit_transactions` (já existe):
   - Buscar a `conversation` desse `tenant_id` + `contact_phone_number` (já
-    existe, reaproveitar a busca que `_send_purchase_confirmation` já faz).
-  - Se `state == "billing_gate"`: setar `state = "agent"`,
-    `billing_gate_step = None`, `billing_gate_retries = 0` — mesma
-    transação do crédito.
+    existe, reaproveitar a busca que `_send_purchase_confirmation` já faz)
+    e o `insufficient_balance_policy` do tenant (`billing_settings`, já
+    carregado mais acima na função).
+  - **[REVISADO — rollout gradual, não é mais remoção]** `_send_purchase_confirmation`
+    passa a ramificar por `insufficient_balance_policy`:
+    - `deterministic_gate`: se `conversation.state == "billing_gate"`,
+      setar `state = "agent"`, `billing_gate_step = None`,
+      `billing_gate_retries = 0` — mesma transação do crédito. **Não**
+      persiste a `trigger_message` nem chama `arq.enqueue_job(...)` — o
+      checkpoint do LangGraph nunca foi tocado por essa mudança de
+      `conversations.state`, então se a conversa já tinha um
+      `current_agent_id` (especialista) atribuído antes do saldo esgotar,
+      ela retoma exatamente dali no próximo turno real do cliente.
+    - `block_with_message` (o default de hoje): comportamento **idêntico**
+      ao que `0e8267e` já deixou — persiste a `trigger_message` e chama
+      `arq.enqueue_job("process_inbound_message", ...)`, sem nenhuma
+      mudança. Esse tenant ainda depende do `agents` pra retomar.
+  - A remoção de verdade do caminho `block_with_message` (código E os
+    testes que `0e8267e` adicionou pra ele) só acontece junto da Etapa 5,
+    depois de 100% dos tenants migrados — não nesta etapa.
 - A mensagem de confirmação via WhatsApp (`sender_type="system"`,
-  `send_text_message`) já existe e continua igual — best-effort, não desfaz
-  o crédito se falhar.
-- **Remover** o trecho adicionado em `0e8267e` que persiste a
-  `Message(sender_type="system", content="O cliente concluiu...")` e chama
-  `arq.enqueue_job("process_inbound_message", ...)`. Com a transição de
-  estado direta acima, não existe mais motivo pra acionar o `agents` nesse
-  ponto — o checkpoint do LangGraph nunca foi tocado por essa mudança de
-  `conversations.state`, então se a conversa já tinha um `current_agent_id`
-  (especialista) atribuído antes do saldo esgotar, ela retoma exatamente
-  dali no próximo turno real do cliente, sem nenhuma mensagem sintética.
-  Reverter também os testes que `0e8267e` adicionou pra essa asserção
-  (`test_end_customer_billing_service.py`, os que verificam
-  `arq.enqueue_job.assert_awaited_once_with(...)`), e a assinatura de
-  `process_end_customer_checkout_completed`/`_send_purchase_confirmation`
-  volta a não precisar do parâmetro `arq` (ou mantém, se algum outro motivo
-  concreto surgir durante a implementação pra continuar precisando de fila
-  aqui — mas hoje nenhuma etapa deste plano depende disso).
+  `send_text_message`) já existe e continua igual em ambos os ramos —
+  best-effort, não desfaz o crédito se falhar.
 
 **Idempotência do clique duplicado**: antes de chamar
 `POST /internal/end-customer-billing/checkout` de novo, checar se já existe
