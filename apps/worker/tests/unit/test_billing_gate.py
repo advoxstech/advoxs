@@ -83,6 +83,15 @@ class TestMaybeEnterGate:
         assert entered is True
         session.execute.assert_not_called()
 
+    async def test_nao_entra_quando_contato_esta_isento(self) -> None:
+        session = AsyncMock()
+        inbound = _inbound(end_customer_balance=Decimal(0), end_customer_billing_exempt=True)
+
+        entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert entered is False
+        session.execute.assert_not_called()
+
 
 class TestHandleBillingGateAbertura:
     async def test_abre_o_gate_manda_boas_vindas_e_lista(self, monkeypatch) -> None:

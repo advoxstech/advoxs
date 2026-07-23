@@ -32,6 +32,7 @@ async def maybe_enter_gate(
     if (
         inbound.conversation_state == "agent"
         and inbound.end_customer_billing_enabled
+        and not inbound.end_customer_billing_exempt
         and inbound.insufficient_balance_policy == "deterministic_gate"
         and inbound.end_customer_balance <= 0
     ):
