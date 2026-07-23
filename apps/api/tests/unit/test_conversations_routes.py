@@ -626,6 +626,32 @@ class TestEndCustomerBalance:
         assert "tenant_billing_settings" in compiled
         assert "enabled IS true" in compiled
 
+    def test_lista_expoe_billing_enabled_do_tenant(self, client, session) -> None:
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result([]),
+            _balance_result([]),
+        ]
+        session.scalar.return_value = True
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["end_customer_billing_enabled"] is True
+
+    def test_lista_sem_billing_settings_expoe_enabled_false(self, client, session) -> None:
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result([]),
+            _balance_result([]),
+        ]
+        session.scalar.return_value = None
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["end_customer_billing_enabled"] is False
+
 
 class TestEndCustomerCycleCalculation:
     async def test_sem_nenhuma_compra_retorna_vazio(self) -> None:

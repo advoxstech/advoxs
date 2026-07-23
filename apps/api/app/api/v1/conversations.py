@@ -67,9 +67,13 @@ async def list_conversations(
     phone_numbers = [c.contact_phone_number for c in conversations]
     balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, phone_numbers)
     cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, phone_numbers)
+    billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     return [
         _to_conversation_out(
-            c, balances.get(c.contact_phone_number), cycles.get(c.contact_phone_number)
+            c,
+            balances.get(c.contact_phone_number),
+            cycles.get(c.contact_phone_number),
+            billing_enabled,
         )
         for c in conversations
     ]
@@ -133,10 +137,12 @@ async def update_state(
     cycles = await _end_customer_cycles_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
+    billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
         cycles.get(conversation.contact_phone_number),
+        billing_enabled,
     )
 
 
@@ -299,10 +305,12 @@ async def generate_summary(
     cycles = await _end_customer_cycles_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
+    billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
         cycles.get(conversation.contact_phone_number),
+        billing_enabled,
     )
 
 
@@ -431,10 +439,23 @@ async def _end_customer_cycles_by_phone(
     return cycles
 
 
+async def _is_end_customer_billing_enabled(session: AsyncSession, tenant_id: uuid.UUID) -> bool:
+    """Se a cobrança do cliente final está habilitada pro tenant — independente
+    de o contato específico já ter comprado algo ou não. Usado pra decidir se
+    o botão de isenção aparece no painel (end_customer_balance sozinho não
+    serve: um contato isento que nunca comprou nada teria balance=None mesmo
+    com a cobrança habilitada)."""
+    enabled = await session.scalar(
+        select(TenantBillingSettings.enabled).where(TenantBillingSettings.tenant_id == tenant_id)
+    )
+    return bool(enabled)
+
+
 def _to_conversation_out(
     conversation: Conversation,
     end_customer_balance: Decimal | None,
     end_customer_cycle: tuple[Decimal, Decimal] | None = None,
+    end_customer_billing_enabled: bool = False,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
     out.end_customer_balance = (
@@ -443,6 +464,7 @@ def _to_conversation_out(
     if end_customer_cycle is not None:
         out.end_customer_cycle_total = float(end_customer_cycle[0])
         out.end_customer_cycle_consumed = float(end_customer_cycle[1])
+    out.end_customer_billing_enabled = end_customer_billing_enabled
     return out
 
 
