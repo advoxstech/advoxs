@@ -136,9 +136,7 @@ async def attach_knowledge_base_file(
         )
     )
     if file is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
 
     link = AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=file.id)
     session.add(link)
@@ -153,9 +151,7 @@ async def attach_knowledge_base_file(
     return AgentKnowledgeBaseFileOut.model_validate(link)
 
 
-@router.delete(
-    "/{agent_id}/knowledge-base-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{agent_id}/knowledge-base-files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def detach_knowledge_base_file(
     agent_id: uuid.UUID,
     file_id: uuid.UUID,

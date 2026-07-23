@@ -11,6 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 import stripe
+from arq.connections import ArqRedis
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,7 +103,7 @@ async def create_end_customer_checkout_session(
 
 
 async def process_end_customer_checkout_completed(
-    session: AsyncSession, tenant_id: uuid.UUID, stripe_session: dict
+    session: AsyncSession, tenant_id: uuid.UUID, stripe_session: dict, arq: ArqRedis
 ) -> None:
     """Credita o pacote comprado pelo cliente final e confirma via WhatsApp.
 
@@ -169,14 +170,23 @@ async def process_end_customer_checkout_completed(
     )
     await session.commit()
 
-    await _send_purchase_confirmation(session, tenant_id, contact_phone_number)
+    await _send_purchase_confirmation(session, tenant_id, contact_phone_number, arq)
 
 
 async def _send_purchase_confirmation(
-    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str
+    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str, arq: ArqRedis
 ) -> None:
     """Best-effort: uma falha ao mandar a confirmação não desfaz o crédito
-    já commitado acima — o cliente só não recebe o aviso, mas o saldo está lá."""
+    já commitado acima — o cliente só não recebe o aviso, mas o saldo está lá.
+
+    Além do aviso instantâneo (fixo, via WhatsApp direto), também aciona o
+    próprio agente com uma mensagem de sistema avisando que o pagamento foi
+    concluído — mesma fila (process_inbound_message) que o webhook do
+    WhatsApp usa. Isso faz a Sofia reagir e efetivar a transferência sozinha,
+    sem depender do cliente digitar "já paguei" — ela nunca via a mensagem de
+    confirmação, porque essa mensagem era mandada direto pro WhatsApp, sem
+    nunca entrar na memória (checkpoint) do agente.
+    """
     try:
         conversation = await session.scalar(
             select(Conversation).where(
@@ -213,8 +223,28 @@ async def _send_purchase_confirmation(
                 delivery_status="sent",
             )
         )
+
+        trigger_message = Message(
+            conversation_id=conversation.id,
+            tenant_id=tenant_id,
+            sender_type="system",
+            content=(
+                "O cliente concluiu o pagamento do pacote de créditos com sucesso"
+                " — saldo já disponível."
+            ),
+        )
+        session.add(trigger_message)
+
         conversation.last_message_at = datetime.now(UTC)
         await session.commit()
+        await session.refresh(trigger_message)
+
+        await arq.enqueue_job(
+            "process_inbound_message",
+            tenant_id=str(tenant_id),
+            conversation_id=str(conversation.id),
+            message_id=str(trigger_message.id),
+        )
     except WhatsAppSendError:
         logger.exception(
             "Falha ao confirmar pagamento via WhatsApp | tenant=%s contato=%s",

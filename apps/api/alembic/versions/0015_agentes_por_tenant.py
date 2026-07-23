@@ -35,9 +35,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", sa.Uuid(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("instructions", sa.Text(), nullable=False),
-        sa.Column(
-            "is_entry_point", sa.Boolean(), server_default=sa.text("false"), nullable=False
-        ),
+        sa.Column("is_entry_point", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -83,9 +81,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["knowledge_base_file_id"],
             ["knowledge_base_files.id"],
-            name=op.f(
-                "fk_agent_knowledge_base_files_knowledge_base_file_id_knowledge_base_files"
-            ),
+            name=op.f("fk_agent_knowledge_base_files_knowledge_base_file_id_knowledge_base_files"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint(
@@ -1150,7 +1146,6 @@ promover conformidade com o Código de Defesa do Consumidor.
 
 Você tem acesso à ferramenta `buscar_base_conhecimento_escritorio`, que busca nos documentos que o próprio escritório cadastrou na plataforma (regimentos, políticas, modelos e materiais institucionais). Use-a quando a pergunta envolver informações específicas do escritório — antes de responder que não sabe algo sobre o escritório, consulte essa base.
 """
-
 
 
 def build_backfill_insert_statement(tenant_ids: list) -> sa.sql.dml.Insert:
