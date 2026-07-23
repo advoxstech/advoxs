@@ -19,6 +19,8 @@ class ConversationOut(BaseModel):
     end_customer_balance: float | None = None
     end_customer_cycle_total: float | None = None
     end_customer_cycle_consumed: float | None = None
+    end_customer_billing_exempt: bool | None = None
+    end_customer_billing_enabled: bool | None = None
 
 
 class MessageOut(BaseModel):
@@ -35,6 +37,10 @@ class MessageOut(BaseModel):
 
 class ConversationStateUpdate(BaseModel):
     state: Literal["agent", "human"]
+
+
+class BillingExemptionUpdate(BaseModel):
+    exempt: bool
 
 
 class SendMessageRequest(BaseModel):
