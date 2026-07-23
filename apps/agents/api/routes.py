@@ -50,7 +50,6 @@ class IncomingMessage(BaseModel):
     phone_number_id: str = ""
     access_token: str = ""
     send_to_whatsapp: bool = True
-    end_customer_billing: dict | None = None
     agents: list[dict] = Field(default_factory=list)
 
 
@@ -128,7 +127,6 @@ async def receive(body: IncomingMessage):
             attachments=body.attachments,
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
-            end_customer_billing=body.end_customer_billing,
             agents=body.agents,
         )
 
