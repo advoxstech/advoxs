@@ -9,7 +9,7 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
-from app.billing_gate import handle_billing_gate, maybe_enter_gate
+from app.billing_gate import _escalate_to_human, handle_billing_gate, maybe_enter_gate
 from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
@@ -111,8 +111,29 @@ async def process_inbound_message(
     async with open_tenant_session(session_factory, tenant_id) as session:
         entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
     if entrou_no_gate:
-        async with open_tenant_session(session_factory, tenant_id) as session:
-            await handle_billing_gate(session, tenant_id, conversation_id, inbound)
+        try:
+            async with open_tenant_session(session_factory, tenant_id) as session:
+                await handle_billing_gate(session, tenant_id, conversation_id, inbound)
+        except Exception as exc:
+            # Qualquer chamada externa dentro do billing gate (envio de texto/
+            # lista via WhatsApp, criação do checkout) pode falhar — se a
+            # exceção subisse incapturada, o job do arq morreria (depois das
+            # tentativas do próprio arq) e a conversa ficaria travada em
+            # state=billing_gate pra sempre: a válvula de MAX_RETRIES do gate
+            # só dispara numa RESPOSTA não reconhecida, nunca numa falha de
+            # ENVIO. Mesmo princípio da escalada em send_message_to_agents
+            # abaixo: silêncio nunca é melhor que qualquer erro transiente de
+            # rede. Sessão nova (não a que pode ter ficado com a transação
+            # suja/abortada) — garante app.tenant_id setado de novo pra RLS.
+            logger.error(
+                "Falha ao processar o billing gate, virando conversa pra human | "
+                "tenant=%s conversation=%s erro=%s",
+                tenant_id,
+                conversation_id,
+                exc,
+            )
+            async with open_tenant_session(session_factory, tenant_id) as session:
+                await _escalate_to_human(session, conversation_id)
         return
 
     if inbound.conversation_state != "agent":

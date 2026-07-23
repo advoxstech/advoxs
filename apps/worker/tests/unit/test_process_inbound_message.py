@@ -9,6 +9,7 @@ import pytest
 from arq.worker import Retry
 from cryptography.fernet import Fernet
 
+from app.clients.whatsapp import WhatsAppSendError
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.tasks import messages as messages_task
@@ -449,3 +450,32 @@ async def test_entra_no_billing_gate_e_nao_chama_agents(monkeypatch) -> None:
     entrada_mock.assert_awaited_once()
     handle_mock.assert_awaited_once()
     ctx["http"].post.assert_not_called()
+
+
+async def test_falha_dentro_do_billing_gate_escala_pra_human_sem_propagar(monkeypatch) -> None:
+    """Regressão: uma falha de envio (ex: WhatsAppSendError ao mandar a lista
+    de pacotes) dentro de handle_billing_gate não pode propagar incapturada —
+    isso mataria o job do arq e deixaria a conversa travada em
+    state=billing_gate pra sempre (a válvula de MAX_RETRIES só dispara em
+    RESPONSE não reconhecida, nunca numa falha de envio)."""
+    entrada_mock = AsyncMock(return_value=True)
+    handle_mock = AsyncMock(side_effect=WhatsAppSendError("Graph API HTTP 500: erro simulado"))
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", entrada_mock)
+    monkeypatch.setattr(messages_task, "handle_billing_gate", handle_mock)
+    ctx = _ctx()
+    session = AsyncMock()
+    ctx["session_factory"].return_value.__aenter__ = AsyncMock(return_value=session)
+
+    monkeypatch.setattr(
+        messages_task,
+        "_load_context",
+        AsyncMock(return_value=_inbound(state="agent", credit_balance=1000)),
+    )
+
+    # Não deve propagar — se propagasse, este await levantaria WhatsAppSendError.
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    handle_mock.assert_awaited_once()
+    update_values = session.execute.await_args.args[0]
+    compiled = str(update_values.compile(compile_kwargs={"literal_binds": True}))
+    assert "state='human'" in compiled
