@@ -17,10 +17,7 @@ model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 STATE_SCOPED_TOOLS = {
     "bucar_base_conhecimento_usuario",
     "buscar_base_conhecimento_agente",
-    "gerar_link_pagamento_cliente",
 }
-# Saldo/enabled do cliente final: nunca confiar em valor vindo do LLM.
-BILLING_GATED_TOOLS = {"transfer_to_agent"}
 
 
 async def agent_node(state: dict) -> Command:
@@ -43,19 +40,6 @@ async def agent_node(state: dict) -> Command:
     if current is None:
         current = entry_point
 
-    billing = state.get("end_customer_billing") or {}
-    billing_enabled = bool(billing.get("enabled"))
-    billing_blocked = is_billing_blocked(billing.get("enabled"), billing.get("balance", 0))
-
-    bounced_from_billing_block = False
-    if billing_blocked and not current["is_entry_point"]:
-        logger.info(
-            "Agente bloqueado por saldo esgotado, devolvendo pro ponto de entrada | agent_id={}",
-            current["id"],
-        )
-        current = entry_point
-        bounced_from_billing_block = True
-
     is_entry_point = current["is_entry_point"]
     # O ponto de entrada nunca recebe a instrução de "primeira resposta" —
     # esse conceito é só do agente que ACABOU de receber uma transferência
@@ -72,15 +56,7 @@ async def agent_node(state: dict) -> Command:
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
 
-    # gerar_link_pagamento_cliente só é bindada quando a cobrança do cliente
-    # final está de fato habilitada pro tenant — do contrário, a mera presença
-    # da tool na lista já muda o comportamento de function-calling do modelo
-    # (verificado num teste de integração real: o modelo passou a pedir uma
-    # pergunta de esclarecimento antes de transferir mesmo sem a feature
-    # habilitada, só por ter uma tool a mais disponível).
     tools_for_agent = [transfer_to_agent, buscar_base_conhecimento_agente, bucar_base_conhecimento_usuario]
-    if billing_enabled:
-        tools_for_agent.append(gerar_link_pagamento_cliente)
     model_with_tools = model.bind_tools(tools_for_agent)
 
     prompt = current["instructions"]
@@ -94,28 +70,6 @@ async def agent_node(state: dict) -> Command:
             f"{roster_text}"
         )
 
-    if billing_blocked and is_entry_point:
-        packages_text = "\n".join(
-            f"- {p['name']}: R$ {p['price_brl']} = {p['credits_granted']} créditos "
-            f"(package_id: {p['id']})"
-            for p in billing.get("packages", [])
-        )
-        prompt += (
-            "\n\n---\n"
-            "**Instrução:** Este cliente está sem créditos disponíveis. Antes de "
-            "transferir para outro agente, explique que é necessário comprar "
-            "créditos e ofereça os pacotes abaixo — descreva cada pacote só pelo "
-            "nome, preço e créditos. NUNCA mencione o package_id ao cliente: é um "
-            "identificador interno, só pra você usar ao chamar a tool. Quando o "
-            "cliente escolher um, use a tool gerar_link_pagamento_cliente com o "
-            "package_id correspondente. A tool devolve o link de pagamento no "
-            "resultado — copie esse link literalmente na sua resposta ao cliente; "
-            "nunca diga apenas que gerou o link sem mostrá-lo. Depois que o "
-            "cliente confirmar que pagou, chame transfer_to_agent de novo — é essa "
-            "chamada que efetivamente libera o outro agente; nunca diga que já "
-            "transferiu sem chamar essa ferramenta.\n\n"
-            f"Pacotes disponíveis:\n{packages_text}"
-        )
     if is_first_run:
         prompt += (
             "\n\n---\n"
@@ -132,21 +86,12 @@ async def agent_node(state: dict) -> Command:
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
     if is_first_run:
         update["receptive_message_specialist"] = False
-    if bounced_from_billing_block:
-        aviso_retorno = AIMessage(
-            content=(
-                f"voltando para {entry_point['name']} — o atendimento anterior "
-                "ficou indisponível porque os créditos acabaram."
-            )
-        )
-        update["messages"] = [aviso_retorno, response]
-        logger.info("Aviso de retorno ao ponto de entrada injetado | entry_point_id={}", entry_point["id"])
 
     if response.tool_calls:
         tool_name = response.tool_calls[0]["name"]
         logger.info("Ferramenta selecionada | tool={}", tool_name)
 
-        if tool_name == "transfer_to_agent" and not response.content and not billing_blocked:
+        if tool_name == "transfer_to_agent" and not response.content:
             target_id = response.tool_calls[0]["args"].get("agent_id")
             target = agents_by_id.get(target_id)
             label = target["name"] if target else "outro agente"
@@ -188,10 +133,6 @@ async def tool_node(state: dict) -> dict:
             args["knowledge_base_file_ids"] = (current or {}).get("knowledge_base_file_ids", [])
         if tool_call["name"] == "transfer_to_agent":
             args["valid_agent_ids"] = list(agents_by_id.keys())
-        if tool_call["name"] in BILLING_GATED_TOOLS:
-            billing = state.get("end_customer_billing") or {}
-            args["end_customer_billing_enabled"] = bool(billing.get("enabled"))
-            args["end_customer_balance"] = billing.get("balance", 0)
 
         logger.info("Executando ferramenta | tool={} | args={}", tool_call["name"], args)
         observation = await tool.ainvoke(args)
