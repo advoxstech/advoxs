@@ -12,6 +12,8 @@ export interface Conversation {
   end_customer_balance?: number | null;
   end_customer_cycle_total?: number | null;
   end_customer_cycle_consumed?: number | null;
+  end_customer_billing_exempt: boolean;
+  end_customer_billing_enabled: boolean;
 }
 
 export type SenderType = "agent" | "human" | "contact";

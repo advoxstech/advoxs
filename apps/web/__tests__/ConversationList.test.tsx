@@ -14,6 +14,8 @@ const conversations: Conversation[] = [
     created_at: new Date().toISOString(),
     summary: null,
     summary_generated_at: null,
+    end_customer_billing_exempt: false,
+    end_customer_billing_enabled: false,
   },
   {
     id: "c2",
@@ -24,6 +26,8 @@ const conversations: Conversation[] = [
     created_at: new Date().toISOString(),
     summary: null,
     summary_generated_at: null,
+    end_customer_billing_exempt: false,
+    end_customer_billing_enabled: false,
   },
 ];
 

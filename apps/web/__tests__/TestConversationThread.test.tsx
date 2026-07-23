@@ -24,6 +24,8 @@ const conversation: Conversation = {
   created_at: new Date().toISOString(),
   summary: null,
   summary_generated_at: null,
+  end_customer_billing_exempt: false,
+  end_customer_billing_enabled: false,
 };
 
 function message(id: string, sender: Message["sender_type"], content: string): Message {

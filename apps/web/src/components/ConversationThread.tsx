@@ -29,6 +29,32 @@ export function ConversationThread({
 
   const isManual = conversation.state === "human";
 
+  const [exemptionError, setExemptionError] = useState<string | null>(null);
+
+  const toggleBillingExemption = async () => {
+    const goingExempt = !conversation.end_customer_billing_exempt;
+    const confirmed = goingExempt
+      ? window.confirm(
+          "Isentar este cliente de cobrança? Ele poderá conversar livremente e receberá um aviso de que a conversa passou a ser gratuita.",
+        )
+      : window.confirm(
+          "A partir da próxima mensagem, esse cliente volta a ser cobrado normalmente. Confirmar?",
+        );
+    if (!confirmed) {
+      return;
+    }
+    setExemptionError(null);
+    const response = await backendFetch(`conversations/${conversation.id}/billing-exemption`, {
+      method: "PATCH",
+      body: JSON.stringify({ exempt: goingExempt }),
+    });
+    if (response.ok) {
+      onConversationUpdate(await response.json());
+    } else {
+      setExemptionError("Não foi possível alterar a cobrança deste cliente. Tente novamente.");
+    }
+  };
+
   const [summaryExpanded, setSummaryExpanded] = useState(() => Boolean(conversation.summary));
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -211,6 +237,30 @@ export function ConversationThread({
           ) : null}
         </div>
         <div className="flex items-center gap-4">
+          {conversation.end_customer_billing_enabled ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted">Cobrança gratuita</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={conversation.end_customer_billing_exempt}
+                aria-label="Cobrança gratuita"
+                onClick={() => void toggleBillingExemption()}
+                className={`relative h-5 w-9 rounded-full transition-colors ${
+                  conversation.end_customer_billing_exempt ? "bg-accent" : "bg-line"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
+                    conversation.end_customer_billing_exempt
+                      ? "translate-x-4"
+                      : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-muted">IA respondendo</span>
             <button
@@ -240,6 +290,11 @@ export function ConversationThread({
           </button>
         </div>
       </header>
+      {exemptionError ? (
+        <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
+          {exemptionError}
+        </p>
+      ) : null}
 
       {showTakeoverToast ? (
         <div
