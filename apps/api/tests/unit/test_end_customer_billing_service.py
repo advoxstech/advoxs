@@ -9,11 +9,13 @@ import pytest
 import app.services.end_customer_billing as service
 from app.services.end_customer_billing import (
     BillingNotConfiguredError,
+    EndCustomerBalanceNotFoundError,
     InvalidPackageError,
     StripeApiError,
     create_end_customer_checkout_session,
     list_customers,
     process_end_customer_checkout_completed,
+    zero_end_customer_balance,
 )
 
 TENANT_ID = uuid.uuid4()
@@ -28,6 +30,18 @@ def _settings_row(**overrides) -> SimpleNamespace:
         stripe_secret_key_encrypted="cifrado",
         stripe_webhook_secret_encrypted="cifrado-webhook",
         end_customer_tokens_per_credit=500,
+    )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
+
+
+def _balance(**overrides) -> SimpleNamespace:
+    row = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        contact_phone_number=CONTACT,
+        credit_balance=Decimal("120.0000"),
+        updated_at=None,
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -358,3 +372,38 @@ class TestListCustomers:
         query = session.execute.call_args.args[0]
         compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
         assert "tenant_id" in compiled
+
+
+class TestZeroEndCustomerBalance:
+    async def test_zera_saldo_e_lanca_ajuste_no_ledger(self) -> None:
+        session = AsyncMock()
+        balance = _balance()
+        session.scalar = AsyncMock(return_value=balance)
+        session.add = MagicMock()
+
+        await zero_end_customer_balance(session, TENANT_ID, CONTACT)
+
+        assert balance.credit_balance == 0
+        session.add.assert_called_once()
+        transaction = session.add.call_args.args[0]
+        assert transaction.type == "adjustment"
+        assert transaction.amount_credits == Decimal("-120.0000")
+        assert transaction.contact_phone_number == CONTACT
+        session.commit.assert_awaited_once()
+
+    async def test_saldo_ja_zerado_nao_faz_nada(self) -> None:
+        session = AsyncMock()
+        session.scalar = AsyncMock(return_value=_balance(credit_balance=Decimal("0")))
+        session.add = MagicMock()
+
+        await zero_end_customer_balance(session, TENANT_ID, CONTACT)
+
+        session.add.assert_not_called()
+        session.commit.assert_not_awaited()
+
+    async def test_contato_sem_saldo_levanta_erro(self) -> None:
+        session = AsyncMock()
+        session.scalar = AsyncMock(return_value=None)
+
+        with pytest.raises(EndCustomerBalanceNotFoundError):
+            await zero_end_customer_balance(session, TENANT_ID, CONTACT)

@@ -61,6 +61,4 @@ def downgrade() -> None:
     op.drop_column("conversations", "billing_gate_retries")
     op.drop_column("conversations", "billing_gate_step")
     op.drop_constraint("state", "conversations", type_="check")
-    op.create_check_constraint(
-        "state", "conversations", "state IN ('agent', 'human')"
-    )
+    op.create_check_constraint("state", "conversations", "state IN ('agent', 'human')")
