@@ -107,6 +107,8 @@ class TestCreateEndCustomerCheckoutSession:
         assert kwargs["api_key"] == "sk_test_do_tenant"
         assert kwargs["mode"] == "payment"
         assert kwargs["line_items"][0]["price_data"]["unit_amount"] == 4990
+        assert kwargs["success_url"].endswith("/pagamento-confirmado?status=sucesso")
+        assert kwargs["cancel_url"].endswith("/pagamento-confirmado?status=cancelado")
         assert kwargs["metadata"] == {
             "tenant_id": str(TENANT_ID),
             "contact_phone_number": CONTACT,
