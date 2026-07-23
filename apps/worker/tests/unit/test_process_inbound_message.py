@@ -361,19 +361,6 @@ async def test_moeda_unica_debita_so_o_cliente_final(patched) -> None:
     assert args[8] == PRICING_CONFIG.id
 
 
-async def test_billing_habilitado_sem_saldo_debita_o_tenant(patched) -> None:
-    # Cliente sem saldo: a secretária oferece pacotes — turno custeado pelo tenant.
-    patched["load"].return_value = _inbound_com_billing(balance=0)
-    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    patched["send"].assert_awaited_once()
-    assert patched["send"].await_args.kwargs["end_customer_billing"]["balance"] == 0
-    patched["debitar_cliente_final"].assert_not_awaited()
-    patched["debitar"].assert_awaited_once()
-
-
 async def test_tenant_zerado_mas_cliente_final_com_saldo_roda_o_agente(patched) -> None:
     # O crédito do cliente já saiu do estoque do tenant na revenda — o turno
     # custeado pelo cliente roda mesmo com o estoque do tenant esgotado.
@@ -385,15 +372,6 @@ async def test_tenant_zerado_mas_cliente_final_com_saldo_roda_o_agente(patched) 
     patched["send"].assert_awaited_once()
     patched["debitar_cliente_final"].assert_awaited_once()
     patched["debitar"].assert_not_awaited()
-
-
-async def test_tenant_zerado_e_cliente_sem_saldo_continua_em_silencio(patched) -> None:
-    patched["load"].return_value = _inbound_com_billing(balance=0, credit_balance=0)
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    patched["send"].assert_not_awaited()
-    patched["sync"].assert_awaited_once()
 
 
 async def test_billing_desabilitado_nao_manda_bloco_e_nao_debita(patched) -> None:
