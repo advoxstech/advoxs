@@ -55,6 +55,7 @@ def _conversation(**overrides):
         billing_gate_step=None,
         billing_gate_retries=0,
         billing_gate_checkout_url=None,
+        end_customer_billing_exempt=False,
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -257,3 +258,35 @@ async def test_sem_billing_settings_usa_policy_default() -> None:
 
     assert context.insufficient_balance_policy == "block_with_message"
     assert context.billing_gate_welcome_text is None
+
+
+async def test_carrega_isencao_de_cobranca_da_conversa() -> None:
+    session = _session_with(
+        conversation=_conversation(end_customer_billing_exempt=True),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.end_customer_billing_exempt is True
+
+
+async def test_isencao_default_e_false() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.end_customer_billing_exempt is False

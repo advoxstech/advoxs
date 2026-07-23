@@ -323,7 +323,9 @@ async def test_load_context_seta_app_tenant_id(patched) -> None:
     assert len(set_config_calls) >= 1
 
 
-def _inbound_com_billing(balance: int, credit_balance: int = 1000) -> InboundContext:
+def _inbound_com_billing(
+    balance: int, credit_balance: int = 1000, exempt: bool = False
+) -> InboundContext:
     return InboundContext(
         conversation_state="agent",
         contact_phone_number="5511888888888",
@@ -337,6 +339,7 @@ def _inbound_com_billing(balance: int, credit_balance: int = 1000) -> InboundCon
             {"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}
         ],
         agents=[],
+        end_customer_billing_exempt=exempt,
     )
 
 
@@ -479,3 +482,23 @@ async def test_falha_dentro_do_billing_gate_escala_pra_human_sem_propagar(monkey
     update_values = session.execute.await_args.args[0]
     compiled = str(update_values.compile(compile_kwargs={"literal_binds": True}))
     assert "state='human'" in compiled
+
+
+async def test_contato_isento_nunca_e_customer_funded(patched) -> None:
+    patched["load"].return_value = _inbound_com_billing(balance=1000, exempt=True)
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+    assert "end_customer_billing" not in patched["send"].await_args.kwargs
+
+
+async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patched) -> None:
+    patched["load"].return_value = _inbound_com_billing(
+        balance=1000, credit_balance=0, exempt=True
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()

@@ -25,6 +25,8 @@ function conversation(id: string, isTest: boolean): Conversation {
     created_at: new Date().toISOString(),
     summary: null,
     summary_generated_at: null,
+    end_customer_billing_exempt: false,
+    end_customer_billing_enabled: false,
   };
 }
 

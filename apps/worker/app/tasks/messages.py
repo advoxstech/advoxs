@@ -167,7 +167,11 @@ async def process_inbound_message(
     # saldo positivo) roda mesmo com o estoque do tenant zerado — esse crédito
     # já saiu do estoque na revenda. Silêncio total só quando o turno seria
     # custeado pelo tenant E o saldo dele esgotou.
-    customer_funded = inbound.end_customer_billing_enabled and inbound.end_customer_balance > 0
+    customer_funded = (
+        not inbound.end_customer_billing_exempt
+        and inbound.end_customer_billing_enabled
+        and inbound.end_customer_balance > 0
+    )
     if inbound.credit_balance <= 0 and not customer_funded:
         logger.info(
             "Saldo esgotado, agente não acionado | tenant=%s conversation=%s saldo=%s",
@@ -181,7 +185,7 @@ async def process_inbound_message(
     access_token = decrypt_access_token(inbound.access_token_encrypted)
 
     extra_kwargs: dict = {}
-    if inbound.end_customer_billing_enabled:
+    if inbound.end_customer_billing_enabled and not inbound.end_customer_billing_exempt:
         extra_kwargs["end_customer_billing"] = {
             "enabled": True,
             "balance": inbound.end_customer_balance,
@@ -303,6 +307,7 @@ async def _load_context(
                 tables.conversations.c.billing_gate_step,
                 tables.conversations.c.billing_gate_retries,
                 tables.conversations.c.billing_gate_checkout_url,
+                tables.conversations.c.end_customer_billing_exempt,
             ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
         )
     ).one_or_none()
@@ -414,6 +419,7 @@ async def _load_context(
         billing_gate_welcome_text=(
             billing_settings.billing_gate_welcome_text if billing_settings is not None else None
         ),
+        end_customer_billing_exempt=conversation.end_customer_billing_exempt,
     )
 
 

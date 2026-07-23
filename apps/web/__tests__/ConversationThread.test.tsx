@@ -34,6 +34,8 @@ function conversation(
     created_at: new Date().toISOString(),
     summary,
     summary_generated_at: summaryGeneratedAt,
+    end_customer_billing_exempt: false,
+    end_customer_billing_enabled: false,
   };
 }
 
@@ -644,5 +646,163 @@ describe("ConversationThread", () => {
     );
 
     expect(screen.queryByText(/créditos usados/)).not.toBeInTheDocument();
+  });
+
+  it("não mostra o switch de cobrança gratuita quando end_customer_billing_enabled é false", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("switch", { name: "Cobrança gratuita" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("mostra o switch de cobrança gratuita quando end_customer_billing_enabled é true", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_billing_enabled: true }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    const switchControl = screen.getByRole("switch", { name: "Cobrança gratuita" });
+    expect(switchControl).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("ligar a isenção pede confirmação e faz PATCH com exempt=true", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const updated = {
+      ...conversation("agent"),
+      end_customer_billing_enabled: true,
+      end_customer_billing_exempt: true,
+    };
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "PATCH") {
+        return jsonResponse(updated);
+      }
+      return jsonResponse([]);
+    });
+    const onConversationUpdate = vi.fn();
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_billing_enabled: true }}
+        onConversationUpdate={onConversationUpdate}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      "Isentar este cliente de cobrança? Ele poderá conversar livremente e receberá um aviso de que a conversa passou a ser gratuita.",
+    );
+    await waitFor(() => {
+      expect(onConversationUpdate).toHaveBeenCalledWith(updated);
+    });
+    expect(backendFetchMock).toHaveBeenCalledWith(
+      "conversations/c1/billing-exemption",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ exempt: true }) }),
+    );
+  });
+
+  it("desligar a isenção pede a confirmação de aviso de cobrança normal", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const exempt = {
+      ...conversation("agent"),
+      end_customer_billing_enabled: true,
+      end_customer_billing_exempt: true,
+    };
+    const updated = { ...exempt, end_customer_billing_exempt: false };
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "PATCH") {
+        return jsonResponse(updated);
+      }
+      return jsonResponse([]);
+    });
+    const onConversationUpdate = vi.fn();
+
+    render(
+      <ConversationThread
+        conversation={exempt}
+        onConversationUpdate={onConversationUpdate}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      "A partir da próxima mensagem, esse cliente volta a ser cobrado normalmente. Confirmar?",
+    );
+    await waitFor(() => {
+      expect(onConversationUpdate).toHaveBeenCalledWith(updated);
+    });
+    expect(backendFetchMock).toHaveBeenCalledWith(
+      "conversations/c1/billing-exemption",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ exempt: false }) }),
+    );
+  });
+
+  it("cancelar a confirmação não faz nenhuma chamada de rede", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_billing_enabled: true }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(
+      backendFetchMock.mock.calls.some(([path]) =>
+        String(path).includes("billing-exemption"),
+      ),
+    ).toBe(false);
+  });
+
+  it("mostra erro inline quando o PATCH de isenção falha, sem alterar o switch", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    backendFetchMock.mockImplementation(async (path, init) => {
+      if (init?.method === "PATCH" && String(path).includes("billing-exemption")) {
+        return jsonResponse({ detail: "erro" }, 500);
+      }
+      return jsonResponse([]);
+    });
+
+    render(
+      <ConversationThread
+        conversation={{ ...conversation("agent"), end_customer_billing_enabled: true }}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Não foi possível alterar a cobrança deste cliente. Tente novamente."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("switch", { name: "Cobrança gratuita" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 });
