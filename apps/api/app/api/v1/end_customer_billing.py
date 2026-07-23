@@ -19,7 +19,11 @@ from app.schemas.end_customer_billing import (
     TenantBillingSettingsOut,
     TenantBillingSettingsUpdate,
 )
-from app.services.end_customer_billing import list_customers
+from app.services.end_customer_billing import (
+    EndCustomerBalanceNotFoundError,
+    list_customers,
+    zero_end_customer_balance,
+)
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -187,3 +191,17 @@ async def list_end_customers(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[EndCustomerSummaryOut]:
     return await list_customers(session, ctx.tenant_id, limit, offset)
+
+
+@router.post(
+    "/customers/{contact_phone_number}/zero-balance", status_code=status.HTTP_204_NO_CONTENT
+)
+async def zero_balance(
+    contact_phone_number: str,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    try:
+        await zero_end_customer_balance(session, ctx.tenant_id, contact_phone_number)
+    except EndCustomerBalanceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

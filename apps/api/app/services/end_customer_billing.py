@@ -44,6 +44,10 @@ class StripeApiError(Exception):
     """Falha ao criar a sessão de checkout na Stripe (rede ou resposta de erro)."""
 
 
+class EndCustomerBalanceNotFoundError(Exception):
+    """Esse contato nunca teve saldo registrado com o tenant."""
+
+
 async def create_end_customer_checkout_session(
     session: AsyncSession,
     tenant_id: uuid.UUID,
@@ -282,6 +286,45 @@ async def _send_purchase_confirmation(
             tenant_id,
             contact_phone_number,
         )
+
+
+async def zero_end_customer_balance(
+    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str
+) -> None:
+    """Remoção manual do saldo de um cliente final, pelo escritório — se ele
+    entrar em contato de novo, precisa comprar créditos novamente.
+
+    FOR UPDATE trava a linha antes de zerar, mesmo padrão de lock usado pelo
+    `worker` nos débitos — evita colidir com um consumo em andamento no
+    mesmo contato. Lança uma transação tipo `adjustment` (já aceita no
+    schema, nunca usada até aqui) pra manter o ledger auditável.
+    """
+    balance = await session.scalar(
+        select(EndCustomerBalance)
+        .where(
+            EndCustomerBalance.tenant_id == tenant_id,
+            EndCustomerBalance.contact_phone_number == contact_phone_number,
+        )
+        .with_for_update()
+    )
+    if balance is None:
+        raise EndCustomerBalanceNotFoundError("Esse contato não tem saldo registrado")
+
+    if balance.credit_balance == 0:
+        return
+
+    session.add(
+        EndCustomerCreditTransaction(
+            tenant_id=tenant_id,
+            contact_phone_number=contact_phone_number,
+            type="adjustment",
+            amount_credits=-balance.credit_balance,
+            description="Remoção manual de créditos pelo escritório",
+        )
+    )
+    balance.credit_balance = 0
+    balance.updated_at = datetime.now(UTC)
+    await session.commit()
 
 
 async def list_customers(
