@@ -208,7 +208,9 @@ class TestProcessEndCustomerCheckoutCompleted:
         package = _package()
         conversation = _conversation()
         number = _number()
-        session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
+        session.scalar = AsyncMock(
+            side_effect=[None, package, None, "block_with_message", conversation, number]
+        )
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
         session.flush = AsyncMock()
@@ -248,7 +250,9 @@ class TestProcessEndCustomerCheckoutCompleted:
             credit_balance=100,
             updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
-        session.scalar = AsyncMock(side_effect=[None, package, existing_balance, None, None])
+        session.scalar = AsyncMock(
+            side_effect=[None, package, existing_balance, "block_with_message", None, None]
+        )
         session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
@@ -261,7 +265,9 @@ class TestProcessEndCustomerCheckoutCompleted:
         self, session, arq, monkeypatch
     ) -> None:
         package = _package()
-        session.scalar = AsyncMock(side_effect=[None, package, None, None, None])
+        session.scalar = AsyncMock(
+            side_effect=[None, package, None, "block_with_message", None, None]
+        )
         session.add = MagicMock()
         monkeypatch.setattr(
             service, "send_text_message", AsyncMock(side_effect=RuntimeError("falhou"))
@@ -273,6 +279,43 @@ class TestProcessEndCustomerCheckoutCompleted:
         arq.enqueue_job.assert_not_called()
 
         session.commit.assert_awaited()
+
+    async def test_transiciona_billing_gate_para_agent_quando_deterministic_gate(
+        self, session, arq, monkeypatch
+    ) -> None:
+        package = _package()
+        conversation = _conversation(
+            state="billing_gate", billing_gate_step="aguardando_pagamento", billing_gate_retries=1
+        )
+        number = _number()
+        session.scalar = AsyncMock(
+            side_effect=[None, package, None, "deterministic_gate", conversation, number]
+        )
+        monkeypatch.setattr(service, "send_text_message", AsyncMock())
+        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+
+        assert conversation.state == "agent"
+        assert conversation.billing_gate_step is None
+        assert conversation.billing_gate_retries == 0
+        arq.enqueue_job.assert_not_called()
+
+    async def test_nao_transiciona_conversa_em_human_mesmo_com_deterministic_gate(
+        self, session, arq, monkeypatch
+    ) -> None:
+        package = _package()
+        conversation = _conversation(state="human")
+        number = _number()
+        session.scalar = AsyncMock(
+            side_effect=[None, package, None, "deterministic_gate", conversation, number]
+        )
+        monkeypatch.setattr(service, "send_text_message", AsyncMock())
+        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+
+        await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session(), arq)
+
+        assert conversation.state == "human"
 
 
 class TestListCustomers:

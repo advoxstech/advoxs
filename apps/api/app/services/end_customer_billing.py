@@ -170,22 +170,40 @@ async def process_end_customer_checkout_completed(
     )
     await session.commit()
 
-    await _send_purchase_confirmation(session, tenant_id, contact_phone_number, arq)
+    policy = await session.scalar(
+        select(TenantBillingSettings.insufficient_balance_policy).where(
+            TenantBillingSettings.tenant_id == tenant_id
+        )
+    )
+    await _send_purchase_confirmation(
+        session, tenant_id, contact_phone_number, arq, policy or "block_with_message"
+    )
 
 
 async def _send_purchase_confirmation(
-    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str, arq: ArqRedis
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    contact_phone_number: str,
+    arq: ArqRedis,
+    insufficient_balance_policy: str,
 ) -> None:
     """Best-effort: uma falha ao mandar a confirmação não desfaz o crédito
     já commitado acima — o cliente só não recebe o aviso, mas o saldo está lá.
 
-    Além do aviso instantâneo (fixo, via WhatsApp direto), também aciona o
-    próprio agente com uma mensagem de sistema avisando que o pagamento foi
-    concluído — mesma fila (process_inbound_message) que o webhook do
-    WhatsApp usa. Isso faz a Sofia reagir e efetivar a transferência sozinha,
-    sem depender do cliente digitar "já paguei" — ela nunca via a mensagem de
-    confirmação, porque essa mensagem era mandada direto pro WhatsApp, sem
-    nunca entrar na memória (checkpoint) do agente.
+    Além do aviso instantâneo (fixo, via WhatsApp direto), o comportamento
+    depois disso depende de insufficient_balance_policy (rollout gradual do
+    billing gate determinístico, ver
+    docs/superpowers/specs/2026-07-22-billing-gate-deterministico-design.md):
+    - "block_with_message" (default, tenant ainda não migrado): aciona o
+      próprio agente com uma mensagem de sistema avisando que o pagamento
+      foi concluído — mesma fila (process_inbound_message) que o webhook do
+      WhatsApp usa. Isso faz a Sofia reagir e efetivar a transferência
+      sozinha, sem depender do cliente digitar "já paguei".
+    - "deterministic_gate" (tenant migrado): a conversa, se estiver em
+      billing_gate, volta direto pra "agent" — sem acionar o agents, já que
+      o checkpoint do LangGraph nunca foi tocado por essa mudança de estado
+      e a conversa retoma de onde estava (ou começa do zero pelo ponto de
+      entrada, se nunca tinha sido atendida).
     """
     try:
         conversation = await session.scalar(
@@ -223,6 +241,15 @@ async def _send_purchase_confirmation(
                 delivery_status="sent",
             )
         )
+        conversation.last_message_at = datetime.now(UTC)
+
+        if insufficient_balance_policy == "deterministic_gate":
+            if conversation.state == "billing_gate":
+                conversation.state = "agent"
+                conversation.billing_gate_step = None
+                conversation.billing_gate_retries = 0
+            await session.commit()
+            return
 
         trigger_message = Message(
             conversation_id=conversation.id,
@@ -234,8 +261,6 @@ async def _send_purchase_confirmation(
             ),
         )
         session.add(trigger_message)
-
-        conversation.last_message_at = datetime.now(UTC)
         await session.commit()
         await session.refresh(trigger_message)
 
