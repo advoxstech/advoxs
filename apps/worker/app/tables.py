@@ -47,6 +47,9 @@ conversations = Table(
     Column("is_test", Boolean, nullable=False),
     Column("last_message_at", DateTime(timezone=True)),
     Column("human_last_seen_at", DateTime(timezone=True)),
+    Column("billing_gate_step", String),
+    Column("billing_gate_retries", Integer),
+    Column("billing_gate_checkout_url", Text),
 )
 
 messages = Table(
@@ -122,6 +125,8 @@ tenant_billing_settings = Table(
     Column("tenant_id", Uuid),
     Column("enabled", Boolean),
     Column("end_customer_tokens_per_credit", Integer),
+    Column("insufficient_balance_policy", String),
+    Column("billing_gate_welcome_text", Text),
 )
 
 end_customer_credit_packages = Table(

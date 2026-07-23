@@ -115,6 +115,7 @@ services:
     env_file: *default-env-file
     environment:
       RAG_API_URL: http://api_rag:8000
+      API_URL: http://api:8000
     volumes:
       - kb_uploads:/data/kb_uploads
     depends_on:

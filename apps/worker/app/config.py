@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     # Chave Fernet para descriptografar whatsapp_numbers.access_token_encrypted
     whatsapp_token_encryption_key: str = ""
 
+    # Graph API (envio direto de mensagens do billing gate, sem passar pelo agents).
+    graph_api_base_url: str = "https://graph.facebook.com"
+    graph_api_version: str = "v23.0"
+
+    # api (endpoint interno de checkout do cliente final — mesma chave que o
+    # agents já usa, ver INTERNAL_SERVICE_KEY em apps/api/app/core/config.py).
+    api_url: str = "http://api:8000"
+    internal_service_key: str = ""
+
     # Conversão de consumo: 1 crédito = N tokens (arredondamento sempre pra
     # cima). Valor de partida — calibrar com o custo real do LLM + margem.
 
