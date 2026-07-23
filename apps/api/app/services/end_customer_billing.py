@@ -92,8 +92,8 @@ async def create_end_customer_checkout_session(
                 "package_id": str(package_id),
                 "kind": "end_customer_purchase",
             },
-            success_url=f"{settings.web_app_url}/pagamento-confirmado",
-            cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
+            success_url=f"{settings.web_app_url}/pagamento-confirmado?status=sucesso",
+            cancel_url=f"{settings.web_app_url}/pagamento-confirmado?status=cancelado",
         )
     except stripe.error.StripeError as exc:
         logger.error("Falha ao criar checkout do cliente final | erro=%s", exc)
