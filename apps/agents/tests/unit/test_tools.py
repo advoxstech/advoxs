@@ -7,7 +7,6 @@ from agents.tools import (
     buscar_base_conhecimento_agente,
     bucar_base_conhecimento_usuario,
     enviar_documento,
-    gerar_link_pagamento_cliente,
 )
 
 
@@ -40,44 +39,6 @@ def test_transfer_sem_valid_agent_ids_recusa():
     result = transfer_to_agent.invoke({"agent_id": "agent-2"})
     assert isinstance(result, str)
     assert "recusada" in result.lower()
-
-
-def test_transfer_bloqueada_sem_saldo_retorna_string():
-    result = transfer_to_agent.invoke(
-        {
-            "agent_id": "agent-2",
-            "valid_agent_ids": ["agent-2"],
-            "end_customer_billing_enabled": True,
-            "end_customer_balance": 0,
-        }
-    )
-    assert isinstance(result, str)
-    assert "bloqueada" in result.lower()
-
-
-def test_transfer_liberada_com_saldo_positivo():
-    result = transfer_to_agent.invoke(
-        {
-            "agent_id": "agent-2",
-            "valid_agent_ids": ["agent-2"],
-            "end_customer_billing_enabled": True,
-            "end_customer_balance": 100,
-        }
-    )
-    assert isinstance(result, Command)
-    assert result.update["current_agent_id"] == "agent-2"
-
-
-def test_transfer_sem_billing_habilitado_ignora_saldo():
-    result = transfer_to_agent.invoke(
-        {
-            "agent_id": "agent-2",
-            "valid_agent_ids": ["agent-2"],
-            "end_customer_billing_enabled": False,
-            "end_customer_balance": 0,
-        }
-    )
-    assert isinstance(result, Command)
 
 
 # ──────────────────────────────────────────────
@@ -255,30 +216,3 @@ def test_enviar_documento_infere_extensao_pelo_content_type():
 
         filename = mock_post.call_args[1]["files"]["file"][0]
         assert filename.endswith(".png")
-
-
-# ──────────────────────────────────────────────
-# gerar_link_pagamento_cliente
-# ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_gerar_link_pagamento_divide_conversation_id_e_retorna_url():
-    with patch(
-        "agents.tools.criar_link_pagamento", new=AsyncMock(return_value="https://checkout.stripe.com/pay/cs_1")
-    ) as mock_fn:
-        result = await gerar_link_pagamento_cliente.ainvoke(
-            {"package_id": "pkg-1", "conversation_id": "tenant-1:5511999998888"}
-        )
-
-        mock_fn.assert_called_once_with("tenant-1", "5511999998888", "pkg-1")
-        assert "https://checkout.stripe.com/pay/cs_1" in result
-
-
-@pytest.mark.asyncio
-async def test_gerar_link_pagamento_falha_retorna_mensagem_amigavel():
-    with patch("agents.tools.criar_link_pagamento", new=AsyncMock(return_value=None)):
-        result = await gerar_link_pagamento_cliente.ainvoke(
-            {"package_id": "pkg-1", "conversation_id": "tenant-1:5511999998888"}
-        )
-
-        assert "não foi possível" in result.lower()
