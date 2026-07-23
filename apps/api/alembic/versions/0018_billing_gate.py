@@ -52,6 +52,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # ⚠️ create_check_constraint abaixo falha se alguma conversation ainda
+    # estiver em state='billing_gate' no momento do downgrade (violação da
+    # constraint restrita) — só rodar depois de confirmar que nenhum tenant
+    # em insufficient_balance_policy='deterministic_gate' tem gate aberto.
     op.drop_column("tenant_billing_settings", "billing_gate_welcome_text")
     op.drop_column("conversations", "billing_gate_checkout_url")
     op.drop_column("conversations", "billing_gate_retries")

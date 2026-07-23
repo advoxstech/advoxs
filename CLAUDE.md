@@ -153,7 +153,10 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `id` (uuid, PK)
 - `tenant_id` (FK → `tenants`)
 - `contact_phone_number`
-- `state` (`agent` | `human`)
+- `state` (`agent` | `human` | `billing_gate` — terceiro estado do **billing gate determinístico**, ver seção "Cobrança do cliente final"; nunca setável via `PATCH /conversations/{id}` público, só o `worker`/webhook Stripe escrevem nele direto no banco)
+- `billing_gate_step` (nullable — step do gate determinístico: `null` | `aguardando_selecao_pacote` | `aguardando_pagamento`)
+- `billing_gate_retries` (integer, default `0` — tentativas não reconhecidas dentro do step atual; reseta a cada mudança de step)
+- `billing_gate_checkout_url` (nullable — link de pagamento já gerado, reenviado enquanto aguarda pagamento, nunca recriado)
 - `last_message_at`
 - `created_at`
 - `UNIQUE (tenant_id, contact_phone_number)` — uma conversa por contato por tenant, espelha o `thread_id` do checkpoint no `agents`
@@ -209,6 +212,8 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `stripe_secret_key_encrypted` (nullable, cifrado — Fernet, chave própria `TENANT_STRIPE_KEY_ENCRYPTION_KEY`, nunca a mesma do WhatsApp)
 - `stripe_webhook_secret_encrypted` (nullable, cifrado — mesma chave)
 - `end_customer_tokens_per_credit` (nullable, integer — conversão de consumo, definida por tenant)
+- `insufficient_balance_policy` (`block_with_message` [default] | `deterministic_gate` — rollout gradual por tenant do billing gate determinístico, ver seção "Cobrança do cliente final"; coluna `String` sem CHECK constraint, então o valor novo não exigiu migração)
+- `billing_gate_welcome_text` (nullable — texto de boas-vindas customizado pelo tenant pro billing gate; cai num texto institucional padrão se não configurado)
 - `created_at`, `updated_at`
 
 ### `end_customer_credit_packages` (tenant-scoped)
@@ -409,8 +414,21 @@ Além do billing tenant→plataforma (acima), cada tenant pode cobrar os **próp
 - **Webhook por tenant** (`POST /api/v1/webhooks/stripe/tenant/{tenant_id}`): o `tenant_id` na URL é só roteamento pra achar o webhook secret certo antes de validar a assinatura (não dá pra "tentar" o secret de todos os tenants contra um payload); tenant inexistente ou assinatura inválida devolvem o mesmo `400` genérico (sem oráculo de enumeração de tenant). Credita `end_customer_balances`, lança `end_customer_credit_transactions` (idempotente por `stripe_payment_id`) e manda uma mensagem de confirmação via WhatsApp (`messages.sender_type="system"`) — best-effort: uma falha ao mandar a confirmação não desfaz o crédito, que já foi commitado antes. ⚠️ Essa compra ainda credita o cliente final **sem debitar o estoque do tenant** (não é uma revenda de verdade — isso é a próxima etapa do plano de wallet unificada, `docs/superpowers/plans/2026-07-17-etapa-2-consumo-ponderado.md`, que documenta a Etapa 1+2 já feitas).
 - **Gate técnico no grafo do `agents`**: sem saldo (feature habilitada + `balance <= 0`), a tool `transfer_to_agent` recusa a transferência e o ponto de entrada oferece os pacotes cadastrados/gera o link em vez de transferir. Esse saldo é **re-checado a cada turno dentro do `agent_node` genérico também**, não só na transferência inicial — sem isso, uma vez transferida a conversa fica fixada no agente de destino (`current_agent_id` no checkpoint), então um cliente que comprasse um pacote pequeno ganharia atendimento gratuito ilimitado depois de esgotar o saldo. Quando bloqueado, o agente que não é o ponto de entrada é atendido pelo próprio ponto de entrada no mesmo turno, em vez de responder — com um aviso fixo explicando o motivo do retorno, disparado uma única vez por bloqueio (ver seção Agents Service).
 - ✅ **Moeda única no `worker`**: `process_inbound_message` lê o saldo do cliente final antes de chamar o `agents` (como já fazia) e decide `customer_funded = enabled and balance > 0` — se `True`, debita **só** `end_customer_balances` (créditos ponderados, `calcular_creditos`, com lock e auditoria); se `False`, debita **só** `tenants.credit_balance`. O gate de saldo esgotado do tenant (`credit_balance <= 0` → silêncio total) **não dispara** quando `customer_funded` é `True` — o turno roda mesmo com o estoque do tenant zerado, porque esse crédito específico não sai mais dali.
-- **`insufficient_balance_policy`** (`tenant_billing_settings`, migration `0014`): hook de extensibilidade — hoje só `block_with_message` (comportamento acima), preparado para políticas futuras (ex: permitir saldo negativo até um teto) sem mudar o schema de novo.
+- **`insufficient_balance_policy`** (`tenant_billing_settings`, migration `0014`): `block_with_message` (default, comportamento acima) | `deterministic_gate` (✅ implementado, migration `0018` — ver "Billing gate determinístico" abaixo). Coluna `String` sem CHECK constraint — migrar um tenant é um `UPDATE` direto no banco, sem deploy novo.
 - **`/pagamento-confirmado`**: página pública e estática do `web` (sem sessão, sem polling) — destino do `success_url`/`cancel_url` do checkout do cliente final; a confirmação de fato chega pelo WhatsApp via o webhook acima.
+
+#### Billing gate determinístico — ✅ implementado (rollout gradual, coexiste com o gate acima)
+
+> `docs/superpowers/specs/2026-07-22-billing-gate-deterministico-design.md` / `docs/superpowers/plans/2026-07-22-billing-gate-implementacao.md`
+
+Pra tenants migrados pra `insufficient_balance_policy = "deterministic_gate"`, o funil "sem saldo → escolher pacote → pagar → liberado" deixou de passar pelo `agents` (LLM) e virou uma máquina de estados determinística, inteiramente no `worker` (`apps/worker/app/billing_gate.py`), usando mensagens nativas do WhatsApp (`interactive`/`list`) — zero custo de LLM nesse trecho. `conversations` ganhou o terceiro estado `billing_gate` + `billing_gate_step`/`billing_gate_retries`/`billing_gate_checkout_url` (ver Modelo de Dados).
+
+- **Entrada** (`maybe_enter_gate`, checado a cada mensagem em `process_inbound_message`, antes do fluxo normal): tenant com a policy nova + cobrança habilitada + saldo do contato `<= 0` → transiciona `agent`→`billing_gate`. Tenants em `block_with_message` (default) nunca entram aqui — o gate antigo dentro do `agents` continua valendo pra eles, sem nenhuma mudança.
+- **Steps**: `null` (abre o gate — manda texto de boas-vindas + lista interativa de pacotes) → `aguardando_selecao_pacote` (resolve a seleção **pelo título/nome do pacote**, já que o parser do webhook (`extract_inbound_messages`) persiste a resposta de uma lista como `title`, não `id`, e `messages.content` não guarda o `message_type` original; gera o link de pagamento via `POST /internal/end-customer-billing/checkout` e armazena em `billing_gate_checkout_url`) → `aguardando_pagamento` (reenvia o link já armazenado — nunca gera um novo).
+- **Retries**: reseta a 0 a cada mudança de step, incrementa só numa resposta não reconhecida dentro do mesmo step; em `MAX_RETRIES = 3` sem sucesso, escala pra `state = "human"`.
+- **Falha de envio (WhatsApp/Stripe) dentro do gate**: escala pra `human` também (não só resposta não reconhecida) — sem isso, uma falha de rede deixaria a conversa travada em `billing_gate` pra sempre, já que a válvula de escape por retry só cobria respostas, não exceções.
+- **Fechamento do ciclo**: o webhook Stripe do tenant (`process_end_customer_checkout_completed` → `_send_purchase_confirmation`, `apps/api/app/services/end_customer_billing.py`) agora ramifica por `insufficient_balance_policy` — `deterministic_gate` transiciona a conversa direto de `billing_gate` pra `agent` (sem acionar o `agents`); `block_with_message` preserva o mecanismo antigo intacto (mensagem de gatilho + `arq.enqueue_job("process_inbound_message", ...)`, que faz a secretária "notar" o pagamento).
+- **Fora de escopo desta etapa**: `apps/web` não tem UI dedicada pro estado `billing_gate` (uma conversa nesse estado aparece como "não humana" no painel); migração de tenant pra essa policy é operacional (`UPDATE` direto), sem self-service; remoção do gate antigo do `agents` só acontece depois de 100% dos tenants migrados.
 
 ⚠️ **Segredos obrigatórios em produção**: `TENANT_STRIPE_KEY_ENCRYPTION_KEY` (Fernet própria) precisa estar setada, senão salvar a secret key de um tenant quebra com `RuntimeError`. `INTERNAL_SERVICE_KEY` precisa ser o **mesmo valor** no `.env` do `api` e do `agents` — se não setada, a verificação do endpoint interno é **pulada** (mesmo padrão já existente do `AGENTS_API_KEY`), então tratar como obrigatória antes de ir ao ar (hoje falha aberto, não fechado).
 
