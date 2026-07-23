@@ -157,6 +157,7 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `billing_gate_step` (nullable — step do gate determinístico: `null` | `aguardando_selecao_pacote` | `aguardando_pagamento`)
 - `billing_gate_retries` (integer, default `0` — tentativas não reconhecidas dentro do step atual; reseta a cada mudança de step)
 - `billing_gate_checkout_url` (nullable — link de pagamento já gerado, reenviado enquanto aguarda pagamento, nunca recriado)
+- `end_customer_billing_exempt` (boolean, default `false` — isenção de cobrança por contato, ver seção "Cobrança do cliente final"; enquanto `true`, o TENANT absorve o custo do turno e nem o billing gate determinístico nem o gate antigo embutido no `agents` são acionados pro contato)
 - `last_message_at`
 - `created_at`
 - `UNIQUE (tenant_id, contact_phone_number)` — uma conversa por contato por tenant, espelha o `thread_id` do checkpoint no `agents`
@@ -429,6 +430,20 @@ Pra tenants migrados pra `insufficient_balance_policy = "deterministic_gate"`, o
 - **Falha de envio (WhatsApp/Stripe) dentro do gate**: escala pra `human` também (não só resposta não reconhecida) — sem isso, uma falha de rede deixaria a conversa travada em `billing_gate` pra sempre, já que a válvula de escape por retry só cobria respostas, não exceções.
 - **Fechamento do ciclo**: o webhook Stripe do tenant (`process_end_customer_checkout_completed` → `_send_purchase_confirmation`, `apps/api/app/services/end_customer_billing.py`) agora ramifica por `insufficient_balance_policy` — `deterministic_gate` transiciona a conversa direto de `billing_gate` pra `agent` (sem acionar o `agents`); `block_with_message` preserva o mecanismo antigo intacto (mensagem de gatilho + `arq.enqueue_job("process_inbound_message", ...)`, que faz a secretária "notar" o pagamento).
 - **Fora de escopo desta etapa**: `apps/web` não tem UI dedicada pro estado `billing_gate` (uma conversa nesse estado aparece como "não humana" no painel); migração de tenant pra essa policy é operacional (`UPDATE` direto), sem self-service; remoção do gate antigo do `agents` só acontece depois de 100% dos tenants migrados.
+- ✅ **Auto-recuperação de uma corrida rara com a isenção de cobrança** (ver subseção abaixo): se o tenant isenta um contato no instante exato entre o `worker` ler o contexto (`_load_context`) e comitar a entrada no gate, a conversa pode ficar `state="billing_gate"` com `end_customer_billing_exempt=true` ao mesmo tempo. `maybe_enter_gate` detecta essa combinação na mensagem seguinte (o próprio topo da função, antes de qualquer outra checagem) e sai do gate na hora (`state="agent"`, reset de step/retries) em vez de perpetuar o bloqueio — sem isso, o curto-circuito de reentrada (`state == "billing_gate"` → `return True`) nunca chegaria a checar a isenção.
+
+#### Isenção de cobrança por contato — ✅ implementado
+
+> `docs/superpowers/specs/2026-07-23-isencao-cobranca-cliente-final-design.md` / `docs/superpowers/plans/2026-07-23-isencao-cobranca-cliente-final.md`
+
+O tenant pode isentar um contato específico da cobrança do cliente final — só em conversas **reais** de WhatsApp (conversas de teste não têm esse botão, decisão deliberada). `PATCH /api/v1/conversations/{id}/billing-exemption` (`{exempt: bool}`) liga/desliga `conversations.end_customer_billing_exempt` (ver Modelo de Dados).
+
+- **Quem paga**: o TENANT, sempre, enquanto isento — mesma regra já aplicada hoje pra qualquer tenant sem a cobrança do cliente final habilitada (nunca é "ninguém paga"). No `worker`, `customer_funded` é forçado `false` mesmo com saldo positivo do cliente final, e o payload `end_customer_billing` não é enviado ao `agents` — pro grafo, é como se a cobrança estivesse desligada pra esse turno, então o gate antigo (embutido no grafo, tenants em `block_with_message`) também não bloqueia nada.
+- **Cancela o gate em andamento**: ligar a isenção com a conversa em `billing_gate` sai na hora pra `agent` (reset de step/retries); um link de pagamento já gerado fica órfão, sem problema.
+- **Idempotente**: chamar o endpoint com o valor que a conversa já tem não reenvia aviso nem produz efeito colateral.
+- **Aviso ao cliente é best-effort**: envia um texto fixo via WhatsApp avisando da mudança (ligar/desligar têm textos diferentes) — falha no envio (sem número conectado, erro da Graph API) só loga um warning, nunca desfaz a isenção nem retorna erro pro tenant.
+- **Botão só aparece com a cobrança habilitada**: `ConversationOut.end_customer_billing_enabled` (calculado a partir de `tenant_billing_settings.enabled`, não do saldo do contato — um contato isento que nunca comprou nada teria saldo `null` mesmo com a cobrança habilitada) é o que o painel usa pra decidir se mostra o switch "Cobrança gratuita" em `/conversas`.
+- **Fora de escopo**: sem histórico de quem ligou/desligou (só o estado atual da flag); sem expiração automática; a flag persiste mesmo se a cobrança do cliente final for desabilitada depois (silenciosamente inofensivo, já que nada debita o cliente final com a cobrança desligada de qualquer forma).
 
 ⚠️ **Segredos obrigatórios em produção**: `TENANT_STRIPE_KEY_ENCRYPTION_KEY` (Fernet própria) precisa estar setada, senão salvar a secret key de um tenant quebra com `RuntimeError`. `INTERNAL_SERVICE_KEY` precisa ser o **mesmo valor** no `.env` do `api` e do `agents` — se não setada, a verificação do endpoint interno é **pulada** (mesmo padrão já existente do `AGENTS_API_KEY`), então tratar como obrigatória antes de ir ao ar (hoje falha aberto, não fechado).
 
