@@ -23,6 +23,7 @@ def _conversation(
     summary_generated_at=None,
     human_last_seen_at=None,
     is_test: bool = False,
+    end_customer_billing_exempt: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
@@ -35,6 +36,9 @@ def _conversation(
         summary_generated_at=summary_generated_at,
         human_last_seen_at=human_last_seen_at,
         is_test=is_test,
+        end_customer_billing_exempt=end_customer_billing_exempt,
+        billing_gate_step=None,
+        billing_gate_retries=0,
     )
 
 
@@ -759,3 +763,123 @@ class TestEndCustomerCycleCalculation:
         result = await _end_customer_cycles_by_phone(session, TENANT_ID, ["5511999998888"])
 
         assert result == {"5511999998888": (Decimal("200"), Decimal("20"))}
+
+
+class TestBillingExemption:
+    def test_billing_desabilitado_retorna_409(self, client, session) -> None:
+        session.scalar.side_effect = [_conversation(), False]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 409
+
+    def test_conversa_inexistente_retorna_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 404
+
+    def test_ligar_isencao_cancela_gate_em_andamento_e_avisa_cliente(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="billing_gate")
+        conversation.billing_gate_step = "aguardando_pagamento"
+        conversation.billing_gate_retries = 2
+        session.scalar.side_effect = [conversation, True, _number()]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 200
+        assert conversation.end_customer_billing_exempt is True
+        assert conversation.state == "agent"
+        assert conversation.billing_gate_step is None
+        assert conversation.billing_gate_retries == 0
+        assert response.json()["end_customer_billing_exempt"] is True
+        whatsapp_send.assert_awaited_once()
+        assert "gratuita" in whatsapp_send.await_args.kwargs["text"]
+        session.commit.assert_awaited_once()
+
+    def test_ligar_isencao_sem_gate_ativo_nao_toca_no_state(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.side_effect = [conversation, True, _number()]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 200
+        assert conversation.state == "agent"
+
+    def test_desligar_isencao_avisa_cobranca_normal(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="agent", end_customer_billing_exempt=True)
+        session.scalar.side_effect = [conversation, True, _number()]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": False},
+        )
+
+        assert response.status_code == 200
+        assert conversation.end_customer_billing_exempt is False
+        assert "consumir seus créditos normalmente" in whatsapp_send.await_args.kwargs["text"]
+
+    def test_valor_igual_ao_atual_e_idempotente_nao_reenvia(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="agent", end_customer_billing_exempt=True)
+        session.scalar.side_effect = [conversation, True]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 200
+        whatsapp_send.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+    def test_falha_ao_avisar_via_whatsapp_nao_desfaz_a_isencao(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.side_effect = [conversation, True, _number()]
+        whatsapp_send.side_effect = WhatsAppSendError("HTTP 500")
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 200
+        assert conversation.end_customer_billing_exempt is True
+        session.commit.assert_awaited_once()
+
+    def test_sem_numero_conectado_nao_desfaz_a_isencao(
+        self, client, session, whatsapp_send
+    ) -> None:
+        conversation = _conversation(state="agent")
+        session.scalar.side_effect = [conversation, True, None]
+
+        response = client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}/billing-exemption",
+            json={"exempt": True},
+        )
+
+        assert response.status_code == 200
+        assert conversation.end_customer_billing_exempt is True
+        whatsapp_send.assert_not_awaited()

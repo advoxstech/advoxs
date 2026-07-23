@@ -32,6 +32,7 @@ from app.models import (
     WhatsAppNumber,
 )
 from app.schemas.conversations import (
+    BillingExemptionUpdate,
     ConversationOut,
     ConversationStateUpdate,
     ConversationUsageOut,
@@ -138,6 +139,100 @@ async def update_state(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
+    return _to_conversation_out(
+        conversation,
+        balances.get(conversation.contact_phone_number),
+        cycles.get(conversation.contact_phone_number),
+        billing_enabled,
+    )
+
+
+@router.patch("/{conversation_id}/billing-exemption")
+async def update_billing_exemption(
+    conversation_id: uuid.UUID,
+    body: BillingExemptionUpdate,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConversationOut:
+    """Isenta (ou reativa a cobrança de) um contato da cobrança do cliente
+    final — o tenant absorve o custo enquanto isento (mesma regra já
+    aplicada hoje pra qualquer tenant sem a cobrança habilitada). Cancela o
+    billing gate em andamento, se houver, ao isentar."""
+    conversation = await _get_conversation(conversation_id, ctx, session)
+
+    billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
+    if not billing_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cobrança do cliente final não habilitada — nada para isentar",
+        )
+
+    if conversation.end_customer_billing_exempt == body.exempt:
+        # Idempotente: mesmo valor já vigente, não reenvia aviso nem comita nada.
+        balances = await _end_customer_balances_by_phone(
+            session, ctx.tenant_id, [conversation.contact_phone_number]
+        )
+        cycles = await _end_customer_cycles_by_phone(
+            session, ctx.tenant_id, [conversation.contact_phone_number]
+        )
+        return _to_conversation_out(
+            conversation,
+            balances.get(conversation.contact_phone_number),
+            cycles.get(conversation.contact_phone_number),
+            billing_enabled,
+        )
+
+    if body.exempt:
+        if conversation.state == "billing_gate":
+            conversation.state = "agent"
+            conversation.billing_gate_step = None
+            conversation.billing_gate_retries = 0
+        conversation.end_customer_billing_exempt = True
+        notice_text = (
+            "A partir de agora, essa conversa é gratuita — você não será "
+            "cobrado pelo atendimento."
+        )
+    else:
+        conversation.end_customer_billing_exempt = False
+        notice_text = (
+            "A cobrança normal foi retomada — a partir de agora, o "
+            "atendimento volta a consumir seus créditos normalmente."
+        )
+
+    await session.commit()
+
+    number = await session.scalar(
+        select(WhatsAppNumber).where(
+            WhatsAppNumber.tenant_id == ctx.tenant_id,
+            WhatsAppNumber.status == "connected",
+        )
+    )
+    if number is None:
+        logger.warning(
+            "Sem número conectado pra avisar sobre mudança de isenção | conversation=%s",
+            conversation_id,
+        )
+    else:
+        try:
+            await send_text_message(
+                phone_number_id=number.phone_number_id,
+                access_token=decrypt_access_token(number.access_token_encrypted),
+                to=conversation.contact_phone_number,
+                text=notice_text,
+            )
+        except WhatsAppSendError as exc:
+            logger.warning(
+                "Falha ao avisar cliente sobre mudança de isenção | conversation=%s erro=%s",
+                conversation_id,
+                exc,
+            )
+
+    balances = await _end_customer_balances_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
+    cycles = await _end_customer_cycles_by_phone(
+        session, ctx.tenant_id, [conversation.contact_phone_number]
+    )
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
