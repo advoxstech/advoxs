@@ -291,6 +291,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(
             side_effect=[None, package, None, "deterministic_gate", conversation, number]
         )
+        session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
@@ -310,6 +311,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(
             side_effect=[None, package, None, "deterministic_gate", conversation, number]
         )
+        session.add = MagicMock()
         monkeypatch.setattr(service, "send_text_message", AsyncMock())
         monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
 
