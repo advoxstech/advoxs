@@ -1,6 +1,8 @@
 # Plano: Billing Gate Determinístico via WhatsApp Interactive Messages
 
 > **Revisão (2026-07-22)**: corrigido após checagem linha a linha contra o código real. As mudanças em relação à versão original estão marcadas com **[REVISADO]**. Este documento ainda é um plano de arquitetura (não o formato TDD passo a passo do resto do repo) — antes de implementar, ele precisa passar pelo fluxo normal (`docs/superpowers/specs/` + `writing-plans`) se for adiante.
+>
+> **Decisão adicional (2026-07-22, formalizada no spec):** o rollout **não** é um corte único — é gradual, tenant por tenant, via `tenant_billing_settings.insufficient_balance_policy` (novo valor `deterministic_gate`, `block_with_message` continua sendo o default de hoje). Os dois gates (o antigo no `agents`, o novo no `worker`) coexistem no código até todo tenant com cobrança habilitada estar migrado — só então a Etapa 5 (remoção do gate do `agents`) acontece de fato. Ver `docs/superpowers/specs/2026-07-22-billing-gate-deterministico-design.md`, seção "Rollout gradual por tenant", pro detalhamento — este documento incorpora essa decisão nas etapas abaixo, mas o spec é a fonte da verdade em caso de divergência.
 
 > Objetivo: eliminar chamadas ao LLM (`agents` service) antes do cliente final ter
 > saldo positivo — tanto na primeira compra quanto na recompra — usando
@@ -158,13 +160,16 @@ terceiro ramo, não cair no mesmo bucket de `human`:
 process_inbound_message(mensagem recebida):
     conversation = carrega conversation
 
-    # 1. Detecção de entrada no gate
+    # 1. Detecção de entrada no gate — só pra tenants já migrados (rollout gradual)
     se conversation.state == "agent":
-        se cobrança do cliente final habilitada pro tenant:
+        se cobrança do cliente final habilitada pro tenant
+           e tenant_billing_settings.insufficient_balance_policy == "deterministic_gate":
             se end_customer_balances.credit_balance <= 0:
                 conversation.state = "billing_gate"
                 conversation.billing_gate_step = None
                 conversation.billing_gate_retries = 0
+    # tenant ainda em "block_with_message": nada muda aqui, segue pro fluxo
+    # normal de hoje (chama `agents`, que ainda tem o gate antigo vivo).
 
     se conversation.state == "billing_gate":
         handle_billing_gate(conversation, mensagem)
@@ -284,6 +289,15 @@ reentrega de webhook da Meta, que é *at-least-once* por design).
 
 ## Etapa 5 — Simplificação do `agents` service
 
+**Pré-condição, não pular**: só executar depois que **todo** tenant com
+`tenant_billing_settings.enabled = true` estiver com
+`insufficient_balance_policy = "deterministic_gate"` — checar isso com uma
+query direto no banco antes de abrir o PR desta etapa. Enquanto houver
+qualquer tenant em `block_with_message` (o default de hoje), esse código
+ainda está em uso de verdade e não pode ser removido — ver "Rollout gradual
+por tenant" no spec. Etapas 0-4 já funcionam com os dois gates coexistindo,
+então não há pressa nem risco em manter esta etapa parada por um tempo.
+
 Remover (documentar a remoção no `apps/agents/API_AGENTS.md` §billing):
 
 - Tool `gerar_link_pagamento_cliente` e seu binding condicional por tenant.
@@ -366,9 +380,13 @@ implementado.
 4. Máquina de estados no `worker` + ajuste no webhook Stripe do tenant
    (incluindo a reversão do `arq.enqueue_job` de `0e8267e`) — comportamento
    novo entra em vigor aqui.
-5. Remoção do gate/tool do `agents` service — **só depois** do passo 4 em
-   produção e validado, pra não deixar uma janela sem nenhum gate.
-6. Atualizar `CLAUDE.md` e `API_AGENTS.md` refletindo o estado final.
+5. Migrar tenants um a um pra `insufficient_balance_policy = "deterministic_gate"`
+   (update direto no banco — sem UI/endpoint self-service nesta leva),
+   validando cada um antes do próximo.
+6. Remoção do gate/tool do `agents` service — **só depois** de 100% dos
+   tenants com cobrança habilitada estarem migrados (Etapa 5 do plano,
+   query de pré-condição antes de abrir o PR).
+7. Atualizar `CLAUDE.md` e `API_AGENTS.md` refletindo o estado final.
 
 ## Riscos / pontos de atenção a validar durante a implementação
 
@@ -388,7 +406,6 @@ implementado.
   quando essa env não está setada, ver CLAUDE.md/seção Cobrança do cliente
   final — risco real de rodar sem autenticação nenhuma nesse endpoint
   interno se for esquecido).
-- **[REVISADO]** Corte único sem feature flag por tenant — considerar migrar
-  tenant por tenant (`insufficient_balance_policy` ou equivalente) em vez de
-  trocar o comportamento de todo mundo no mesmo deploy, dado que é um
-  caminho de billing já em produção.
+- **[RESOLVIDO]** Rollout gradual por tenant, via `insufficient_balance_policy`
+  (`deterministic_gate` novo, `block_with_message` continua default) — ver
+  "Rollout gradual por tenant" no spec. Não é mais um corte único.
