@@ -73,3 +73,7 @@ class EndCustomerSummaryOut(BaseModel):
     credit_balance: float
     total_purchased: float
     total_consumed: float
+
+
+class ConnectAccountSessionOut(BaseModel):
+    client_secret: str

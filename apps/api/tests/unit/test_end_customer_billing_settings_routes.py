@@ -167,7 +167,12 @@ def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
 
 
 def test_patch_secret_key_tokens_e_enabled_juntos_funciona(client, session, monkeypatch) -> None:
-    session.scalar.return_value = None
+    """Tenant que já tem uma linha (billing_provider="standalone", já
+    configurado antes do bloqueio de standalone-do-zero) continua podendo
+    fazer PATCH normalmente, incluindo enviar stripe_secret_key — só a
+    criação de uma linha nova a partir do zero fica bloqueada (ver
+    test_patch_com_secret_key_sem_linha_existente_retorna_400)."""
+    session.scalar.return_value = _settings_row()
     monkeypatch.setattr(
         "app.api.v1.end_customer_billing.encrypt_tenant_secret", lambda v: f"cifrado:{v}"
     )
@@ -192,21 +197,34 @@ def test_patch_cria_registro_quando_nao_existe(client, session, monkeypatch) -> 
     session.scalar.return_value = None
     added = []
     session.add = MagicMock(side_effect=lambda obj: added.append(obj))
-    monkeypatch.setattr(
-        "app.api.v1.end_customer_billing.encrypt_tenant_secret", lambda v: f"cifrado:{v}"
-    )
 
     response = client.patch(
         "/api/v1/end-customer-billing/settings",
-        json={"stripe_secret_key": "sk_test_123", "end_customer_tokens_per_credit": 300},
+        json={"end_customer_tokens_per_credit": 300},
     )
 
     assert response.status_code == 200
     assert len(added) == 1
     created = added[0]
     assert created.tenant_id == TENANT_ID
-    assert created.stripe_secret_key_encrypted == "cifrado:sk_test_123"
+    assert created.billing_provider == "standalone"
     assert created.end_customer_tokens_per_credit == 300
+
+
+def test_patch_com_secret_key_sem_linha_existente_retorna_400(client, session) -> None:
+    """Tenant novo não pode configurar standalone do zero — só via Connect
+    (POST /connect-account). Tenants que já têm uma linha (billing_provider=
+    "standalone", já configurados antes desta feature) continuam podendo
+    fazer PATCH normalmente — ver test_patch_secret_key_tokens_e_enabled_juntos_funciona."""
+    session.scalar.return_value = None
+
+    response = client.patch(
+        "/api/v1/end-customer-billing/settings",
+        json={"stripe_secret_key": "sk_test_123"},
+    )
+
+    assert response.status_code == 400
+    assert "Connect" in response.json()["detail"]
 
 
 def test_sem_token_retorna_401() -> None:

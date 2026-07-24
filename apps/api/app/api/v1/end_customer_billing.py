@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.crypto import encrypt_tenant_secret
 from app.models import EndCustomerCreditPackage, EndCustomerCreditTransaction, TenantBillingSettings
 from app.schemas.end_customer_billing import (
+    ConnectAccountSessionOut,
     EndCustomerCreditPackageIn,
     EndCustomerCreditPackageOut,
     EndCustomerCreditPackageUpdate,
@@ -24,6 +25,7 @@ from app.services.end_customer_billing import (
     list_customers,
     zero_end_customer_balance,
 )
+from app.services.stripe_connect import ConnectApiError, create_or_refresh_connect_account
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -90,6 +92,14 @@ async def update_settings(
 ) -> TenantBillingSettingsOut:
     row = await _get_settings_row(ctx, session)
     if row is None:
+        if body.stripe_secret_key is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Configuração via secret key não está mais disponível pra tenants novos — "
+                    "use POST /end-customer-billing/connect-account (Stripe Connect)."
+                ),
+            )
         # Valores explícitos (em vez de confiar no `server_default` das colunas):
         # sem um flush/refresh contra o Postgres, o objeto Python não teria
         # `enabled`/`billing_mode` populados antes do `_to_settings_out` abaixo.
@@ -108,16 +118,35 @@ async def update_settings(
     if body.end_customer_tokens_per_credit is not None:
         row.end_customer_tokens_per_credit = body.end_customer_tokens_per_credit
 
-    if body.enabled is True and row.stripe_secret_key_encrypted is None:
+    if (
+        body.enabled is True
+        and row.stripe_secret_key_encrypted is None
+        and row.stripe_account_id is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configure a secret key da Stripe antes de ativar a cobrança",
+            detail=(
+                "Configure a secret key da Stripe (ou conclua o onboarding Connect) "
+                "antes de ativar a cobrança"
+            ),
         )
     if body.enabled is not None:
         row.enabled = body.enabled
 
     await session.commit()
     return _to_settings_out(ctx.tenant_id, row)
+
+
+@router.post("/connect-account")
+async def connect_account(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConnectAccountSessionOut:
+    try:
+        client_secret = await create_or_refresh_connect_account(session, ctx.tenant_id)
+    except ConnectApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return ConnectAccountSessionOut(client_secret=client_secret)
 
 
 @router.get("/packages")
