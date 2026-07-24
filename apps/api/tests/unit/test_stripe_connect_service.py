@@ -113,3 +113,90 @@ async def test_erro_da_stripe_ao_criar_conta_levanta_connect_api_error(session, 
 
     with pytest.raises(ConnectApiError):
         await create_or_refresh_connect_account(session, TENANT_ID)
+
+
+@pytest.mark.asyncio
+async def test_erro_da_stripe_ao_criar_account_session_levanta_connect_api_error(
+    session, monkeypatch
+):
+    import stripe
+
+    row = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        billing_provider="connect",
+        stripe_account_id="acct_existente",
+        stripe_account_status="active",
+    )
+    session.scalar.return_value = row
+
+    async def _raise(*args, **kwargs):
+        raise stripe.error.StripeError("falhou")
+
+    monkeypatch.setattr(stripe_connect_module, "_create_account_session", _raise)
+
+    with pytest.raises(ConnectApiError):
+        await create_or_refresh_connect_account(session, TENANT_ID)
+
+
+@pytest.mark.asyncio
+async def test_solicita_capability_pix_apos_criar_conta(session, monkeypatch):
+    row = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        billing_provider="connect",
+        stripe_account_id=None,
+        stripe_account_status=None,
+    )
+    session.scalar.return_value = row
+    created_account = SimpleNamespace(id="acct_novo")
+    monkeypatch.setattr(
+        stripe_connect_module,
+        "_create_stripe_account",
+        AsyncMock(return_value=created_account),
+    )
+    monkeypatch.setattr(
+        stripe_connect_module,
+        "_create_account_session",
+        AsyncMock(return_value=SimpleNamespace(client_secret="secret_abc")),
+    )
+    request_pix_mock = AsyncMock()
+    monkeypatch.setattr(stripe_connect_module, "_request_pix_capability", request_pix_mock)
+
+    await create_or_refresh_connect_account(session, TENANT_ID)
+
+    request_pix_mock.assert_awaited_once_with("acct_novo")
+
+
+@pytest.mark.asyncio
+async def test_falha_ao_solicitar_pix_nao_impede_criacao_da_conta(session, monkeypatch):
+    import stripe
+
+    row = SimpleNamespace(
+        tenant_id=TENANT_ID,
+        billing_provider="connect",
+        stripe_account_id=None,
+        stripe_account_status=None,
+    )
+    session.scalar.return_value = row
+    created_account = SimpleNamespace(id="acct_novo")
+    monkeypatch.setattr(
+        stripe_connect_module,
+        "_create_stripe_account",
+        AsyncMock(return_value=created_account),
+    )
+    monkeypatch.setattr(
+        stripe_connect_module,
+        "_create_account_session",
+        AsyncMock(return_value=SimpleNamespace(client_secret="secret_abc")),
+    )
+
+    async def _raise(*args, **kwargs):
+        raise stripe.error.StripeError("falhou ao solicitar pix")
+
+    monkeypatch.setattr(stripe_connect_module, "_request_pix_capability", _raise)
+
+    client_secret = await create_or_refresh_connect_account(session, TENANT_ID)
+
+    assert client_secret == "secret_abc"
+    assert row.stripe_account_id == "acct_novo"
+    assert row.stripe_account_status == "onboarding"
+    session.commit.assert_awaited()

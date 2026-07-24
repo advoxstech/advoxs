@@ -19,6 +19,19 @@ task para o passo a passo da verificação):
 - Account Session é API v1 clássica (`stripe.AccountSession.create`), que
   aceita `api_key=` como kwarg por chamada — mesmo padrão já usado em
   `app/services/end_customer_billing.py`.
+- A capability `pix_payments` não pode ser solicitada na chamada de criação
+  da conta v2 (`configuration.merchant.capabilities` só aceita um
+  subconjunto de capabilities — confirmado contra a doc de
+  account-capabilities da Stripe, coluna "Suporte a Accounts v2" = "Não"
+  pra `pix_payments`, nesta data). A API v1 clássica de Capabilities ainda
+  consegue apontar pro `id` de uma conta v2 pra solicitar uma capability que
+  a API v2 não expõe lá: `stripe.Account.modify_capability(account_id,
+  "pix_payments", requested=True, api_key=...)` — classmethod top-level
+  (`stripe.Account.modify_capability`), confirmado por introspecção
+  (`inspect.signature`) e por uma chamada real com API key deliberadamente
+  inválida (devolveu `AuthenticationError`, não `AttributeError`/
+  `TypeError` — a forma da chamada é a certa, só a autenticação que falhou
+  de propósito).
 """
 
 import asyncio
@@ -63,6 +76,27 @@ async def _create_stripe_account() -> "stripe.v2.core.Account":
     )
 
 
+async def _request_pix_capability(stripe_account_id: str) -> None:
+    """Solicita a capability `pix_payments` numa chamada separada, via API v1
+    de Capabilities, apontando pro `id` da conta v2 já criada.
+
+    Por quê uma chamada separada: `pix_payments` não pode ser solicitada na
+    chamada de criação da conta v2 — `configuration.merchant.capabilities`
+    só aceita um subconjunto de capabilities (confirmado contra a doc de
+    account-capabilities da Stripe, coluna "Suporte a Accounts v2" = "Não"
+    pra `pix_payments`, nesta data). A API v1 clássica de Capabilities ainda
+    consegue apontar pro `id` de uma conta v2 pra solicitar uma capability
+    que a API v2 não expõe lá — é essa a chamada de fallback.
+    """
+    await asyncio.to_thread(
+        stripe.Account.modify_capability,
+        stripe_account_id,
+        "pix_payments",
+        requested=True,
+        api_key=settings.stripe_connect_secret_key,
+    )
+
+
 async def _create_account_session(stripe_account_id: str) -> "stripe.AccountSession":
     return await asyncio.to_thread(
         stripe.AccountSession.create,
@@ -96,6 +130,23 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
         row.stripe_account_id = account.id
         row.stripe_account_status = "onboarding"
         row.billing_provider = "connect"
+
+        # pix_payments não pode ser solicitada na criação da conta v2 (ver
+        # docstring do módulo) — chamada de fallback via API v1 de
+        # Capabilities, best-effort: uma falha aqui nunca deve impedir a
+        # conta conectada de existir e seguir pro onboarding (card_payments
+        # já foi concedida na criação); só loga e segue.
+        try:
+            await _request_pix_capability(account.id)
+        except stripe.error.StripeError as exc:
+            logger.warning(
+                "Falha ao solicitar capability pix_payments (best-effort) | "
+                "tenant=%s conta=%s erro=%s",
+                tenant_id,
+                account.id,
+                exc,
+            )
+
         await session.commit()
 
     try:
