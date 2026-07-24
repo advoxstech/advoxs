@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # Auth de serviço interno: agents -> api (direção oposta de AGENTS_API_KEY).
     internal_service_key: str = ""
 
+    # Stripe Connect (Accounts v2) — cobrança do cliente final, chave própria
+    # separada de stripe_secret_key (escopo restrito: Connected Accounts +
+    # Account Sessions, nunca Checkout Sessions do billing tenant->Advoxs).
+    stripe_connect_secret_key: str = ""
+    # Segredo único de webhook pra TODAS as contas conectadas — não é por
+    # tenant, é da plataforma (ver apps/api/app/api/v1/webhooks/stripe_connect.py).
+    stripe_connect_webhook_secret: str = ""
+
     # Platform admin (painel de administração da plataforma) — secret
     # separado do JWT_SECRET dos tenants, defesa em profundidade: um
     # segredo vazado nunca forja o outro tipo de token.
