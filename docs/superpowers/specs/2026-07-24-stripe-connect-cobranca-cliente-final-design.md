@@ -77,9 +77,12 @@ Em `/configuracoes/cobranca-clientes`, tenants com `billing_provider="connect"` 
 
 ## Rollout / migração
 
-- **Tenants novos**: o fluxo de configuração de cobrança do cliente final passa a oferecer **só** o onboarding via Connect — a tela de colar secret key/webhook secret é removida do caminho de configuração inicial pra quem nunca configurou nada.
-- **Tenants já em `billing_provider="standalone"`** (já com clientes finais reais pagando por aquele caminho): continuam funcionando sem interrupção. Painel mostra um aviso/CTA convidando a migrar pra Connect (reconfigurar via o novo onboarding embutido) — migração é **guiada, não forçada automaticamente**, porque desligar sem aviso quebraria cobrança real em andamento (diferente do caso do "Gate único determinístico", que trocava um mecanismo de UX sem dinheiro em trânsito).
-- **Depreciação do `standalone`**: só depois que todos os tenants reais tiverem migrado — remoção das colunas `stripe_secret_key_encrypted`/`stripe_webhook_secret_encrypted`, do endpoint `/webhooks/stripe/tenant/{tenant_id}` e do formulário antigo fica pra uma spec futura, não faz parte desta entrega.
+**Connect é o único modelo válido pra todos os tenants — novos e já existentes.** `billing_provider="standalone"` deixa de ser uma opção permanente; é só o estado transitório de quem ainda não migrou.
+
+- **Tenants novos**: o fluxo de configuração de cobrança do cliente final oferece **só** o onboarding via Connect — a tela de colar secret key/webhook secret é removida do caminho de configuração inicial. Não é possível configurar `standalone` do zero depois desta entrega.
+- **Tenants já em `billing_provider="standalone"`** (já com clientes finais reais pagando por aquele caminho): continuam funcionando durante uma janela de transição, mas a migração é **obrigatória, não opcional** — todo tenant com a cobrança do cliente final habilitada precisa concluir o onboarding Connect. Mecanismo de exigência (a decidir no plano de implementação): painel bloqueia edição/criação de novos pacotes de crédito do cliente final enquanto `billing_provider="standalone"`, e/ou um prazo-limite após o qual o checkout do cliente final para de funcionar em contas não migradas.
+- **Migração de dados**: os tenants já em `standalone` recebem `billing_provider="standalone"` no backfill da migration (nenhum tenant migra automaticamente pra `connect` sem passar pelo onboarding real — não dá pra criar a conta conectada sem a ação do tenant preenchendo os dados na Stripe). O que muda é que **ficar em `standalone` vira um estado temporário monitorado**, não um destino permanente.
+- **Depreciação do `standalone`**: assim que todos os tenants reais tiverem migrado, remoção das colunas `stripe_secret_key_encrypted`/`stripe_webhook_secret_encrypted`, do endpoint `/webhooks/stripe/tenant/{tenant_id}` e do formulário antigo — código morto até lá, fica pra uma spec de limpeza futura (mesmo padrão do "Gate único determinístico": rollout com prazo, remoção do mecanismo antigo só depois que ninguém mais depende dele).
 
 ## Dependência cruzada (não bloqueia esta spec)
 
