@@ -44,6 +44,9 @@ def _to_settings_out(
             tenant_id=tenant_id,
             enabled=False,
             billing_mode="credits",
+            billing_provider="standalone",
+            stripe_account_id=None,
+            stripe_account_status=None,
             stripe_secret_key_configured=False,
             stripe_webhook_secret_configured=False,
             end_customer_tokens_per_credit=None,
@@ -53,6 +56,9 @@ def _to_settings_out(
         tenant_id=tenant_id,
         enabled=settings_row.enabled,
         billing_mode=settings_row.billing_mode,
+        billing_provider=settings_row.billing_provider,
+        stripe_account_id=settings_row.stripe_account_id,
+        stripe_account_status=settings_row.stripe_account_status,
         stripe_secret_key_configured=settings_row.stripe_secret_key_encrypted is not None,
         stripe_webhook_secret_configured=settings_row.stripe_webhook_secret_encrypted is not None,
         end_customer_tokens_per_credit=settings_row.end_customer_tokens_per_credit,
@@ -87,7 +93,12 @@ async def update_settings(
         # Valores explícitos (em vez de confiar no `server_default` das colunas):
         # sem um flush/refresh contra o Postgres, o objeto Python não teria
         # `enabled`/`billing_mode` populados antes do `_to_settings_out` abaixo.
-        row = TenantBillingSettings(tenant_id=ctx.tenant_id, enabled=False, billing_mode="credits")
+        row = TenantBillingSettings(
+            tenant_id=ctx.tenant_id,
+            enabled=False,
+            billing_mode="credits",
+            billing_provider="standalone",
+        )
         session.add(row)
 
     if body.stripe_secret_key is not None:

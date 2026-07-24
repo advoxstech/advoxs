@@ -16,6 +16,9 @@ def _settings_row(**overrides) -> SimpleNamespace:
         tenant_id=TENANT_ID,
         enabled=False,
         billing_mode="credits",
+        billing_provider="standalone",
+        stripe_account_id=None,
+        stripe_account_status=None,
         stripe_secret_key_encrypted=None,
         stripe_webhook_secret_encrypted=None,
         end_customer_tokens_per_credit=None,
@@ -209,3 +212,31 @@ def test_patch_cria_registro_quando_nao_existe(client, session, monkeypatch) -> 
 def test_sem_token_retorna_401() -> None:
     response = TestClient(app).get("/api/v1/end-customer-billing/settings")
     assert response.status_code == 401
+
+
+def test_get_sem_configuracao_retorna_billing_provider_standalone_por_default(
+    client, session
+) -> None:
+    session.scalar.return_value = None
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    body = response.json()
+    assert body["billing_provider"] == "standalone"
+    assert body["stripe_account_id"] is None
+    assert body["stripe_account_status"] is None
+
+
+def test_get_com_conta_connect_retorna_billing_provider_e_status(client, session) -> None:
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_account_status="active",
+    )
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    body = response.json()
+    assert body["billing_provider"] == "connect"
+    assert body["stripe_account_id"] == "acct_123"
+    assert body["stripe_account_status"] == "active"

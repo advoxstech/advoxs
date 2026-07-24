@@ -38,6 +38,11 @@ class TenantBillingSettings(Base):
     billing_mode: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'credits'")
     )
+    billing_provider: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'standalone'")
+    )
+    stripe_account_id: Mapped[str | None] = mapped_column(String)
+    stripe_account_status: Mapped[str | None] = mapped_column(String)
     billing_gate_welcome_text: Mapped[str | None] = mapped_column(Text)
     stripe_secret_key_encrypted: Mapped[str | None] = mapped_column(Text)
     stripe_webhook_secret_encrypted: Mapped[str | None] = mapped_column(Text)

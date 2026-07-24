@@ -8,6 +8,9 @@ class TenantBillingSettingsOut(BaseModel):
     tenant_id: uuid.UUID
     enabled: bool
     billing_mode: str
+    billing_provider: str
+    stripe_account_id: str | None
+    stripe_account_status: str | None
     stripe_secret_key_configured: bool
     stripe_webhook_secret_configured: bool
     end_customer_tokens_per_credit: int | None
