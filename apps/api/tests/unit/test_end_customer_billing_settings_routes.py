@@ -148,6 +148,21 @@ def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:
     assert response.json()["enabled"] is True
 
 
+def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) -> None:
+    """Tenant onboarded via Stripe Connect (stripe_account_id set, stripe_secret_key_encrypted=None)
+    deve conseguir habilitar a cobrança do cliente final — a guarda é OR, não AND."""
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_secret_key_encrypted=None,
+    )
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
 def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
     client, session
 ) -> None:
