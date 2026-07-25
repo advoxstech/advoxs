@@ -59,6 +59,7 @@ def _package(**overrides) -> SimpleNamespace:
         price_brl=Decimal("49.90"),
         credits_granted=500,
         active=True,
+        kind="one_time",
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -204,6 +205,58 @@ class TestCreateEndCustomerCheckoutSession:
 
         with pytest.raises(BillingNotConfiguredError):
             await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+    async def test_checkout_de_assinatura_usa_mode_subscription_e_recurring(
+        self, session, monkeypatch
+    ) -> None:
+        session.scalar = AsyncMock(
+            side_effect=[
+                _settings_row(
+                    billing_provider="connect",
+                    stripe_account_id="acct_123",
+                    stripe_account_status="active",
+                ),
+                _package(kind="subscription", credits_granted=None),
+            ]
+        )
+        created = MagicMock(
+            return_value=SimpleNamespace(url="https://checkout.stripe.com/pay/cs_sub_1")
+        )
+        monkeypatch.setattr(service.stripe.checkout.Session, "create", created)
+
+        url = await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+        assert url == "https://checkout.stripe.com/pay/cs_sub_1"
+        kwargs = created.call_args.kwargs
+        assert kwargs["mode"] == "subscription"
+        assert kwargs["line_items"][0]["price_data"]["recurring"] == {"interval": "month"}
+        assert kwargs["metadata"]["kind"] == "end_customer_subscription"
+        assert "application_fee_amount" not in kwargs
+
+    async def test_checkout_de_pacote_avulso_continua_mode_payment(
+        self, session, monkeypatch
+    ) -> None:
+        session.scalar = AsyncMock(
+            side_effect=[
+                _settings_row(
+                    billing_provider="connect",
+                    stripe_account_id="acct_123",
+                    stripe_account_status="active",
+                ),
+                _package(kind="one_time"),
+            ]
+        )
+        created = MagicMock(
+            return_value=SimpleNamespace(url="https://checkout.stripe.com/pay/cs_one_1")
+        )
+        monkeypatch.setattr(service.stripe.checkout.Session, "create", created)
+
+        await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+        kwargs = created.call_args.kwargs
+        assert kwargs["mode"] == "payment"
+        assert "recurring" not in kwargs["line_items"][0]["price_data"]
+        assert kwargs["metadata"]["kind"] == "end_customer_purchase"
 
 
 def _conversation(**overrides):

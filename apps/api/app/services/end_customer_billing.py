@@ -85,21 +85,30 @@ async def create_end_customer_checkout_session(
     if package is None or not package.active:
         raise InvalidPackageError("Pacote de créditos inválido")
 
-    line_items = [
-        {
-            "price_data": {
-                "currency": "brl",
-                "unit_amount": int(package.price_brl * 100),
-                "product_data": {"name": package.name},
-            },
-            "quantity": 1,
+    if package.kind == "subscription":
+        price_data = {
+            "currency": "brl",
+            "unit_amount": int(package.price_brl * 100),
+            "product_data": {"name": package.name},
+            "recurring": {"interval": "month"},
         }
-    ]
+        mode = "subscription"
+        checkout_kind = "end_customer_subscription"
+    else:
+        price_data = {
+            "currency": "brl",
+            "unit_amount": int(package.price_brl * 100),
+            "product_data": {"name": package.name},
+        }
+        mode = "payment"
+        checkout_kind = "end_customer_purchase"
+
+    line_items = [{"price_data": price_data, "quantity": 1}]
     metadata = {
         "tenant_id": str(tenant_id),
         "contact_phone_number": contact_phone_number,
         "package_id": str(package_id),
-        "kind": "end_customer_purchase",
+        "kind": checkout_kind,
     }
 
     try:
@@ -119,7 +128,7 @@ async def create_end_customer_checkout_session(
                 stripe.checkout.Session.create,
                 api_key=settings.stripe_connect_secret_key,
                 stripe_account=billing_settings.stripe_account_id,
-                mode="payment",
+                mode=mode,
                 line_items=line_items,
                 metadata=metadata,
                 success_url=f"{settings.web_app_url}/pagamento-confirmado",
@@ -130,7 +139,7 @@ async def create_end_customer_checkout_session(
             checkout_session = await asyncio.to_thread(
                 stripe.checkout.Session.create,
                 api_key=secret_key,
-                mode="payment",
+                mode=mode,
                 line_items=line_items,
                 metadata=metadata,
                 success_url=f"{settings.web_app_url}/pagamento-confirmado",
