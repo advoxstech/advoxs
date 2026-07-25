@@ -38,11 +38,12 @@ type Package = {
   id: string;
   name: string;
   price_brl: string;
-  credits_granted: number;
+  kind: string;
+  credits_granted: number | null;
   active: boolean;
 };
 
-const EMPTY_PACKAGE_FORM = { name: "", price_brl: "", credits_granted: "" };
+const EMPTY_PACKAGE_FORM = { name: "", price_brl: "", credits_granted: "", kind: "one_time" };
 
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
@@ -153,13 +154,17 @@ export function EndCustomerBillingPanel() {
     setFeedback(null);
     setCreatingPackage(true);
     try {
+      const requestBody: Record<string, unknown> = {
+        name: packageForm.name,
+        price_brl: packageForm.price_brl,
+        kind: packageForm.kind,
+      };
+      if (packageForm.kind !== "subscription") {
+        requestBody.credits_granted = Number(packageForm.credits_granted);
+      }
       const response = await backendFetch("end-customer-billing/packages", {
         method: "POST",
-        body: JSON.stringify({
-          name: packageForm.name,
-          price_brl: packageForm.price_brl,
-          credits_granted: Number(packageForm.credits_granted),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -397,9 +402,16 @@ export function EndCustomerBillingPanel() {
           {packages.map((pkg) => (
             <li key={pkg.id} className="flex items-center justify-between border-b border-line py-3">
               <div>
-                <p className="font-medium text-ink">{pkg.name}</p>
+                <p className="font-medium text-ink">
+                  {pkg.name}{" "}
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                    {pkg.kind === "subscription" ? "Mensal" : "Avulso"}
+                  </span>
+                </p>
                 <p className="text-xs text-muted">
-                  R$ {pkg.price_brl} · {pkg.credits_granted} créditos
+                  {pkg.kind === "subscription"
+                    ? `R$ ${pkg.price_brl}/mês`
+                    : `R$ ${pkg.price_brl} · ${pkg.credits_granted} créditos`}
                 </p>
               </div>
               <button
@@ -414,6 +426,19 @@ export function EndCustomerBillingPanel() {
         </ul>
 
         <form onSubmit={handleCreatePackage} className="mt-4 flex max-w-md flex-col gap-4">
+          {settings.billing_provider === "connect" && (
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              Tipo de pacote
+              <select
+                value={packageForm.kind}
+                onChange={(event) => setPackageForm({ ...packageForm, kind: event.target.value })}
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              >
+                <option value="one_time">Avulso (créditos)</option>
+                <option value="subscription">Assinatura mensal (ilimitado)</option>
+              </select>
+            </label>
+          )}
           <label className="flex flex-col gap-1 text-sm text-ink">
             Nome do pacote
             <input
@@ -432,17 +457,21 @@ export function EndCustomerBillingPanel() {
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm text-ink">
-            Créditos
-            <input
-              required
-              type="number"
-              min={1}
-              value={packageForm.credits_granted}
-              onChange={(event) => setPackageForm({ ...packageForm, credits_granted: event.target.value })}
-              className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
-            />
-          </label>
+          {packageForm.kind !== "subscription" && (
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              Créditos
+              <input
+                required
+                type="number"
+                min={1}
+                value={packageForm.credits_granted}
+                onChange={(event) =>
+                  setPackageForm({ ...packageForm, credits_granted: event.target.value })
+                }
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              />
+            </label>
+          )}
           <button
             type="submit"
             disabled={creatingPackage}

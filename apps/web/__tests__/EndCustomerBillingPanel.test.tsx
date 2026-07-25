@@ -456,4 +456,102 @@ describe("EndCustomerBillingPanel", () => {
     await waitFor(() => expect(screen.getByLabelText(/secret key/i)).toBeInTheDocument());
     expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
   });
+
+  it("mostra o seletor de tipo de pacote quando billing_provider é connect", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "active",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByLabelText(/tipo de pacote/i)).toBeInTheDocument());
+  });
+
+  it("não mostra o seletor de tipo de pacote quando billing_provider é standalone (grandfathered)", async () => {
+    mockLoad({
+      enabled: true,
+      billing_mode: "credits",
+      billing_provider: "standalone",
+      stripe_account_id: null,
+      stripe_account_status: null,
+      stripe_secret_key_configured: true,
+      stripe_webhook_secret_configured: true,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByLabelText(/nome do pacote/i)).toBeInTheDocument());
+    expect(screen.queryByLabelText(/tipo de pacote/i)).not.toBeInTheDocument();
+  });
+
+  it("esconde o campo créditos e envia kind=subscription quando assinatura mensal é escolhida", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/packages" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ id: "p-3", name: "Ilimitado", price_brl: "99.90", kind: "subscription", credits_granted: null, active: true }),
+        };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: false, billing_mode: "credits", billing_provider: "connect",
+            stripe_account_id: "acct_123", stripe_account_status: "active",
+            stripe_secret_key_configured: false, stripe_webhook_secret_configured: false,
+            end_customer_tokens_per_credit: null,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") return { ok: true, json: async () => [] };
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByLabelText(/tipo de pacote/i)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/tipo de pacote/i), { target: { value: "subscription" } });
+    expect(screen.queryByLabelText(/créditos/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/nome do pacote/i), { target: { value: "Ilimitado" } });
+    fireEvent.change(screen.getByLabelText(/preço/i), { target: { value: "99.90" } });
+    fireEvent.click(screen.getByRole("button", { name: /adicionar pacote/i }));
+
+    await waitFor(() => expect(screen.getByText("Ilimitado")).toBeInTheDocument());
+    const postCall = mockedFetch.mock.calls.find(
+      ([path, init]) => path === "end-customer-billing/packages" && init?.method === "POST",
+    );
+    const body = JSON.parse(postCall![1].body as string);
+    expect(body.kind).toBe("subscription");
+    expect(body.credits_granted).toBeUndefined();
+  });
+
+  it("mostra badge Mensal/Avulso na listagem de pacotes", async () => {
+    mockLoad(
+      {
+        enabled: true, billing_mode: "credits", billing_provider: "connect",
+        stripe_account_id: "acct_123", stripe_account_status: "active",
+        stripe_secret_key_configured: false, stripe_webhook_secret_configured: false,
+        end_customer_tokens_per_credit: null,
+      },
+      [
+        { id: "p-1", name: "Básico", price_brl: "49.90", kind: "one_time", credits_granted: 500, active: true },
+        { id: "p-2", name: "Ilimitado", price_brl: "99.90", kind: "subscription", credits_granted: null, active: true },
+      ],
+    );
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByText("Básico")).toBeInTheDocument());
+    expect(screen.getByText("Avulso")).toBeInTheDocument();
+    expect(screen.getByText("Mensal")).toBeInTheDocument();
+  });
 });
