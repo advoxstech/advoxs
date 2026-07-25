@@ -60,6 +60,7 @@ export function EndCustomerBillingPanel() {
   const [webhookSecret, setWebhookSecret] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingEnabledToggle, setSavingEnabledToggle] = useState(false);
   const [packages, setPackages] = useState<Package[]>([]);
   const [packageForm, setPackageForm] = useState(EMPTY_PACKAGE_FORM);
   const [creatingPackage, setCreatingPackage] = useState(false);
@@ -116,6 +117,34 @@ export function EndCustomerBillingPanel() {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Contraparte de `handleSubmit` pro branch Connect: lá o formulário também
+  // carrega `stripe_secret_key`/`stripe_webhook_secret` (irrelevantes pra
+  // tenants Connect, que autenticam via conta conectada, não secret key
+  // avulsa) — aqui o PATCH manda só `{enabled}`.
+  async function handleConnectEnabledSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedback(null);
+    setSavingEnabledToggle(true);
+    try {
+      const response = await backendFetch("end-customer-billing/settings", {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      });
+      const responseBody = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFeedback(extractErrorDetail(responseBody, "Falha ao salvar — tente novamente."));
+        setEnabled(settings.enabled);
+        return;
+      }
+      setSettings(responseBody);
+      setEnabled(responseBody.enabled);
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    } finally {
+      setSavingEnabledToggle(false);
     }
   }
 
@@ -199,15 +228,24 @@ export function EndCustomerBillingPanel() {
             <div className="mt-4">
               <ConnectAccountOnboarding />
             </div>
-            <label className="mt-6 flex items-center gap-2 text-sm text-ink">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-                disabled={settings.stripe_account_status !== "active"}
-              />
-              Cobrar meus clientes pelo uso dos agentes
-            </label>
+            <form onSubmit={handleConnectEnabledSubmit} className="mt-6 flex flex-col gap-3">
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(event) => setEnabled(event.target.checked)}
+                  disabled={settings.stripe_account_status !== "active"}
+                />
+                Cobrar meus clientes pelo uso dos agentes
+              </label>
+              <button
+                type="submit"
+                disabled={savingEnabledToggle || settings.stripe_account_status !== "active"}
+                className="w-fit rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
+              >
+                {savingEnabledToggle ? "Salvando..." : "Salvar alterações"}
+              </button>
+            </form>
           </section>
         ) : (
           <>

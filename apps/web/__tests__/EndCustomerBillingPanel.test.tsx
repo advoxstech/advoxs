@@ -344,6 +344,67 @@ describe("EndCustomerBillingPanel", () => {
     expect(screen.queryByLabelText(/secret key/i)).not.toBeInTheDocument();
   });
 
+  it("persiste o toggle de cobrança no onboarding Connect via PATCH", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "end-customer-billing/settings" && init?.method === "PATCH") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: true,
+            billing_mode: "credits",
+            billing_provider: "connect",
+            stripe_account_id: "acct_123",
+            stripe_account_status: "active",
+            stripe_secret_key_configured: false,
+            stripe_webhook_secret_configured: false,
+            end_customer_tokens_per_credit: null,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/settings") {
+        return {
+          ok: true,
+          json: async () => ({
+            enabled: false,
+            billing_mode: "credits",
+            billing_provider: "connect",
+            stripe_account_id: "acct_123",
+            stripe_account_status: "active",
+            stripe_secret_key_configured: false,
+            stripe_webhook_secret_configured: false,
+            end_customer_tokens_per_credit: null,
+          }),
+        };
+      }
+      if (path === "end-customer-billing/packages") {
+        return { ok: true, json: async () => [] };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<EndCustomerBillingPanel />);
+    await waitFor(() => expect(screen.getByLabelText(/cobrar meus clientes/i)).not.toBeChecked());
+
+    fireEvent.click(screen.getByLabelText(/cobrar meus clientes/i));
+    fireEvent.click(screen.getByRole("button", { name: /salvar alterações/i }));
+
+    await waitFor(() =>
+      expect(mockedFetch).toHaveBeenCalledWith(
+        "end-customer-billing/settings",
+        expect.objectContaining({ method: "PATCH" }),
+      ),
+    );
+    const patchCall = mockedFetch.mock.calls.find(
+      ([path, init]) => path === "end-customer-billing/settings" && init?.method === "PATCH",
+    );
+    const body = JSON.parse(patchCall![1].body as string);
+    expect(body).toEqual({ enabled: true });
+    expect(body.stripe_secret_key).toBeUndefined();
+    expect(body.stripe_webhook_secret).toBeUndefined();
+
+    await waitFor(() => expect(screen.getByLabelText(/cobrar meus clientes/i)).toBeChecked());
+  });
+
   it("mostra o formulário antigo de secret key quando billing_provider é standalone", async () => {
     mockLoad({
       enabled: false,
