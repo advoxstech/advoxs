@@ -357,15 +357,47 @@ async def process_end_customer_subscription_created(
         )
         return
 
-    session.add(
-        EndCustomerSubscription(
-            tenant_id=tenant_id,
-            contact_phone_number=contact_phone_number,
-            end_customer_credit_package_id=uuid.UUID(package_id_raw),
-            stripe_subscription_id=subscription_id,
-            status="active",
+    # Upsert por (tenant_id, contact_phone_number) — a unique constraint da
+    # tabela (`uq_end_customer_subscriptions_tenant_contact`) é por esse par,
+    # não por stripe_subscription_id sozinho. Um cliente que cancelou (a
+    # linha sobrevive, só o status muda) e depois re-assina ganha um
+    # stripe_subscription_id NOVO da Stripe — um INSERT cego colidiria com a
+    # linha antiga e derrubaria o webhook com IntegrityError (Stripe reagenda
+    # retry pra sempre, o cliente nunca é ativado). Por isso reaproveita a
+    # linha existente em vez de inserir uma nova.
+    existing = await session.scalar(
+        select(EndCustomerSubscription).where(
+            EndCustomerSubscription.tenant_id == tenant_id,
+            EndCustomerSubscription.contact_phone_number == contact_phone_number,
         )
     )
+    if existing is not None:
+        existing.end_customer_credit_package_id = uuid.UUID(package_id_raw)
+        existing.stripe_subscription_id = subscription_id
+        existing.status = "active"
+        existing.updated_at = datetime.now(UTC)
+    else:
+        # `current_period_end` fica None aqui de propósito: a Stripe não
+        # garante que `checkout.session.completed` chega antes de
+        # `invoice.payment_succeeded` do primeiro período — o período de
+        # cobrança só é conhecido quando a invoice chega (ver
+        # `_extract_period_end`/`process_end_customer_subscription_renewed`).
+        # A query de entitlement consumida pelo worker (Task 5 do plano
+        # 2026-07-25-assinatura-recorrente-cliente-final.md,
+        # `_load_context`) é deliberadamente escrita como
+        # `status == "active" AND (current_period_end IS NULL OR
+        # current_period_end >= now())` — trata NULL como "confia no status
+        # active, ainda sem info de período" em vez de "inativo", cobrindo
+        # exatamente essa corrida.
+        session.add(
+            EndCustomerSubscription(
+                tenant_id=tenant_id,
+                contact_phone_number=contact_phone_number,
+                end_customer_credit_package_id=uuid.UUID(package_id_raw),
+                stripe_subscription_id=subscription_id,
+                status="active",
+            )
+        )
     await session.commit()
 
     await _notify_end_customer(
@@ -377,19 +409,45 @@ async def process_end_customer_subscription_created(
     )
 
 
+def _extract_subscription_id(invoice: dict) -> str | None:
+    """Extrai o id da subscription associada ao invoice, tentando as duas
+    formas possíveis do payload.
+
+    A partir de uma migração de versão da API da Stripe, `Invoice` deixou de
+    expor `subscription` como campo de nível raiz — na versão pinada
+    (`stripe.api_version == "2026-06-24.dahlia"`, confirmado por grep em
+    `_invoice.py` do SDK instalado) a única referência à subscription é
+    `parent.subscription_details.subscription` (o campo `parent` generaliza
+    de onde a invoice se origina — assinatura, invoice item avulso, etc). Sem
+    esse fallback, `invoice.get("subscription")` é sempre `None` num payload
+    real e `process_end_customer_subscription_renewed` retorna sem fazer
+    nada — renovações nunca atualizariam nada, silenciosamente. Tenta a forma
+    legada primeiro (retrocompatibilidade, caso um invoice em formato antigo
+    chegue aqui por algum motivo) e cai pra forma atual em seguida. `invoice`
+    já foi normalizado por `_as_plain_dict` antes desta chamada, então
+    `.get()` é seguro em todos os níveis."""
+    legacy = invoice.get("subscription")
+    if legacy:
+        return legacy
+    parent = invoice.get("parent") or {}
+    subscription_details = parent.get("subscription_details") or {}
+    return subscription_details.get("subscription")
+
+
 def _extract_period_end(invoice: dict) -> datetime | None:
     """Fim do ciclo de cobrança pago — fica em `lines.data[0].period.end`
-    (unix timestamp), não num campo `period_end` de nível raiz do `Invoice`.
+    (unix timestamp), não no `period_end` de nível raiz do `Invoice`.
 
-    Confirmado por introspecção do SDK instalado (`stripe-python` 15.3.0):
-    `stripe.Invoice.construct_from(...)` não expõe nenhum atributo/chave
-    `period_end` — só `lines` (um `ListObject`, cujo `.data` é uma lista
-    python de `StripeObject`, cada um com `period.start`/`period.end`).
-    Também confere com a doc atual da Stripe
-    (docs.stripe.com/api/invoices/object, seção `lines`): o objeto `Invoice`
-    raiz não documenta `period_end`; cada `invoice line item` tem seu
-    próprio `period`. Assume que `invoice` já foi normalizado (recursivamente)
-    pra dict puro pelo chamador — ver `_as_plain_dict`."""
+    `Invoice.period_end` EXISTE de fato como campo raiz no SDK instalado
+    (`stripe-python` 15.3.0) — mas ele descreve a janela usada pra associar
+    invoice items soltos a essa invoice, não o período de serviço
+    efetivamente pago por uma assinatura. A própria orientação da Stripe
+    (docs.stripe.com/api/invoices/object, seção `lines`) é usar o período do
+    line item pra obter o período de serviço de cada price — cada `invoice
+    line item` carrega seu próprio `period.start`/`period.end`, que é o dado
+    correto pra `current_period_end` de uma assinatura. Assume que `invoice`
+    já foi normalizado (recursivamente) pra dict puro pelo chamador — ver
+    `_as_plain_dict`."""
     lines = invoice.get("lines") or {}
     lines_data = lines.get("data") or []
     if not lines_data:
@@ -408,7 +466,7 @@ async def process_end_customer_subscription_renewed(
     status/current_period_end, sem notificar o cliente (decisão deliberada:
     renovação silenciosa evita spam mensal)."""
     invoice = _as_plain_dict(invoice)
-    subscription_id = invoice.get("subscription")
+    subscription_id = _extract_subscription_id(invoice)
     if not subscription_id:
         return
     subscription = await session.scalar(

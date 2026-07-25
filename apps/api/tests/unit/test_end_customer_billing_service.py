@@ -570,6 +570,48 @@ class TestProcessEndCustomerSubscriptionCreated:
 
         assert added == []
 
+    async def test_reassinatura_atualiza_linha_existente_em_vez_de_inserir(
+        self, session, monkeypatch
+    ) -> None:
+        """Cliente que cancelou e re-assinou: a linha antiga sobrevive (só o
+        status muda no cancelamento), e a unique constraint é
+        (tenant_id, contact_phone_number) — não stripe_subscription_id
+        sozinho. Um INSERT cego colidiria com IntegrityError. O primeiro
+        session.scalar (idempotência por stripe_subscription_id NOVO) não
+        acha nada; o segundo (lookup por tenant+contato) acha a linha
+        cancelada, que deve ser atualizada no lugar."""
+        existing = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            end_customer_credit_package_id=uuid.uuid4(),
+            stripe_subscription_id="sub_old_canceled",
+            status="canceled",
+            updated_at=None,
+        )
+        session.scalar = AsyncMock(side_effect=[None, existing])
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        stripe_session = {
+            "id": "cs_sub_2",
+            "subscription": "sub_new_123",
+            "metadata": {
+                "kind": "end_customer_subscription",
+                "contact_phone_number": CONTACT,
+                "package_id": str(PACKAGE_ID),
+            },
+        }
+
+        await process_end_customer_subscription_created(session, TENANT_ID, stripe_session)
+
+        assert added == []
+        assert existing.stripe_subscription_id == "sub_new_123"
+        assert existing.status == "active"
+        assert existing.end_customer_credit_package_id == PACKAGE_ID
+        notify.assert_awaited_once()
+
 
 class TestProcessEndCustomerSubscriptionRenewed:
     async def test_atualiza_current_period_end_sem_notificar(self, session, monkeypatch) -> None:
@@ -603,6 +645,36 @@ class TestProcessEndCustomerSubscriptionRenewed:
         )
 
         session.commit.assert_not_awaited()
+
+    async def test_extrai_subscription_id_do_formato_moderno_parent(
+        self, session, monkeypatch
+    ) -> None:
+        """A partir de uma migração de versão da API da Stripe, `Invoice`
+        deixou de expor `subscription` na raiz — passou a ficar em
+        `parent.subscription_details.subscription`. Sem esse fallback, todo
+        invoice real (formato atual) faria a função retornar sem fazer nada,
+        já que `invoice.get("subscription")` sempre daria `None`."""
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            stripe_subscription_id="sub_123",
+            status="past_due",
+            current_period_end=None,
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        invoice = {
+            "parent": {"subscription_details": {"subscription": "sub_123"}},
+            "lines": {"data": [{"period": {"end": 1735689600}}]},
+        }
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+
+        assert subscription.status == "active"
+        assert subscription.current_period_end == datetime.fromtimestamp(1735689600, UTC)
+        session.commit.assert_awaited_once()
+        notify.assert_not_awaited()
 
 
 class TestProcessEndCustomerSubscriptionStatusChanged:
