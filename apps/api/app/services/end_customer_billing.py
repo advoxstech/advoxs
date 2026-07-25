@@ -56,10 +56,16 @@ async def create_end_customer_checkout_session(
     billing_settings = await session.scalar(
         select(TenantBillingSettings).where(TenantBillingSettings.tenant_id == tenant_id)
     )
+    if billing_settings is None or not billing_settings.enabled:
+        raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
     if (
-        billing_settings is None
-        or not billing_settings.enabled
-        or billing_settings.stripe_secret_key_encrypted is None
+        billing_settings.billing_provider == "standalone"
+        and billing_settings.stripe_secret_key_encrypted is None
+    ):
+        raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
+    if (
+        billing_settings.billing_provider == "connect"
+        and billing_settings.stripe_account_id is None
     ):
         raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
 
@@ -72,32 +78,57 @@ async def create_end_customer_checkout_session(
     if package is None or not package.active:
         raise InvalidPackageError("Pacote de créditos inválido")
 
-    secret_key = decrypt_tenant_secret(billing_settings.stripe_secret_key_encrypted)
+    line_items = [
+        {
+            "price_data": {
+                "currency": "brl",
+                "unit_amount": int(package.price_brl * 100),
+                "product_data": {"name": package.name},
+            },
+            "quantity": 1,
+        }
+    ]
+    metadata = {
+        "tenant_id": str(tenant_id),
+        "contact_phone_number": contact_phone_number,
+        "package_id": str(package_id),
+        "kind": "end_customer_purchase",
+    }
 
     try:
-        checkout_session = await asyncio.to_thread(
-            stripe.checkout.Session.create,
-            api_key=secret_key,
-            mode="payment",
-            line_items=[
-                {
-                    "price_data": {
-                        "currency": "brl",
-                        "unit_amount": int(package.price_brl * 100),
-                        "product_data": {"name": package.name},
-                    },
-                    "quantity": 1,
-                }
-            ],
-            metadata={
-                "tenant_id": str(tenant_id),
-                "contact_phone_number": contact_phone_number,
-                "package_id": str(package_id),
-                "kind": "end_customer_purchase",
-            },
-            success_url=f"{settings.web_app_url}/pagamento-confirmado",
-            cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
-        )
+        if billing_settings.billing_provider == "connect":
+            # Direct charge na conta conectada do tenant (v2, ver
+            # app/services/stripe_connect.py): stripe_account= é uma
+            # RequestOptions key extraída pelo próprio SDK do dict de
+            # kwargs de checkout.Session.create (não vai no corpo JSON da
+            # sessão) — equivalente ao header Stripe-Account. Confirmado
+            # por introspecção de stripe._request_options.
+            # extract_options_from_dict (stripe-python 15.3.0) e por uma
+            # chamada real com api_key inválida, que devolveu
+            # AuthenticationError (não TypeError) — ver relatório da
+            # task. Zero comissão da plataforma: nenhum
+            # application_fee_amount é passado.
+            checkout_session = await asyncio.to_thread(
+                stripe.checkout.Session.create,
+                api_key=settings.stripe_connect_secret_key,
+                stripe_account=billing_settings.stripe_account_id,
+                mode="payment",
+                line_items=line_items,
+                metadata=metadata,
+                success_url=f"{settings.web_app_url}/pagamento-confirmado",
+                cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
+            )
+        else:
+            secret_key = decrypt_tenant_secret(billing_settings.stripe_secret_key_encrypted)
+            checkout_session = await asyncio.to_thread(
+                stripe.checkout.Session.create,
+                api_key=secret_key,
+                mode="payment",
+                line_items=line_items,
+                metadata=metadata,
+                success_url=f"{settings.web_app_url}/pagamento-confirmado",
+                cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
+            )
     except stripe.error.StripeError as exc:
         logger.error("Falha ao criar checkout do cliente final | erro=%s", exc)
         raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc

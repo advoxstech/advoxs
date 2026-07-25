@@ -27,6 +27,8 @@ def _settings_row(**overrides) -> SimpleNamespace:
     row = SimpleNamespace(
         tenant_id=TENANT_ID,
         enabled=True,
+        billing_provider="standalone",
+        stripe_account_id=None,
         stripe_secret_key_encrypted="cifrado",
         stripe_webhook_secret_encrypted="cifrado-webhook",
         end_customer_tokens_per_credit=500,
@@ -138,6 +140,36 @@ class TestCreateEndCustomerCheckoutSession:
         monkeypatch.setattr(service.stripe.checkout.Session, "create", _raise)
 
         with pytest.raises(StripeApiError):
+            await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+    async def test_checkout_connect_usa_direct_charge_na_conta_do_tenant(
+        self, session, monkeypatch
+    ) -> None:
+        session.scalar = AsyncMock(
+            side_effect=[
+                _settings_row(billing_provider="connect", stripe_account_id="acct_123"),
+                _package(),
+            ]
+        )
+        created = MagicMock(
+            return_value=SimpleNamespace(url="https://checkout.stripe.com/pay/cs_connect")
+        )
+        monkeypatch.setattr(service.stripe.checkout.Session, "create", created)
+
+        url = await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+        assert url == "https://checkout.stripe.com/pay/cs_connect"
+        kwargs = created.call_args.kwargs
+        assert kwargs["stripe_account"] == "acct_123"
+        assert kwargs["api_key"] == service.settings.stripe_connect_secret_key
+        assert "application_fee_amount" not in kwargs
+
+    async def test_checkout_connect_sem_stripe_account_id_levanta_erro(self, session) -> None:
+        session.scalar = AsyncMock(
+            return_value=_settings_row(billing_provider="connect", stripe_account_id=None)
+        )
+
+        with pytest.raises(BillingNotConfiguredError):
             await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
 
 
