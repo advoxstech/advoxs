@@ -76,6 +76,11 @@ async def _get_settings_row(
     )
 
 
+async def _get_billing_provider(ctx: TenantContext, session: AsyncSession) -> str:
+    row = await _get_settings_row(ctx, session)
+    return row.billing_provider if row is not None else "standalone"
+
+
 @router.get("/settings")
 async def get_settings(
     ctx: TenantContext = Depends(get_current_tenant),
@@ -169,6 +174,14 @@ async def create_package(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> EndCustomerCreditPackageOut:
+    if body.kind == "subscription" and await _get_billing_provider(ctx, session) != "connect":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Assinatura recorrente só está disponível pra tenants "
+                "configurados via Stripe Connect"
+            ),
+        )
     package = EndCustomerCreditPackage(tenant_id=ctx.tenant_id, **body.model_dump())
     session.add(package)
     await session.commit()

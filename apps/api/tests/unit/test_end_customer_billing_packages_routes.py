@@ -219,3 +219,46 @@ def test_create_pacote_kind_invalido_retorna_422(client, session) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_create_pacote_assinatura_em_tenant_standalone_retorna_409(client, session) -> None:
+    session.scalar.return_value = SimpleNamespace(billing_provider="standalone")
+
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "Ilimitado", "price_brl": "49.90", "kind": "subscription"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_create_pacote_assinatura_sem_configuracao_alguma_retorna_409(client, session) -> None:
+    """Tenant que nunca configurou billing (sem linha em tenant_billing_settings)
+    tem billing_provider default "standalone" — mesma rejeição."""
+    session.scalar.return_value = None
+
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "Ilimitado", "price_brl": "49.90", "kind": "subscription"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_create_pacote_avulso_em_tenant_standalone_funciona(client, session) -> None:
+    """kind="one_time" (o default) nunca é restrito por billing_provider —
+    só verifica billing_provider quando kind="subscription"."""
+    added = []
+    session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+    async def fake_refresh(obj):
+        obj.id = PACKAGE_ID
+
+    session.refresh.side_effect = fake_refresh
+
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "Básico", "price_brl": "49.90", "credits_granted": 500},
+    )
+
+    assert response.status_code == 201
