@@ -18,7 +18,13 @@ function mockRouting(enabled: boolean) {
         json: async () => ({
           enabled,
           billing_mode: "credits",
-          stripe_secret_key_configured: false,
+          // Grandfathered (secret key já configurada) — este arquivo testa
+          // a lógica de abas, não a ramificação Connect/standalone (isso é
+          // coberto em EndCustomerBillingPanel.test.tsx); manter
+          // stripe_secret_key_configured=true evita renderizar o
+          // ConnectAccountOnboarding real (não mockado aqui).
+          billing_provider: "standalone",
+          stripe_secret_key_configured: true,
           stripe_webhook_secret_configured: false,
           end_customer_tokens_per_credit: null,
           webhook_url: "",

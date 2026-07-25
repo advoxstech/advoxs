@@ -216,7 +216,20 @@ export function EndCustomerBillingPanel() {
       )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        {settings.billing_provider === "connect" ? (
+        {/*
+          "standalone" é o valor neutro da coluna — não é um sinal positivo
+          de que o tenant configurou o modelo antigo. `GET /settings` sem
+          row ainda (tenant novo) devolve exatamente esse valor default, com
+          stripe_secret_key_configured=false. O sinal real de "já configurou
+          o modelo antigo" é stripe_secret_key_configured=true — o backend
+          (update_settings) sempre exigiu a secret key antes de habilitar a
+          cobrança, então nenhum tenant chega a enabled=true sem ela. Por
+          isso: mostra o onboarding Connect quando já está no Connect OU
+          quando nunca configurou a secret key (tenant novo/não configurado)
+          — só cai no formulário antigo quem já tinha configurado antes da
+          migração pro Connect (grandfathered).
+        */}
+        {settings.billing_provider === "connect" || !settings.stripe_secret_key_configured ? (
           <section className="mb-8 max-w-xl">
             <h2 className="font-display text-base font-semibold text-ink">
               Configuração de pagamentos
