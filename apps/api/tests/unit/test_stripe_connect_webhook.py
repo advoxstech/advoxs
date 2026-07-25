@@ -196,3 +196,111 @@ async def test_resolve_account_status_le_shape_v1_flat_de_capabilities():
     )
     assert await _resolve_account_status({"capabilities": {}}) == "onboarding"
     assert await _resolve_account_status({}) == "onboarding"
+
+
+def test_checkout_completed_de_assinatura_chama_process_subscription_created(
+    client, session, monkeypatch
+):
+    session.scalar = AsyncMock(
+        return_value=SimpleNamespace(tenant_id=TENANT_ID, stripe_account_id=ACCOUNT_ID)
+    )
+    event = {
+        "type": "checkout.session.completed",
+        "account": ACCOUNT_ID,
+        "data": {"object": {"id": "cs_1", "subscription": "sub_1"}},
+    }
+    monkeypatch.setattr(webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event)
+    process_purchase = AsyncMock()
+    process_subscription = AsyncMock()
+    monkeypatch.setattr(webhook_module, "process_end_customer_checkout_completed", process_purchase)
+    monkeypatch.setattr(
+        webhook_module, "process_end_customer_subscription_created", process_subscription
+    )
+
+    response = client.post(
+        "/api/v1/webhooks/stripe/connect",
+        content=b"{}",
+        headers={"Stripe-Signature": "sig-valida"},
+    )
+
+    assert response.status_code == 200
+    process_purchase.assert_awaited_once()
+    process_subscription.assert_awaited_once()
+
+
+def test_invoice_payment_succeeded_chama_process_renewed(client, session, monkeypatch):
+    session.scalar = AsyncMock(
+        return_value=SimpleNamespace(tenant_id=TENANT_ID, stripe_account_id=ACCOUNT_ID)
+    )
+    event = {
+        "type": "invoice.payment_succeeded",
+        "account": ACCOUNT_ID,
+        "data": {"object": {"subscription": "sub_1"}},
+    }
+    monkeypatch.setattr(webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event)
+    process_renewed = AsyncMock()
+    monkeypatch.setattr(
+        webhook_module, "process_end_customer_subscription_renewed", process_renewed
+    )
+
+    response = client.post(
+        "/api/v1/webhooks/stripe/connect",
+        content=b"{}",
+        headers={"Stripe-Signature": "sig-valida"},
+    )
+
+    assert response.status_code == 200
+    process_renewed.assert_awaited_once()
+    assert process_renewed.await_args.args[1] == TENANT_ID
+
+
+def test_customer_subscription_deleted_notifica_cancelamento(client, session, monkeypatch):
+    session.scalar = AsyncMock(
+        return_value=SimpleNamespace(tenant_id=TENANT_ID, stripe_account_id=ACCOUNT_ID)
+    )
+    event = {
+        "type": "customer.subscription.deleted",
+        "account": ACCOUNT_ID,
+        "data": {"object": {"id": "sub_1", "status": "canceled"}},
+    }
+    monkeypatch.setattr(webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event)
+    process_status = AsyncMock()
+    monkeypatch.setattr(
+        webhook_module, "process_end_customer_subscription_status_changed", process_status
+    )
+
+    response = client.post(
+        "/api/v1/webhooks/stripe/connect",
+        content=b"{}",
+        headers={"Stripe-Signature": "sig-valida"},
+    )
+
+    assert response.status_code == 200
+    process_status.assert_awaited_once()
+    assert process_status.await_args.kwargs["notify_cancel"] is True
+
+
+def test_customer_subscription_updated_nao_notifica_cancelamento(client, session, monkeypatch):
+    session.scalar = AsyncMock(
+        return_value=SimpleNamespace(tenant_id=TENANT_ID, stripe_account_id=ACCOUNT_ID)
+    )
+    event = {
+        "type": "customer.subscription.updated",
+        "account": ACCOUNT_ID,
+        "data": {"object": {"id": "sub_1", "status": "past_due"}},
+    }
+    monkeypatch.setattr(webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event)
+    process_status = AsyncMock()
+    monkeypatch.setattr(
+        webhook_module, "process_end_customer_subscription_status_changed", process_status
+    )
+
+    response = client.post(
+        "/api/v1/webhooks/stripe/connect",
+        content=b"{}",
+        headers={"Stripe-Signature": "sig-valida"},
+    )
+
+    assert response.status_code == 200
+    process_status.assert_awaited_once()
+    assert process_status.await_args.kwargs["notify_cancel"] is False

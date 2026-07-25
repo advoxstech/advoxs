@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import stripe
 
 import app.services.end_customer_billing as service
 from app.services.end_customer_billing import (
@@ -15,6 +16,9 @@ from app.services.end_customer_billing import (
     create_end_customer_checkout_session,
     list_customers,
     process_end_customer_checkout_completed,
+    process_end_customer_subscription_created,
+    process_end_customer_subscription_renewed,
+    process_end_customer_subscription_status_changed,
     zero_end_customer_balance,
 )
 
@@ -501,3 +505,233 @@ class TestZeroEndCustomerBalance:
 
         with pytest.raises(EndCustomerBalanceNotFoundError):
             await zero_end_customer_balance(session, TENANT_ID, CONTACT)
+
+
+class TestProcessEndCustomerSubscriptionCreated:
+    async def test_cria_assinatura_e_notifica(self, session, monkeypatch) -> None:
+        session.scalar = AsyncMock(return_value=None)
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        stripe_session = {
+            "id": "cs_sub_1",
+            "subscription": "sub_123",
+            "metadata": {
+                "kind": "end_customer_subscription",
+                "contact_phone_number": CONTACT,
+                "package_id": str(PACKAGE_ID),
+            },
+        }
+
+        await process_end_customer_subscription_created(session, TENANT_ID, stripe_session)
+
+        assert len(added) == 1
+        created = added[0]
+        assert created.tenant_id == TENANT_ID
+        assert created.contact_phone_number == CONTACT
+        assert created.stripe_subscription_id == "sub_123"
+        assert created.status == "active"
+        assert created.end_customer_credit_package_id == PACKAGE_ID
+        notify.assert_awaited_once()
+        assert notify.await_args.args[3] == "Assinatura ativada! Você já tem acesso ilimitado."
+        assert notify.await_args.kwargs["exit_billing_gate"] is True
+
+    async def test_duplicado_por_stripe_subscription_id_e_ignorado(
+        self, session, monkeypatch
+    ) -> None:
+        session.scalar = AsyncMock(return_value=uuid.uuid4())
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+
+        await process_end_customer_subscription_created(
+            session, TENANT_ID, {"id": "cs_sub_1", "subscription": "sub_123", "metadata": {}}
+        )
+
+        assert added == []
+        notify.assert_not_awaited()
+
+    async def test_metadata_de_compra_avulsa_e_ignorada(self, session, monkeypatch) -> None:
+        session.scalar = AsyncMock(return_value=None)
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        await process_end_customer_subscription_created(
+            session,
+            TENANT_ID,
+            {
+                "id": "cs_1",
+                "subscription": None,
+                "metadata": {"kind": "end_customer_purchase"},
+            },
+        )
+
+        assert added == []
+
+
+class TestProcessEndCustomerSubscriptionRenewed:
+    async def test_atualiza_current_period_end_sem_notificar(self, session, monkeypatch) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            stripe_subscription_id="sub_123",
+            status="past_due",
+            current_period_end=None,
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        invoice = {
+            "subscription": "sub_123",
+            "lines": {"data": [{"period": {"end": 1735689600}}]},
+        }
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+
+        assert subscription.status == "active"
+        assert subscription.current_period_end == datetime.fromtimestamp(1735689600, UTC)
+        session.commit.assert_awaited_once()
+        notify.assert_not_awaited()
+
+    async def test_assinatura_nao_encontrada_e_ignorado(self, session) -> None:
+        session.scalar = AsyncMock(return_value=None)
+
+        await process_end_customer_subscription_renewed(
+            session, TENANT_ID, {"subscription": "sub_desconhecida", "lines": {"data": []}}
+        )
+
+        session.commit.assert_not_awaited()
+
+
+class TestProcessEndCustomerSubscriptionStatusChanged:
+    async def test_cancelamento_notifica(self, session, monkeypatch) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="active",
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+
+        await process_end_customer_subscription_status_changed(
+            session, TENANT_ID, {"id": "sub_123", "status": "canceled"}, notify_cancel=True
+        )
+
+        assert subscription.status == "canceled"
+        session.commit.assert_awaited_once()
+        notify.assert_awaited_once()
+        assert notify.await_args.args[3] == (
+            "Sua assinatura mensal foi cancelada — o atendimento volta a consumir "
+            "créditos normalmente."
+        )
+
+    async def test_atualizacao_sem_cancelamento_nao_notifica(self, session, monkeypatch) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="active",
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+
+        await process_end_customer_subscription_status_changed(
+            session, TENANT_ID, {"id": "sub_123", "status": "past_due"}, notify_cancel=False
+        )
+
+        assert subscription.status == "past_due"
+        notify.assert_not_awaited()
+
+
+class TestSubscriptionWebhooksComStripeObjectReal:
+    """Regressão: `event["data"]["object"]` de um evento Stripe real (não
+    mockado como dict puro) é um `StripeObject` de verdade — `stripe.Event`,
+    o `.data.object` dele, é um `checkout.Session`/`Invoice`/`Subscription`
+    real, sem `.get()` (só `[]`/`in`). Os testes acima mockam esses payloads
+    como dict puro, o que mascara esse bug (dict tem `.get()`). Sem
+    `_as_plain_dict` normalizando o payload logo no início de cada função,
+    todo webhook real de assinatura quebraria com `AttributeError('get')`."""
+
+    async def test_subscription_created_aceita_stripeobject_real(
+        self, session, monkeypatch
+    ) -> None:
+        session.scalar = AsyncMock(return_value=None)
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        monkeypatch.setattr(service, "_notify_end_customer", AsyncMock())
+        real_session = stripe.checkout.Session.construct_from(
+            {
+                "id": "cs_sub_real",
+                "subscription": "sub_real_1",
+                "metadata": {
+                    "kind": "end_customer_subscription",
+                    "contact_phone_number": CONTACT,
+                    "package_id": str(PACKAGE_ID),
+                },
+            },
+            "sk_test_fake",
+        )
+
+        await process_end_customer_subscription_created(session, TENANT_ID, real_session)
+
+        assert len(added) == 1
+        assert added[0].stripe_subscription_id == "sub_real_1"
+
+    async def test_subscription_renewed_aceita_stripeobject_real(
+        self, session, monkeypatch
+    ) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            stripe_subscription_id="sub_real_1",
+            status="past_due",
+            current_period_end=None,
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        real_invoice = stripe.Invoice.construct_from(
+            {
+                "id": "in_real_1",
+                "subscription": "sub_real_1",
+                "lines": {
+                    "object": "list",
+                    "data": [{"id": "il_1", "period": {"start": 1, "end": 1735689600}}],
+                },
+            },
+            "sk_test_fake",
+        )
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, real_invoice)
+
+        assert subscription.status == "active"
+        assert subscription.current_period_end == datetime.fromtimestamp(1735689600, UTC)
+
+    async def test_subscription_status_changed_aceita_stripeobject_real(
+        self, session, monkeypatch
+    ) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_real_1",
+            status="active",
+        )
+        session.scalar = AsyncMock(return_value=subscription)
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        real_subscription = stripe.Subscription.construct_from(
+            {"id": "sub_real_1", "status": "canceled"}, "sk_test_fake"
+        )
+
+        await process_end_customer_subscription_status_changed(
+            session, TENANT_ID, real_subscription, notify_cancel=True
+        )
+
+        assert subscription.status == "canceled"
+        notify.assert_awaited_once()

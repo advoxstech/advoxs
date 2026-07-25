@@ -22,6 +22,7 @@ from app.models import (
     EndCustomerBalance,
     EndCustomerCreditPackage,
     EndCustomerCreditTransaction,
+    EndCustomerSubscription,
     Message,
     TenantBillingSettings,
     WhatsAppNumber,
@@ -220,20 +221,34 @@ async def process_end_customer_checkout_completed(
     )
     await session.commit()
 
-    await _send_purchase_confirmation(session, tenant_id, contact_phone_number)
+    await _notify_end_customer(
+        session,
+        tenant_id,
+        contact_phone_number,
+        "Pagamento confirmado! Você já pode continuar a conversa.",
+        exit_billing_gate=True,
+    )
 
 
-async def _send_purchase_confirmation(
-    session: AsyncSession, tenant_id: uuid.UUID, contact_phone_number: str
+async def _notify_end_customer(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    contact_phone_number: str,
+    text: str,
+    *,
+    exit_billing_gate: bool,
 ) -> None:
-    """Best-effort: uma falha ao mandar a confirmação não desfaz o crédito
-    já commitado acima — o cliente só não recebe o aviso, mas o saldo está lá.
+    """Notificação fixa via WhatsApp, best-effort — uma falha no envio nunca
+    desfaz o efeito que já foi commitado antes desta chamada (crédito
+    concedido, assinatura ativada/cancelada). Reaproveitada pela confirmação
+    de compra avulsa, ativação e cancelamento de assinatura — só o texto e a
+    decisão de sair do billing gate mudam entre os 3 casos.
 
     Além do aviso instantâneo (fixo, via WhatsApp direto), a conversa (se
-    estiver em billing_gate) volta direto pra "agent" — sem acionar o
-    agents, já que o checkpoint do LangGraph nunca foi tocado por essa
-    mudança de estado e a conversa retoma de onde estava (ou começa do zero
-    pelo ponto de entrada, se nunca tinha sido atendida).
+    estiver em billing_gate e `exit_billing_gate=True`) volta direto pra
+    "agent" — sem acionar o agents, já que o checkpoint do LangGraph nunca
+    foi tocado por essa mudança de estado e a conversa retoma de onde estava
+    (ou começa do zero pelo ponto de entrada, se nunca tinha sido atendida).
     """
     try:
         conversation = await session.scalar(
@@ -249,7 +264,7 @@ async def _send_purchase_confirmation(
         )
         if number is None or conversation is None:
             logger.warning(
-                "Sem número/conversa pra confirmar pagamento | tenant=%s contato=%s",
+                "Sem número/conversa pra notificar o cliente final | tenant=%s contato=%s",
                 tenant_id,
                 contact_phone_number,
             )
@@ -259,7 +274,7 @@ async def _send_purchase_confirmation(
             phone_number_id=number.phone_number_id,
             access_token=decrypt_access_token(number.access_token_encrypted),
             to=contact_phone_number,
-            text="Pagamento confirmado! Você já pode continuar a conversa.",
+            text=text,
         )
 
         session.add(
@@ -267,28 +282,193 @@ async def _send_purchase_confirmation(
                 conversation_id=conversation.id,
                 tenant_id=tenant_id,
                 sender_type="system",
-                content="Pagamento confirmado! Você já pode continuar a conversa.",
+                content=text,
                 delivery_status="sent",
             )
         )
         conversation.last_message_at = datetime.now(UTC)
 
-        if conversation.state == "billing_gate":
+        if exit_billing_gate and conversation.state == "billing_gate":
             conversation.state = "agent"
             conversation.billing_gate_step = None
             conversation.billing_gate_retries = 0
         await session.commit()
     except WhatsAppSendError:
         logger.exception(
-            "Falha ao confirmar pagamento via WhatsApp | tenant=%s contato=%s",
+            "Falha ao notificar o cliente final via WhatsApp | tenant=%s contato=%s",
             tenant_id,
             contact_phone_number,
         )
     except Exception:
         logger.exception(
-            "Erro inesperado ao confirmar pagamento | tenant=%s contato=%s",
+            "Erro inesperado ao notificar o cliente final | tenant=%s contato=%s",
             tenant_id,
             contact_phone_number,
+        )
+
+
+def _as_plain_dict(value: dict) -> dict:
+    """Normaliza um payload de webhook Stripe pra um dict puro, recursivamente.
+
+    `value` pode ser um `StripeObject` real (Session/Invoice/Subscription,
+    entre outros) — não implementa `.get()`, só `[]`/`in` (o mesmo cuidado já
+    documentado em `app/api/v1/webhooks/stripe_connect.py`). `.to_dict()`
+    converte o objeto (e qualquer StripeObject aninhado dentro dele, ex:
+    `metadata`, `lines.data[i].period`) pra dict/list puros, tornando seguro
+    todo `.get()` chamado depois deste ponto. Quando `value` já é um dict
+    puro (sempre o caso nos testes unitários, que mockam o payload assim),
+    `dict(value)` só copia — os dicts/lists aninhados já são puros também."""
+    return value.to_dict() if hasattr(value, "to_dict") else dict(value)
+
+
+async def process_end_customer_subscription_created(
+    session: AsyncSession, tenant_id: uuid.UUID, stripe_session: dict
+) -> None:
+    """Ativa a assinatura recorrente do cliente final e confirma via WhatsApp.
+
+    Idempotente por stripe_subscription_id — mesmo padrão de idempotência já
+    usado pra compra avulsa (lá por stripe_payment_id). `checkout.session.completed`
+    é o mesmo evento Stripe usado pra compra avulsa — a diferenciação é só
+    pela metadata (`kind`), nunca pelo `type` do evento, então esta função
+    não faz nada quando a sessão não é de assinatura (`subscription` ausente
+    ou metadata de outro kind)."""
+    stripe_session = _as_plain_dict(stripe_session)
+    subscription_id = stripe_session.get("subscription")
+    if not subscription_id:
+        return
+    already_processed = await session.scalar(
+        select(EndCustomerSubscription.id).where(
+            EndCustomerSubscription.stripe_subscription_id == subscription_id
+        )
+    )
+    if already_processed is not None:
+        logger.info("Webhook de assinatura duplicado, ignorando | subscription=%s", subscription_id)
+        return
+
+    metadata = stripe_session.get("metadata") or {}
+    if metadata.get("kind") != "end_customer_subscription":
+        return
+
+    contact_phone_number = metadata.get("contact_phone_number")
+    package_id_raw = metadata.get("package_id")
+    if not contact_phone_number or not package_id_raw:
+        logger.error(
+            "Metadata incompleta no webhook de assinatura | subscription=%s", subscription_id
+        )
+        return
+
+    session.add(
+        EndCustomerSubscription(
+            tenant_id=tenant_id,
+            contact_phone_number=contact_phone_number,
+            end_customer_credit_package_id=uuid.UUID(package_id_raw),
+            stripe_subscription_id=subscription_id,
+            status="active",
+        )
+    )
+    await session.commit()
+
+    await _notify_end_customer(
+        session,
+        tenant_id,
+        contact_phone_number,
+        "Assinatura ativada! Você já tem acesso ilimitado.",
+        exit_billing_gate=True,
+    )
+
+
+def _extract_period_end(invoice: dict) -> datetime | None:
+    """Fim do ciclo de cobrança pago — fica em `lines.data[0].period.end`
+    (unix timestamp), não num campo `period_end` de nível raiz do `Invoice`.
+
+    Confirmado por introspecção do SDK instalado (`stripe-python` 15.3.0):
+    `stripe.Invoice.construct_from(...)` não expõe nenhum atributo/chave
+    `period_end` — só `lines` (um `ListObject`, cujo `.data` é uma lista
+    python de `StripeObject`, cada um com `period.start`/`period.end`).
+    Também confere com a doc atual da Stripe
+    (docs.stripe.com/api/invoices/object, seção `lines`): o objeto `Invoice`
+    raiz não documenta `period_end`; cada `invoice line item` tem seu
+    próprio `period`. Assume que `invoice` já foi normalizado (recursivamente)
+    pra dict puro pelo chamador — ver `_as_plain_dict`."""
+    lines = invoice.get("lines") or {}
+    lines_data = lines.get("data") or []
+    if not lines_data:
+        return None
+    period = lines_data[0].get("period") or {}
+    end_timestamp = period.get("end")
+    if end_timestamp is None:
+        return None
+    return datetime.fromtimestamp(end_timestamp, UTC)
+
+
+async def process_end_customer_subscription_renewed(
+    session: AsyncSession, tenant_id: uuid.UUID, invoice: dict
+) -> None:
+    """Renovação mensal (`invoice.payment_succeeded`) — atualiza
+    status/current_period_end, sem notificar o cliente (decisão deliberada:
+    renovação silenciosa evita spam mensal)."""
+    invoice = _as_plain_dict(invoice)
+    subscription_id = invoice.get("subscription")
+    if not subscription_id:
+        return
+    subscription = await session.scalar(
+        select(EndCustomerSubscription).where(
+            EndCustomerSubscription.tenant_id == tenant_id,
+            EndCustomerSubscription.stripe_subscription_id == subscription_id,
+        )
+    )
+    if subscription is None:
+        logger.warning(
+            "Renovação de assinatura desconhecida | tenant=%s subscription=%s",
+            tenant_id,
+            subscription_id,
+        )
+        return
+
+    subscription.status = "active"
+    period_end = _extract_period_end(invoice)
+    if period_end is not None:
+        subscription.current_period_end = period_end
+    subscription.updated_at = datetime.now(UTC)
+    await session.commit()
+
+
+async def process_end_customer_subscription_status_changed(
+    session: AsyncSession, tenant_id: uuid.UUID, subscription_payload: dict, *, notify_cancel: bool
+) -> None:
+    """`customer.subscription.deleted` (cancelamento, notifica) ou
+    `customer.subscription.updated` (ex: past_due, não notifica)."""
+    subscription_payload = _as_plain_dict(subscription_payload)
+    subscription_id = subscription_payload.get("id")
+    if not subscription_id:
+        return
+    subscription = await session.scalar(
+        select(EndCustomerSubscription).where(
+            EndCustomerSubscription.tenant_id == tenant_id,
+            EndCustomerSubscription.stripe_subscription_id == subscription_id,
+        )
+    )
+    if subscription is None:
+        logger.warning(
+            "Mudança de status de assinatura desconhecida | tenant=%s subscription=%s",
+            tenant_id,
+            subscription_id,
+        )
+        return
+
+    subscription.status = subscription_payload.get("status", subscription.status)
+    subscription.updated_at = datetime.now(UTC)
+    contact_phone_number = subscription.contact_phone_number
+    await session.commit()
+
+    if notify_cancel:
+        await _notify_end_customer(
+            session,
+            tenant_id,
+            contact_phone_number,
+            "Sua assinatura mensal foi cancelada — o atendimento volta a consumir "
+            "créditos normalmente.",
+            exit_billing_gate=False,
         )
 
 

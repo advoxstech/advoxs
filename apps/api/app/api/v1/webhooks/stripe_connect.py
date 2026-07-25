@@ -32,7 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import get_system_session
 from app.models import TenantBillingSettings
-from app.services.end_customer_billing import process_end_customer_checkout_completed
+from app.services.end_customer_billing import (
+    process_end_customer_checkout_completed,
+    process_end_customer_subscription_created,
+    process_end_customer_subscription_renewed,
+    process_end_customer_subscription_status_changed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +105,25 @@ async def receive_connect_webhook(
         return {"status": "ok"}
 
     if event["type"] == "checkout.session.completed":
+        # Cada função checa a própria metadata.kind e não faz nada se não
+        # bater — compra avulsa e assinatura são o mesmo evento Stripe,
+        # diferenciados só pela metadata, nunca pelo type do evento.
         await process_end_customer_checkout_completed(
             session, billing_settings.tenant_id, event["data"]["object"]
+        )
+        await process_end_customer_subscription_created(
+            session, billing_settings.tenant_id, event["data"]["object"]
+        )
+    elif event["type"] == "invoice.payment_succeeded":
+        await process_end_customer_subscription_renewed(
+            session, billing_settings.tenant_id, event["data"]["object"]
+        )
+    elif event["type"] in ("customer.subscription.deleted", "customer.subscription.updated"):
+        await process_end_customer_subscription_status_changed(
+            session,
+            billing_settings.tenant_id,
+            event["data"]["object"],
+            notify_cancel=(event["type"] == "customer.subscription.deleted"),
         )
     elif event["type"] == _STATUS_EVENT_TYPE:
         billing_settings.stripe_account_status = await _resolve_account_status(
