@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import httpx
 from arq.worker import Retry
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
@@ -172,7 +172,11 @@ async def process_inbound_message(
         and inbound.end_customer_billing_enabled
         and inbound.end_customer_balance > 0
     )
-    if inbound.credit_balance <= 0 and not customer_funded:
+    if (
+        inbound.credit_balance <= 0
+        and not customer_funded
+        and not inbound.end_customer_has_active_subscription
+    ):
         logger.info(
             "Saldo esgotado, agente não acionado | tenant=%s conversation=%s saldo=%s",
             tenant_id,
@@ -259,7 +263,12 @@ async def process_inbound_message(
             # (quando a cobrança está habilitada e havia saldo antes da
             # chamada) OU o estoque do tenant — nunca os dois. Ledger + saldo
             # na mesma transação das mensagens.
-            if customer_funded:
+            if inbound.end_customer_has_active_subscription:
+                # Ilimitado: nenhum dos dois lados é debitado enquanto a
+                # assinatura estiver ativa — o tenant absorve o custo do LLM,
+                # sem teto automático nesta v1 (ver design doc).
+                pass
+            elif customer_funded:
                 await _debitar_creditos_cliente_final(
                     session,
                     tenant_id,
@@ -352,6 +361,7 @@ async def _load_context(
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
     end_customer_balance = Decimal(0)
     end_customer_packages: list[dict] = []
+    active_subscription = None
 
     if end_customer_billing_enabled:
         balance = (
@@ -386,6 +396,21 @@ async def _load_context(
             for row in packages_result
         ]
 
+        active_subscription = (
+            await session.execute(
+                select(tables.end_customer_subscriptions.c.id).where(
+                    tables.end_customer_subscriptions.c.tenant_id == uuid.UUID(tenant_id),
+                    tables.end_customer_subscriptions.c.contact_phone_number
+                    == conversation.contact_phone_number,
+                    tables.end_customer_subscriptions.c.status == "active",
+                    or_(
+                        tables.end_customer_subscriptions.c.current_period_end.is_(None),
+                        tables.end_customer_subscriptions.c.current_period_end >= func.now(),
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
+
     return InboundContext(
         conversation_state=conversation.state,
         contact_phone_number=conversation.contact_phone_number,
@@ -405,6 +430,7 @@ async def _load_context(
             billing_settings.billing_gate_welcome_text if billing_settings is not None else None
         ),
         end_customer_billing_exempt=conversation.end_customer_billing_exempt,
+        end_customer_has_active_subscription=active_subscription is not None,
     )
 
 

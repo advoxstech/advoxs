@@ -324,7 +324,10 @@ async def test_load_context_seta_app_tenant_id(patched) -> None:
 
 
 def _inbound_com_billing(
-    balance: int, credit_balance: int = 1000, exempt: bool = False
+    balance: int,
+    credit_balance: int = 1000,
+    exempt: bool = False,
+    has_active_subscription: bool = False,
 ) -> InboundContext:
     return InboundContext(
         conversation_state="agent",
@@ -340,6 +343,7 @@ def _inbound_com_billing(
         ],
         agents=[],
         end_customer_billing_exempt=exempt,
+        end_customer_has_active_subscription=has_active_subscription,
     )
 
 
@@ -471,3 +475,19 @@ async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patche
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["send"].assert_not_awaited()
+
+
+async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> None:
+    # Assinatura ativa + tenant e cliente final zerados: mesmo assim não fica
+    # em silêncio (o gate/silêncio nunca dispara pra assinante) e nenhum dos
+    # dois lados é debitado (a assinatura cobre o custo do turno).
+    patched["load"].return_value = _inbound_com_billing(
+        balance=0, credit_balance=0, has_active_subscription=True
+    )
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+    patched["debitar"].assert_not_awaited()
+    patched["debitar_cliente_final"].assert_not_awaited()

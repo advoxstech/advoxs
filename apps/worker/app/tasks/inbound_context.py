@@ -28,3 +28,4 @@ class InboundContext:
     billing_gate_checkout_url: str | None = None
     billing_gate_welcome_text: str | None = None
     end_customer_billing_exempt: bool = False
+    end_customer_has_active_subscription: bool = False

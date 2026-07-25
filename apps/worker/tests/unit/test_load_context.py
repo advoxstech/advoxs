@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,6 +20,7 @@ def _session_with(
     packages,
     agents_rows=None,
     agent_kb_links=None,
+    active_subscription=None,
 ):
     session = AsyncMock()
 
@@ -42,6 +44,7 @@ def _session_with(
             _result(rows=agent_kb_links),
             _result(scalar=balance),
             _result(rows=packages),
+            _result(scalar=active_subscription),
         ]
     )
     return session
@@ -282,3 +285,37 @@ async def test_isencao_default_e_false() -> None:
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert context.end_customer_billing_exempt is False
+
+
+async def test_com_assinatura_ativa_marca_end_customer_has_active_subscription() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[],
+        active_subscription=uuid.uuid4(),
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_has_active_subscription is True
+
+
+async def test_billing_habilitado_sem_assinatura_marca_false() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[],
+        active_subscription=None,
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_has_active_subscription is False

@@ -39,6 +39,7 @@ async def maybe_enter_gate(
         inbound.conversation_state == "agent"
         and inbound.end_customer_billing_enabled
         and not inbound.end_customer_billing_exempt
+        and not inbound.end_customer_has_active_subscription
         and inbound.end_customer_balance <= 0
     ):
         await session.execute(
