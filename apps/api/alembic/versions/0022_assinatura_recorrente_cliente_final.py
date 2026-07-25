@@ -18,6 +18,10 @@ down_revision = "0021"
 branch_labels = None
 depends_on = None
 
+TENANT_SCOPED_TABLES = [
+    "end_customer_subscriptions",
+]
+
 
 def upgrade() -> None:
     op.add_column(
@@ -28,12 +32,8 @@ def upgrade() -> None:
 
     op.create_table(
         "end_customer_subscriptions",
-        sa.Column(
-            "id", sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()")
-        ),
-        sa.Column(
-            "tenant_id", sa.Uuid(), sa.ForeignKey("tenants.id"), nullable=False, index=True
-        ),
+        sa.Column("id", sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("tenant_id", sa.Uuid(), sa.ForeignKey("tenants.id"), nullable=False, index=True),
         sa.Column("contact_phone_number", sa.String(), nullable=False),
         sa.Column(
             "end_customer_credit_package_id",
@@ -63,8 +63,20 @@ def upgrade() -> None:
         ["tenant_id", "contact_phone_number"],
     )
 
+    for table in TENANT_SCOPED_TABLES:
+        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+        op.execute(
+            f"CREATE POLICY tenant_isolation ON {table} "
+            f"USING (tenant_id = current_setting('app.tenant_id', true)::uuid) "
+            f"WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)"
+        )
+
 
 def downgrade() -> None:
+    for table in TENANT_SCOPED_TABLES:
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
+        op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+
     op.drop_constraint(
         "uq_end_customer_subscriptions_tenant_contact",
         "end_customer_subscriptions",
