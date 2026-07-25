@@ -90,7 +90,7 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
     billing_settings = SimpleNamespace(enabled=True, billing_gate_welcome_text=None)
     package_row = SimpleNamespace(
-        id=uuid.uuid4(), name="Básico", price_brl=49.9, credits_granted=500
+        id=uuid.uuid4(), name="Básico", price_brl=49.9, kind="one_time", credits_granted=500
     )
     session = _session_with(
         conversation=_conversation(),
@@ -111,6 +111,7 @@ async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
             "id": str(package_row.id),
             "name": "Básico",
             "price_brl": "49.9",
+            "kind": "one_time",
             "credits_granted": 500,
         }
     ]
@@ -302,6 +303,27 @@ async def test_com_assinatura_ativa_marca_end_customer_has_active_subscription()
     inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert inbound.end_customer_has_active_subscription is True
+
+
+async def test_pacotes_incluem_kind() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[
+            SimpleNamespace(
+                id=uuid.uuid4(), name="Básico", price_brl=Decimal("49.90"),
+                credits_granted=500, kind="one_time",
+            )
+        ],
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_packages[0]["kind"] == "one_time"
 
 
 async def test_billing_habilitado_sem_assinatura_marca_false() -> None:

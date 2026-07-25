@@ -380,6 +380,7 @@ async def _load_context(
                 tables.end_customer_credit_packages.c.id,
                 tables.end_customer_credit_packages.c.name,
                 tables.end_customer_credit_packages.c.price_brl,
+                tables.end_customer_credit_packages.c.kind,
                 tables.end_customer_credit_packages.c.credits_granted,
             ).where(
                 tables.end_customer_credit_packages.c.tenant_id == uuid.UUID(tenant_id),
@@ -391,6 +392,7 @@ async def _load_context(
                 "id": str(row.id),
                 "name": row.name,
                 "price_brl": str(row.price_brl),
+                "kind": row.kind,
                 "credits_granted": row.credits_granted,
             }
             for row in packages_result

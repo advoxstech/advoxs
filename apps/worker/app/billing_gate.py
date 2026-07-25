@@ -84,20 +84,33 @@ async def _welcome_text(
     return "Olá! Escolha um pacote de créditos pra começar o atendimento:"
 
 
+def _package_row(package: dict) -> dict:
+    if package.get("kind") == "subscription":
+        description = f"R$ {package['price_brl']}/mês — conversas ilimitadas"
+    else:
+        description = f"R$ {package['price_brl']} = {package['credits_granted']} créditos"
+    return {"id": package["name"], "title": package["name"], "description": description}
+
+
 def _packages_to_sections(packages: list[dict]) -> list[dict]:
-    return [
-        {
-            "title": "Pacotes disponíveis",
-            "rows": [
-                {
-                    "id": p["name"],
-                    "title": p["name"],
-                    "description": f"R$ {p['price_brl']} = {p['credits_granted']} créditos",
-                }
-                for p in packages
-            ],
-        }
-    ]
+    # .get("kind", "one_time") — compatibilidade com qualquer chamador que
+    # ainda não propague "kind" (nenhum hoje, mas evita um KeyError silencioso
+    # se um teste/fixture mais antigo não tiver esse campo).
+    avulsos = [p for p in packages if p.get("kind", "one_time") != "subscription"]
+    assinaturas = [p for p in packages if p.get("kind") == "subscription"]
+
+    if not assinaturas:
+        return [{"title": "Pacotes disponíveis", "rows": [_package_row(p) for p in avulsos]}]
+
+    sections = []
+    if avulsos:
+        sections.append(
+            {"title": "Pacotes de créditos", "rows": [_package_row(p) for p in avulsos]}
+        )
+    sections.append(
+        {"title": "Assinatura mensal", "rows": [_package_row(p) for p in assinaturas]}
+    )
+    return sections
 
 
 async def _send_package_list(inbound: InboundContext, access_token: str) -> None:

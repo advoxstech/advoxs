@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.billing_gate import MAX_RETRIES, handle_billing_gate, maybe_enter_gate
+from app.billing_gate import (
+    MAX_RETRIES,
+    _packages_to_sections,
+    handle_billing_gate,
+    maybe_enter_gate,
+)
 from app.tasks.messages import InboundContext
 
 TENANT_ID = str(uuid.uuid4())
@@ -242,3 +247,64 @@ class TestHandleBillingGateAguardandoPagamento:
         update_values = session.execute.await_args.args[0]
         compiled = str(update_values.compile(compile_kwargs={"literal_binds": True}))
         assert "state='human'" in compiled
+
+
+class TestPackagesToSections:
+    def test_sem_assinatura_mantem_1_secao(self) -> None:
+        packages = [
+            {
+                "id": "p1",
+                "name": "Básico",
+                "price_brl": "49.90",
+                "kind": "one_time",
+                "credits_granted": 500,
+            },
+        ]
+
+        sections = _packages_to_sections(packages)
+
+        assert len(sections) == 1
+        assert sections[0]["title"] == "Pacotes disponíveis"
+        assert sections[0]["rows"][0]["description"] == "R$ 49.90 = 500 créditos"
+
+    def test_com_assinatura_gera_2_secoes(self) -> None:
+        packages = [
+            {
+                "id": "p1",
+                "name": "Básico",
+                "price_brl": "49.90",
+                "kind": "one_time",
+                "credits_granted": 500,
+            },
+            {
+                "id": "p2",
+                "name": "Ilimitado",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
+            },
+        ]
+
+        sections = _packages_to_sections(packages)
+
+        assert len(sections) == 2
+        assert sections[0]["title"] == "Pacotes de créditos"
+        assert sections[0]["rows"][0]["description"] == "R$ 49.90 = 500 créditos"
+        assert sections[1]["title"] == "Assinatura mensal"
+        assert sections[1]["rows"][0]["description"] == "R$ 99.90/mês — conversas ilimitadas"
+
+    def test_so_assinatura_sem_pacote_avulso(self) -> None:
+        packages = [
+            {
+                "id": "p2",
+                "name": "Ilimitado",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
+            },
+        ]
+
+        sections = _packages_to_sections(packages)
+
+        assert len(sections) == 1
+        assert sections[0]["title"] == "Assinatura mensal"
