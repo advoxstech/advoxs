@@ -51,8 +51,19 @@ async def _resolve_account_status(account_payload: dict) -> str:
     payload do evento account.updated (shape v1: `capabilities.card_payments`
     é uma string "active"/"inactive"/"pending", não um dict aninhado — ver
     docstring do módulo) — ativo é o que libera o billing gate determinístico
-    a considerar esse tenant configurado."""
-    capabilities = account_payload.get("capabilities", {})
+    a considerar esse tenant configurado.
+
+    `account_payload` (e `capabilities` dentro dele) pode ser um StripeObject
+    real (não um dict): não implementa `.get()`, só `[]`/`in` — `.to_dict()`
+    normaliza pra dict puro antes de qualquer `.get()` (mesmo padrão de
+    `process_checkout_completed` em `app/services/billing.py`)."""
+    payload = (
+        account_payload.to_dict() if hasattr(account_payload, "to_dict") else dict(account_payload)
+    )
+    capabilities = payload.get("capabilities", {})
+    capabilities = (
+        capabilities.to_dict() if hasattr(capabilities, "to_dict") else dict(capabilities)
+    )
     if capabilities.get("card_payments") == "active":
         return "active"
     return "onboarding"
@@ -73,7 +84,11 @@ async def receive_connect_webhook(
         logger.warning("Assinatura de webhook Connect inválida | erro=%s", exc)
         raise _ASSINATURA_INVALIDA
 
-    account_id = event.get("account")
+    # event é um stripe.Event real (StripeObject): não implementa .get(),
+    # só []/in — .to_dict() normaliza pra dict puro (mesmo padrão de
+    # process_checkout_completed em app/services/billing.py).
+    event_dict = event.to_dict() if hasattr(event, "to_dict") else dict(event)
+    account_id = event_dict.get("account")
     if not account_id:
         return {"status": "ok"}
 
