@@ -8,6 +8,10 @@ vi.mock("@/lib/client-api", () => ({
   backendFetch: vi.fn(),
 }));
 
+vi.mock("@/components/ConnectAccountOnboarding", () => ({
+  ConnectAccountOnboarding: () => <div>onboarding-connect-mock</div>,
+}));
+
 const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
 
 function mockLoad(settings: unknown, packages: unknown[] = [], customers: unknown[] = []) {
@@ -34,6 +38,9 @@ describe("EndCustomerBillingPanel", () => {
     mockLoad({
       enabled: false,
       billing_mode: "credits",
+      billing_provider: "standalone",
+      stripe_account_id: null,
+      stripe_account_status: null,
       stripe_secret_key_configured: false,
       stripe_webhook_secret_configured: false,
       end_customer_tokens_per_credit: null,
@@ -50,6 +57,9 @@ describe("EndCustomerBillingPanel", () => {
       tenant_id: "11111111-1111-1111-1111-111111111111",
       enabled: false,
       billing_mode: "credits",
+      billing_provider: "standalone",
+      stripe_account_id: null,
+      stripe_account_status: null,
       stripe_secret_key_configured: false,
       stripe_webhook_secret_configured: false,
       end_customer_tokens_per_credit: null,
@@ -72,6 +82,9 @@ describe("EndCustomerBillingPanel", () => {
     mockLoad({
       enabled: false,
       billing_mode: "credits",
+      billing_provider: "standalone",
+      stripe_account_id: null,
+      stripe_account_status: null,
       stripe_secret_key_configured: false,
       stripe_webhook_secret_configured: false,
       end_customer_tokens_per_credit: null,
@@ -107,6 +120,9 @@ describe("EndCustomerBillingPanel", () => {
           json: async () => ({
             enabled: false,
             billing_mode: "credits",
+            billing_provider: "standalone",
+            stripe_account_id: null,
+            stripe_account_status: null,
             stripe_secret_key_configured: false,
             stripe_webhook_secret_configured: false,
             end_customer_tokens_per_credit: null,
@@ -136,6 +152,9 @@ describe("EndCustomerBillingPanel", () => {
       {
         enabled: true,
         billing_mode: "credits",
+        billing_provider: "standalone",
+        stripe_account_id: null,
+        stripe_account_status: null,
         stripe_secret_key_configured: true,
         stripe_webhook_secret_configured: true,
         end_customer_tokens_per_credit: 500,
@@ -162,6 +181,9 @@ describe("EndCustomerBillingPanel", () => {
           json: async () => ({
             enabled: true,
             billing_mode: "credits",
+            billing_provider: "standalone",
+            stripe_account_id: null,
+            stripe_account_status: null,
             stripe_secret_key_configured: true,
             stripe_webhook_secret_configured: true,
             end_customer_tokens_per_credit: 500,
@@ -197,6 +219,9 @@ describe("EndCustomerBillingPanel", () => {
           json: async () => ({
             enabled: true,
             billing_mode: "credits",
+            billing_provider: "standalone",
+            stripe_account_id: null,
+            stripe_account_status: null,
             stripe_secret_key_configured: true,
             stripe_webhook_secret_configured: true,
             end_customer_tokens_per_credit: 500,
@@ -232,6 +257,9 @@ describe("EndCustomerBillingPanel", () => {
           json: async () => ({
             enabled: true,
             billing_mode: "credits",
+            billing_provider: "standalone",
+            stripe_account_id: null,
+            stripe_account_status: null,
             stripe_secret_key_configured: true,
             stripe_webhook_secret_configured: true,
             end_customer_tokens_per_credit: 500,
@@ -268,6 +296,9 @@ describe("EndCustomerBillingPanel", () => {
           json: async () => ({
             enabled: true,
             billing_mode: "credits",
+            billing_provider: "standalone",
+            stripe_account_id: null,
+            stripe_account_status: null,
             stripe_secret_key_configured: true,
             stripe_webhook_secret_configured: true,
             end_customer_tokens_per_credit: 500,
@@ -295,4 +326,39 @@ describe("EndCustomerBillingPanel", () => {
     confirmSpy.mockRestore();
   });
 
+  it("mostra o onboarding Connect (não o formulário de secret key) quando billing_provider é connect", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "onboarding",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByText("onboarding-connect-mock")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/secret key/i)).not.toBeInTheDocument();
+  });
+
+  it("mostra o formulário antigo de secret key quando billing_provider é standalone", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "standalone",
+      stripe_account_id: null,
+      stripe_account_status: null,
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByLabelText(/secret key/i)).toBeInTheDocument());
+    expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
+  });
 });
