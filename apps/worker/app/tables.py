@@ -136,6 +136,7 @@ end_customer_credit_packages = Table(
     Column("tenant_id", Uuid),
     Column("name", String),
     Column("price_brl", Numeric(10, 2)),
+    Column("kind", String),
     Column("credits_granted", Integer),
     Column("active", Boolean),
 )
@@ -163,4 +164,14 @@ end_customer_credit_transactions = Table(
     Column("related_message_id", Uuid),
     Column("description", String),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
+end_customer_subscriptions = Table(
+    "end_customer_subscriptions",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("contact_phone_number", String),
+    Column("status", String),
+    Column("current_period_end", DateTime(timezone=True)),
 )

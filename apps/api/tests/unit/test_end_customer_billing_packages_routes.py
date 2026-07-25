@@ -19,6 +19,7 @@ def _package(**overrides) -> SimpleNamespace:
         tenant_id=TENANT_ID,
         name="Pacote Básico",
         price_brl=Decimal("49.90"),
+        kind="one_time",
         credits_granted=500,
         active=True,
     )
@@ -180,3 +181,41 @@ def test_delete_pacote_nao_usado_remove(client, session) -> None:
 
     assert response.status_code == 204
     session.delete.assert_awaited_once_with(package)
+
+
+def test_create_pacote_avulso_sem_credits_granted_retorna_422(client, session) -> None:
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "Básico", "price_brl": "49.90", "kind": "one_time"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_pacote_assinatura_sem_credits_granted_funciona(client, session) -> None:
+    session.scalar.return_value = SimpleNamespace(billing_provider="connect")
+    added = []
+    session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+    async def fake_refresh(obj):
+        obj.id = PACKAGE_ID
+
+    session.refresh.side_effect = fake_refresh
+
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "Ilimitado", "price_brl": "49.90", "kind": "subscription"},
+    )
+
+    assert response.status_code == 201
+    assert added[0].kind == "subscription"
+    assert added[0].credits_granted is None
+
+
+def test_create_pacote_kind_invalido_retorna_422(client, session) -> None:
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={"name": "X", "price_brl": "49.90", "kind": "vitalicio", "credits_granted": 10},
+    )
+
+    assert response.status_code == 422

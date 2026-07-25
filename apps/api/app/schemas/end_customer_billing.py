@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TenantBillingSettingsOut(BaseModel):
@@ -40,15 +40,25 @@ class EndCustomerCreditPackageOut(BaseModel):
     id: uuid.UUID
     name: str
     price_brl: Decimal
-    credits_granted: int
+    kind: str
+    credits_granted: int | None
     active: bool
 
 
 class EndCustomerCreditPackageIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     price_brl: Decimal = Field(gt=0)
-    credits_granted: int = Field(gt=0)
+    kind: str = Field(default="one_time")
+    credits_granted: int | None = Field(default=None, gt=0)
     active: bool = True
+
+    @model_validator(mode="after")
+    def _valida_kind_e_credits_granted(self) -> "EndCustomerCreditPackageIn":
+        if self.kind not in ("one_time", "subscription"):
+            raise ValueError("kind deve ser 'one_time' ou 'subscription'")
+        if self.kind == "one_time" and self.credits_granted is None:
+            raise ValueError("credits_granted é obrigatório para pacotes avulsos (kind=one_time)")
+        return self
 
 
 class EndCustomerCreditPackageUpdate(BaseModel):
