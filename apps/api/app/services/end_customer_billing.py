@@ -375,6 +375,17 @@ async def process_end_customer_subscription_created(
         existing.end_customer_credit_package_id = uuid.UUID(package_id_raw)
         existing.stripe_subscription_id = subscription_id
         existing.status = "active"
+        # Reseta o período antigo: chegar neste branch sempre significa uma
+        # assinatura NOVA (o check de idempotência por stripe_subscription_id
+        # logo acima já retornou cedo pra evento duplicado da MESMA
+        # assinatura) — current_period_end da linha reaproveitada é do ciclo
+        # anterior (potencialmente já no passado, de antes do cancelamento) e
+        # fica definicionalmente obsoleto. None reaproveita a mesma tolerância
+        # que o path de INSERT já usa (ver comentário no bloco else abaixo) —
+        # sem isso, um current_period_end passado bloqueia a query de
+        # entitlement do worker até a próxima invoice.payment_succeeded
+        # chegar, mesmo com status=active e pagamento confirmado.
+        existing.current_period_end = None
         existing.updated_at = datetime.now(UTC)
     else:
         # `current_period_end` fica None aqui de propósito: a Stripe não

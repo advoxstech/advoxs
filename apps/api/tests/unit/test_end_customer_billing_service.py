@@ -612,6 +612,47 @@ class TestProcessEndCustomerSubscriptionCreated:
         assert existing.end_customer_credit_package_id == PACKAGE_ID
         notify.assert_awaited_once()
 
+    async def test_reassinatura_reseta_current_period_end_da_assinatura_antiga(
+        self, session, monkeypatch
+    ) -> None:
+        """Regressão de review: a linha reaproveitada no cancela->reassina
+        pode carregar um current_period_end do período ANTIGO (já no
+        passado, de antes do cancelamento). Se não for resetado, a query de
+        entitlement do worker (status == active AND (current_period_end IS
+        NULL OR current_period_end >= now())) nega serviço até a próxima
+        invoice.payment_succeeded chegar — e se invoice.payment_succeeded da
+        NOVA assinatura chegar ANTES deste checkout.session.completed (Stripe
+        não garante ordem), process_end_customer_subscription_renewed ainda
+        não acha a linha pelo novo stripe_subscription_id (só setado aqui) e
+        desiste, deixando o valor velho parado pra sempre."""
+        existing = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            end_customer_credit_package_id=uuid.uuid4(),
+            stripe_subscription_id="sub_old_canceled",
+            status="canceled",
+            current_period_end=datetime(2020, 1, 1, tzinfo=UTC),
+            updated_at=None,
+        )
+        session.scalar = AsyncMock(side_effect=[None, existing])
+        session.add = MagicMock()
+        notify = AsyncMock()
+        monkeypatch.setattr(service, "_notify_end_customer", notify)
+        stripe_session = {
+            "id": "cs_sub_3",
+            "subscription": "sub_new_456",
+            "metadata": {
+                "kind": "end_customer_subscription",
+                "contact_phone_number": CONTACT,
+                "package_id": str(PACKAGE_ID),
+            },
+        }
+
+        await process_end_customer_subscription_created(session, TENANT_ID, stripe_session)
+
+        assert existing.current_period_end is None
+
 
 class TestProcessEndCustomerSubscriptionRenewed:
     async def test_atualiza_current_period_end_sem_notificar(self, session, monkeypatch) -> None:
