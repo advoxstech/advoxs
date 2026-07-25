@@ -63,10 +63,17 @@ async def create_end_customer_checkout_session(
         and billing_settings.stripe_secret_key_encrypted is None
     ):
         raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
-    if (
-        billing_settings.billing_provider == "connect"
-        and billing_settings.stripe_account_id is None
+    if billing_settings.billing_provider == "connect" and (
+        billing_settings.stripe_account_id is None
+        or billing_settings.stripe_account_status != "active"
     ):
+        # stripe_account_id sozinho não basta: a capability precisa estar
+        # "active" — cobre tanto a chamada direta à API (bypassando o
+        # checkbox desabilitado do front) quanto uma conta que ficou active
+        # uma vez e depois regrediu (downgrade de capability do lado da
+        # Stripe). Esse é o momento de consequência real (geração do link de
+        # checkout), então é aqui que a defesa importa de fato — ver design
+        # doc 2026-07-24-stripe-connect-cobranca-cliente-final-design.md.
         raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
 
     package = await session.scalar(

@@ -149,11 +149,16 @@ def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:
 
 
 def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) -> None:
-    """Tenant onboarded via Stripe Connect (stripe_account_id set, stripe_secret_key_encrypted=None)
-    deve conseguir habilitar a cobrança do cliente final — a guarda é OR, não AND."""
+    """Tenant onboarded via Stripe Connect (stripe_account_id set, status=active,
+    stripe_secret_key_encrypted=None) deve conseguir habilitar a cobrança do
+    cliente final — a guarda é OR, não AND. status="active" é explícito aqui
+    porque agora é exigido (ver test_patch_habilitar_com_connect_status_nao_active_retorna_400) —
+    sem isso o teste passaria "por acidente" sem exercitar de fato o caminho
+    de onboarding concluído."""
     session.scalar.return_value = _settings_row(
         billing_provider="connect",
         stripe_account_id="acct_123",
+        stripe_account_status="active",
         stripe_secret_key_encrypted=None,
     )
 
@@ -161,6 +166,22 @@ def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) ->
 
     assert response.status_code == 200
     assert response.json()["enabled"] is True
+
+
+def test_patch_habilitar_com_connect_status_nao_active_retorna_400(client, session) -> None:
+    """Conta conectada existe (stripe_account_id setado) mas a capability
+    ainda não está ativa (onboarding pendente, ou regrediu depois de já ter
+    ficado ativa) — habilitar exige stripe_account_status="active", não só
+    ter um account_id."""
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_account_status="onboarding",
+    )
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 400
 
 
 def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(

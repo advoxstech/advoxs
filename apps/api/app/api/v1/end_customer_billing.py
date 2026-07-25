@@ -118,11 +118,14 @@ async def update_settings(
     if body.end_customer_tokens_per_credit is not None:
         row.end_customer_tokens_per_credit = body.end_customer_tokens_per_credit
 
-    if (
-        body.enabled is True
-        and row.stripe_secret_key_encrypted is None
-        and row.stripe_account_id is None
-    ):
+    # Lado connect da guarda: ter um stripe_account_id não basta — o
+    # onboarding só está genuinamente completo quando a capability está
+    # "active" (ver create_end_customer_checkout_session, que é o ponto que
+    # de fato importa; esta checagem aqui é só a defesa antecipada, com uma
+    # mensagem de erro mais clara pro tenant). O lado standalone da guarda
+    # (stripe_secret_key_encrypted) não muda.
+    connect_pronto = row.stripe_account_id is not None and row.stripe_account_status == "active"
+    if body.enabled is True and row.stripe_secret_key_encrypted is None and not connect_pronto:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(

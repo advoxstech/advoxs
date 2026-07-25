@@ -29,6 +29,7 @@ def _settings_row(**overrides) -> SimpleNamespace:
         enabled=True,
         billing_provider="standalone",
         stripe_account_id=None,
+        stripe_account_status=None,
         stripe_secret_key_encrypted="cifrado",
         stripe_webhook_secret_encrypted="cifrado-webhook",
         end_customer_tokens_per_credit=500,
@@ -147,7 +148,11 @@ class TestCreateEndCustomerCheckoutSession:
     ) -> None:
         session.scalar = AsyncMock(
             side_effect=[
-                _settings_row(billing_provider="connect", stripe_account_id="acct_123"),
+                _settings_row(
+                    billing_provider="connect",
+                    stripe_account_id="acct_123",
+                    stripe_account_status="active",
+                ),
                 _package(),
             ]
         )
@@ -167,6 +172,34 @@ class TestCreateEndCustomerCheckoutSession:
     async def test_checkout_connect_sem_stripe_account_id_levanta_erro(self, session) -> None:
         session.scalar = AsyncMock(
             return_value=_settings_row(billing_provider="connect", stripe_account_id=None)
+        )
+
+        with pytest.raises(BillingNotConfiguredError):
+            await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+    async def test_checkout_connect_status_nao_active_levanta_erro(self, session) -> None:
+        """Conta conectada existe (stripe_account_id setado) mas a capability
+        ainda não está ativa (onboarding pendente, ou regrediu depois de já ter
+        ficado ativa) — não basta ter um account_id, o status precisa ser
+        "active" pra gerar um checkout que de fato aceita cobrança."""
+        session.scalar = AsyncMock(
+            return_value=_settings_row(
+                billing_provider="connect",
+                stripe_account_id="acct_123",
+                stripe_account_status="onboarding",
+            )
+        )
+
+        with pytest.raises(BillingNotConfiguredError):
+            await create_end_customer_checkout_session(session, TENANT_ID, CONTACT, PACKAGE_ID)
+
+    async def test_checkout_connect_status_none_levanta_erro(self, session) -> None:
+        session.scalar = AsyncMock(
+            return_value=_settings_row(
+                billing_provider="connect",
+                stripe_account_id="acct_123",
+                stripe_account_status=None,
+            )
         )
 
         with pytest.raises(BillingNotConfiguredError):
