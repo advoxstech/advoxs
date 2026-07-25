@@ -84,7 +84,8 @@
       "Write",
       "WebFetch(domain:localhost)",
       "mcp__claude_ai_Excalidraw__export_to_excalidraw",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebSearch"
     ],
     "ask": [
       "Bash(git push *)",
