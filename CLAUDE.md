@@ -221,8 +221,21 @@ Tabelas principais e relacionamentos. Todas as tabelas marcadas como "tenant-sco
 - `tenant_id` (FK → `tenants`)
 - `name`
 - `price_brl` (numeric)
-- `credits_granted` (integer)
+- `kind` (`one_time` default | `subscription` — imutável depois de criado, ver seção "Assinatura mensal recorrente do cliente final")
+- `credits_granted` (integer, nullable — obrigatório só quando `kind="one_time"`; sempre `NULL` num pacote `subscription`, já que o acesso é ilimitado, não medido em créditos)
 - `active` (bool)
+
+### `end_customer_subscriptions` (tenant-scoped)
+> Assinatura mensal recorrente ativa (ou já cancelada) de um cliente final com um tenant — equivalente, pra assinatura, do que `end_customer_balances` é pro saldo de créditos avulsos (ver seção "Assinatura mensal recorrente do cliente final").
+- `id` (uuid, PK)
+- `tenant_id` (FK → `tenants`)
+- `contact_phone_number`
+- `end_customer_credit_package_id` (FK → `end_customer_credit_packages`, nullable)
+- `stripe_subscription_id` (unique)
+- `status`
+- `current_period_end` (nullable — `NULL` cobre a corrida entre `checkout.session.completed` e o primeiro `invoice.payment_succeeded`, tratado como "ainda ativa, confia no `status`")
+- `created_at`, `updated_at`
+- `UNIQUE (tenant_id, contact_phone_number)`
 
 ### `end_customer_balances` (tenant-scoped)
 - `id` (uuid, PK)
@@ -279,9 +292,11 @@ tenants 1───1 tenant_billing_settings
 tenants 1───N end_customer_credit_packages
 tenants 1───N end_customer_balances
 tenants 1───N end_customer_credit_transactions
+tenants 1───N end_customer_subscriptions
 credit_packages 1───N credit_transactions (quando type = purchase)
 messages 1───N credit_transactions (quando type = consumption, via related_message_id)
 end_customer_credit_packages 1───N end_customer_credit_transactions (quando type = purchase)
+end_customer_credit_packages 1───N end_customer_subscriptions
 tenants 1───1 tenant_subscriptions
 tenant_subscriptions N───1 subscription_plans
 ```

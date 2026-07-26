@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.config import settings
 from app.core.crypto import encrypt_tenant_secret
-from app.models import EndCustomerCreditPackage, EndCustomerCreditTransaction, TenantBillingSettings
+from app.models import (
+    EndCustomerCreditPackage,
+    EndCustomerCreditTransaction,
+    EndCustomerSubscription,
+    TenantBillingSettings,
+)
 from app.schemas.end_customer_billing import (
     ConnectAccountSessionOut,
     EndCustomerCreditPackageIn,
@@ -211,7 +216,13 @@ async def update_package(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> EndCustomerCreditPackageOut:
     package = await _get_package(package_id, ctx, session)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if package.kind == "one_time" and "credits_granted" in data and data["credits_granted"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="credits_granted é obrigatório para pacotes avulsos (kind=one_time)",
+        )
+    for field, value in data.items():
         setattr(package, field, value)
     await session.commit()
     await session.refresh(package)
@@ -231,6 +242,20 @@ async def delete_package(
         )
     )
     if used is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pacote já usado em compras — desative em vez de excluir",
+        )
+    # Pacote kind=subscription nunca gera EndCustomerCreditTransaction — a
+    # referência sobrevive em EndCustomerSubscription mesmo depois de um
+    # cancelamento (a linha só muda de `status`, nunca é apagada). Sem esta
+    # checagem, o DELETE seguiria pro IntegrityError da FK (500).
+    used_by_subscription = await session.scalar(
+        select(EndCustomerSubscription.id).where(
+            EndCustomerSubscription.end_customer_credit_package_id == package_id
+        )
+    )
+    if used_by_subscription is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pacote já usado em compras — desative em vez de excluir",

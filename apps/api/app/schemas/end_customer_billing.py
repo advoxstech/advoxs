@@ -58,6 +58,11 @@ class EndCustomerCreditPackageIn(BaseModel):
             raise ValueError("kind deve ser 'one_time' ou 'subscription'")
         if self.kind == "one_time" and self.credits_granted is None:
             raise ValueError("credits_granted é obrigatório para pacotes avulsos (kind=one_time)")
+        if self.kind == "subscription":
+            # kind é autoritativo — um pacote de assinatura nunca tem
+            # credits_granted (acesso ilimitado, não medido em créditos).
+            # Normaliza em vez de rejeitar.
+            self.credits_granted = None
         return self
 
 

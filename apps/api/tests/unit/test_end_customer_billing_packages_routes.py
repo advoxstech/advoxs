@@ -174,7 +174,7 @@ def test_delete_pacote_de_outro_tenant_retorna_404(client, session) -> None:
 
 def test_delete_pacote_nao_usado_remove(client, session) -> None:
     package = _package()
-    session.scalar = AsyncMock(side_effect=[package, None])
+    session.scalar = AsyncMock(side_effect=[package, None, None])
     session.delete = AsyncMock()
 
     response = client.delete(f"/api/v1/end-customer-billing/packages/{PACKAGE_ID}")
@@ -243,6 +243,73 @@ def test_create_pacote_assinatura_sem_configuracao_alguma_retorna_409(client, se
     )
 
     assert response.status_code == 409
+
+
+def test_delete_pacote_com_assinatura_referenciando_retorna_409(client, session) -> None:
+    """Pacote kind=subscription nunca gera EndCustomerCreditTransaction — a
+    referência sobrevive em EndCustomerSubscription mesmo depois de um
+    cancelamento (a linha só muda de `status`, nunca é apagada). Sem essa
+    checagem, o DELETE seguiria pro IntegrityError da FK (500 em produção,
+    permanente — nenhum caminho de código remove a linha referenciando)."""
+    package = _package(kind="subscription", credits_granted=None)
+    session.scalar = AsyncMock(side_effect=[package, None, uuid.uuid4()])
+
+    response = client.delete(f"/api/v1/end-customer-billing/packages/{PACKAGE_ID}")
+
+    assert response.status_code == 409
+
+
+def test_update_pacote_avulso_credits_granted_null_retorna_422(client, session) -> None:
+    """`credits_granted` nullable no schema (pra suportar kind=subscription)
+    não pode virar um jeito de zerar o campo num pacote avulso via PATCH
+    explícito — o NOT NULL do banco não existe mais pra pegar isso."""
+    session.scalar.return_value = _package(kind="one_time", credits_granted=500)
+
+    response = client.patch(
+        f"/api/v1/end-customer-billing/packages/{PACKAGE_ID}",
+        json={"credits_granted": None},
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_pacote_assinatura_credits_granted_null_nao_e_bloqueado(client, session) -> None:
+    """A checagem é só pra kind=one_time — um pacote de assinatura nunca tem
+    credits_granted mesmo, então `null` explícito nele é inofensivo."""
+    session.scalar.return_value = _package(kind="subscription", credits_granted=None)
+
+    response = client.patch(
+        f"/api/v1/end-customer-billing/packages/{PACKAGE_ID}",
+        json={"credits_granted": None},
+    )
+
+    assert response.status_code == 200
+
+
+def test_create_pacote_assinatura_com_credits_granted_normaliza_para_none(client, session) -> None:
+    """kind é autoritativo — mandar credits_granted explícito num pacote de
+    assinatura é normalizado pra None, não persistido."""
+    session.scalar.return_value = SimpleNamespace(billing_provider="connect")
+    added = []
+    session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+    async def fake_refresh(obj):
+        obj.id = PACKAGE_ID
+
+    session.refresh.side_effect = fake_refresh
+
+    response = client.post(
+        "/api/v1/end-customer-billing/packages",
+        json={
+            "name": "Ilimitado",
+            "price_brl": "49.90",
+            "kind": "subscription",
+            "credits_granted": 500,
+        },
+    )
+
+    assert response.status_code == 201
+    assert added[0].credits_granted is None
 
 
 def test_create_pacote_avulso_em_tenant_standalone_funciona(client, session) -> None:
