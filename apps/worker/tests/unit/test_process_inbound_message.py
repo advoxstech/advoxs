@@ -477,6 +477,23 @@ async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patche
     patched["send"].assert_not_awaited()
 
 
+async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched) -> None:
+    """Ilimitado significa nenhum custo contabilizado nesta execução, não só
+    nenhum débito — sem isso, o relatório de Consumo do tenant (que agrega
+    messages.credits_consumed, não o ledger) mostraria conversas de assinante
+    "consumindo" créditos que nunca foram cobrados em lugar nenhum."""
+    patched["load"].return_value = _inbound_com_billing(
+        balance=0, credit_balance=0, has_active_subscription=True
+    )
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    persist_args = patched["persist"].await_args.args
+    assert persist_args[4] == 0  # tokens_used não contabilizado (ilimitado)
+    assert persist_args[5] == 0  # credits não contabilizado (ilimitado)
+
+
 async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> None:
     # Assinatura ativa + tenant e cliente final zerados: mesmo assim não fica
     # em silêncio (o gate/silêncio nunca dispara pra assinante) e nenhum dos

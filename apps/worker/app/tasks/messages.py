@@ -255,8 +255,27 @@ async def process_inbound_message(
         config = await get_current_pricing_config(session)
         credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
 
+        # Ilimitado: assinante ativo não deve ter custo contabilizado nesta
+        # execução, não só nenhum débito — sem isso, o relatório de Consumo
+        # do tenant (agrega messages.credits_consumed, não o ledger) mostraria
+        # um valor "consumido" que nunca foi cobrado em lugar nenhum. As
+        # variáveis reais (tokens_used/credits) seguem usadas só pra decidir
+        # o branch de débito abaixo, nunca pro que é persistido na mensagem.
+        if inbound.end_customer_has_active_subscription:
+            tokens_used_persistido: int | Decimal = 0
+            credits_persistido: int | Decimal = 0
+        else:
+            tokens_used_persistido = tokens_used
+            credits_persistido = credits
+
         first_message_id = await _persist_agent_responses(
-            session, tenant_id, conversation_id, responses, tokens_used, credits, delivery_failures
+            session,
+            tenant_id,
+            conversation_id,
+            responses,
+            tokens_used_persistido,
+            credits_persistido,
+            delivery_failures,
         )
         if credits and first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final

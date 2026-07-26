@@ -101,6 +101,26 @@ class TestMaybeEnterGate:
         assert entered is False
         session.execute.assert_not_called()
 
+    async def test_gate_ativo_mas_assinante_ativo_sai_do_gate_e_libera_o_turno(self) -> None:
+        """Espelha test_gate_ativo_mas_ja_isento_sai_do_gate_e_libera_o_turno:
+        uma conversa presa em billing_gate (ex: webhook de notificação de
+        cancelamento/renovação falhou em disparar a saída de estado, ou uma
+        mensagem chega na corrida entre a assinatura ser commitada e o gate
+        sair) precisa se auto-recuperar quando o contato já é assinante
+        ativo — sem isso, o cliente é cobrado de novo até escalar pra human."""
+        session = AsyncMock()
+        inbound = _inbound(
+            conversation_state="billing_gate",
+            billing_gate_step="aguardando_pagamento",
+            end_customer_has_active_subscription=True,
+        )
+
+        entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert entered is False
+        session.execute.assert_awaited_once()
+        session.commit.assert_awaited_once()
+
     async def test_nao_entra_no_gate_com_assinatura_ativa(self) -> None:
         session = AsyncMock()
         inbound = _inbound(

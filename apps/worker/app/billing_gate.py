@@ -26,7 +26,7 @@ async def maybe_enter_gate(
     entrar) em billing_gate — nesse caso, process_inbound_message não deve
     seguir pro fluxo normal de chamar o agents."""
     if inbound.conversation_state == "billing_gate":
-        if inbound.end_customer_billing_exempt:
+        if inbound.end_customer_billing_exempt or inbound.end_customer_has_active_subscription:
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
