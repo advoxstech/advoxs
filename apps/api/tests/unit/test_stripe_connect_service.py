@@ -47,6 +47,53 @@ async def test_cria_conta_quando_tenant_nao_tem_stripe_account_id(session, monke
 
 
 @pytest.mark.asyncio
+async def test_get_account_earnings_soma_saldo_e_repasses_em_brl(monkeypatch):
+    from app.services.stripe_connect import get_account_earnings
+
+    balance = {
+        "available": [{"amount": 12345, "currency": "brl"}, {"amount": 500, "currency": "usd"}],
+        "pending": [{"amount": 2000, "currency": "brl"}],
+    }
+    payouts = {
+        "data": [
+            {"amount": 10000, "status": "paid", "arrival_date": 0},
+            {"amount": 500, "status": "pending", "arrival_date": None},
+        ]
+    }
+    monkeypatch.setattr(
+        stripe_connect_module.stripe.Balance, "retrieve", MagicMock(return_value=balance)
+    )
+    monkeypatch.setattr(
+        stripe_connect_module.stripe.Payout, "list", MagicMock(return_value=payouts)
+    )
+
+    result = await get_account_earnings("acct_123")
+
+    assert result.available_brl == 123.45
+    assert result.pending_brl == 20.0
+    assert len(result.recent_payouts) == 2
+    assert result.recent_payouts[0].amount_brl == 100.0
+    assert result.recent_payouts[0].status == "paid"
+    assert result.recent_payouts[0].arrival_date == "1970-01-01"
+    assert result.recent_payouts[1].arrival_date is None
+
+
+@pytest.mark.asyncio
+async def test_get_account_earnings_falha_na_stripe_levanta_connect_api_error(monkeypatch):
+    import stripe
+
+    from app.services.stripe_connect import get_account_earnings
+
+    def _raise(*args, **kwargs):
+        raise stripe.error.StripeError("indisponível")
+
+    monkeypatch.setattr(stripe_connect_module.stripe.Balance, "retrieve", _raise)
+
+    with pytest.raises(ConnectApiError):
+        await get_account_earnings("acct_123")
+
+
+@pytest.mark.asyncio
 async def test_nao_recria_conta_quando_tenant_ja_tem_stripe_account_id(session, monkeypatch):
     row = SimpleNamespace(
         tenant_id=TENANT_ID,

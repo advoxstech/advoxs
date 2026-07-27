@@ -37,6 +37,7 @@ task para o passo a passo da verificação):
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
 
 import stripe
 from sqlalchemy import select
@@ -44,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models import TenantBillingSettings
+from app.schemas.end_customer_billing import ConnectEarningsOut, ConnectPayoutOut
 
 logger = logging.getLogger(__name__)
 
@@ -156,3 +158,50 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
         raise ConnectApiError("Falha ao iniciar a configuração de pagamentos") from exc
 
     return account_session.client_secret
+
+
+def _sum_brl_cents(amounts: list) -> int:
+    return sum(entry["amount"] for entry in amounts if entry["currency"] == "brl")
+
+
+async def get_account_earnings(stripe_account_id: str) -> ConnectEarningsOut:
+    """Saldo (disponível/pendente) e últimos repasses da conta conectada do
+    tenant — direto da própria Stripe, nunca guardado em cache no nosso banco.
+
+    Usa a mesma chave restrita do onboarding (settings.stripe_connect_secret_key),
+    passando `stripe_account=` — é a mesma técnica de "operar em nome de uma
+    conta conectada" que o checkout em Direct charge já usa, só que aqui é
+    leitura (Balance/Payouts) em vez de escrita.
+    """
+    try:
+        balance = await asyncio.to_thread(
+            stripe.Balance.retrieve,
+            api_key=settings.stripe_connect_secret_key,
+            stripe_account=stripe_account_id,
+        )
+        payouts = await asyncio.to_thread(
+            stripe.Payout.list,
+            api_key=settings.stripe_connect_secret_key,
+            stripe_account=stripe_account_id,
+            limit=10,
+        )
+    except stripe.error.StripeError as exc:
+        logger.error("Falha ao consultar saldo/repasses | conta=%s erro=%s", stripe_account_id, exc)
+        raise ConnectApiError("Falha ao consultar o saldo — tente novamente em instantes") from exc
+
+    return ConnectEarningsOut(
+        available_brl=_sum_brl_cents(balance["available"]) / 100,
+        pending_brl=_sum_brl_cents(balance["pending"]) / 100,
+        recent_payouts=[
+            ConnectPayoutOut(
+                amount_brl=payout["amount"] / 100,
+                status=payout["status"],
+                arrival_date=(
+                    datetime.fromtimestamp(payout["arrival_date"], tz=UTC).date().isoformat()
+                    if payout["arrival_date"] is not None
+                    else None
+                ),
+            )
+            for payout in payouts["data"]
+        ],
+    )
