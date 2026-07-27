@@ -11,6 +11,11 @@ COPY packages/config/package.json packages/config/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
+# Next.js embute variáveis NEXT_PUBLIC_* no bundle no momento do build, não
+# em tempo de execução — precisa chegar como build-arg (ver
+# .github/workflows/build-images.yml), nunca só no .env do host.
+ARG NEXT_PUBLIC_STRIPE_CONNECT_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_STRIPE_CONNECT_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_CONNECT_PUBLISHABLE_KEY
 COPY . .
 RUN pnpm turbo run build --filter=@advoxs/web
 
