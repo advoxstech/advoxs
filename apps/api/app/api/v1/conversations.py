@@ -189,8 +189,7 @@ async def update_billing_exemption(
             conversation.billing_gate_retries = 0
         conversation.end_customer_billing_exempt = True
         notice_text = (
-            "A partir de agora, essa conversa é gratuita — você não será "
-            "cobrado pelo atendimento."
+            "A partir de agora, essa conversa é gratuita — você não será cobrado pelo atendimento."
         )
     else:
         conversation.end_customer_billing_exempt = False

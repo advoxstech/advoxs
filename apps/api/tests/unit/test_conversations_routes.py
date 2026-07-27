@@ -823,9 +823,7 @@ class TestBillingExemption:
         assert response.status_code == 200
         assert conversation.state == "agent"
 
-    def test_desligar_isencao_avisa_cobranca_normal(
-        self, client, session, whatsapp_send
-    ) -> None:
+    def test_desligar_isencao_avisa_cobranca_normal(self, client, session, whatsapp_send) -> None:
         conversation = _conversation(state="agent", end_customer_billing_exempt=True)
         session.scalar.side_effect = [conversation, True, _number()]
 

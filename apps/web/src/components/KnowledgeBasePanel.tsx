@@ -138,6 +138,22 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     }
   }
 
+  async function handleReprocess(file: KbFile) {
+    try {
+      const response = await backendFetch(`knowledge-base/files/${file.id}/reprocess`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(body?.detail ?? "Falha ao reprocessar — tente novamente.");
+        return;
+      }
+      await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
@@ -170,6 +186,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
             onAttach={handleAttach}
             onDetach={handleDetach}
             onDelete={handleDelete}
+            onReprocess={handleReprocess}
           />
         ))}
       </div>
