@@ -370,3 +370,44 @@ class TestDelete:
 
         assert response.status_code == 502
         session.delete.assert_not_awaited()
+
+
+class TestReprocess:
+    def test_reprocessa_arquivo_com_erro_202(self, client, session, arq) -> None:
+        record = _record(status="error")
+        record.error_message = "Falha na ingestão (HTTP 500)"
+        session.scalar.return_value = record
+
+        response = client.post(f"/api/v1/knowledge-base/files/{FILE_ID}/reprocess")
+
+        assert response.status_code == 202
+        assert record.status == "processing"
+        assert record.error_message is None
+        session.commit.assert_awaited_once()
+        arq.enqueue_job.assert_awaited_once_with(
+            "ingest_knowledge_base_file", tenant_id=str(TENANT_ID), file_id=str(FILE_ID)
+        )
+
+    def test_reprocessa_arquivo_inexistente_404(self, client, session, arq) -> None:
+        session.scalar.return_value = None
+
+        response = client.post(f"/api/v1/knowledge-base/files/{uuid.uuid4()}/reprocess")
+
+        assert response.status_code == 404
+        arq.enqueue_job.assert_not_awaited()
+
+    def test_reprocessa_arquivo_pronto_409(self, client, session, arq) -> None:
+        session.scalar.return_value = _record(status="ready")
+
+        response = client.post(f"/api/v1/knowledge-base/files/{FILE_ID}/reprocess")
+
+        assert response.status_code == 409
+        arq.enqueue_job.assert_not_awaited()
+
+    def test_reprocessa_arquivo_ja_processando_409(self, client, session, arq) -> None:
+        session.scalar.return_value = _record(status="processing")
+
+        response = client.post(f"/api/v1/knowledge-base/files/{FILE_ID}/reprocess")
+
+        assert response.status_code == 409
+        arq.enqueue_job.assert_not_awaited()
