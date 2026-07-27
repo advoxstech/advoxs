@@ -18,6 +18,7 @@ from app.models import (
 )
 from app.schemas.end_customer_billing import (
     ConnectAccountSessionOut,
+    ConnectEarningsOut,
     EndCustomerCreditPackageIn,
     EndCustomerCreditPackageOut,
     EndCustomerCreditPackageUpdate,
@@ -30,7 +31,11 @@ from app.services.end_customer_billing import (
     list_customers,
     zero_end_customer_balance,
 )
-from app.services.stripe_connect import ConnectApiError, create_or_refresh_connect_account
+from app.services.stripe_connect import (
+    ConnectApiError,
+    create_or_refresh_connect_account,
+    get_account_earnings,
+)
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -160,6 +165,23 @@ async def connect_account(
     except ConnectApiError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     return ConnectAccountSessionOut(client_secret=client_secret)
+
+
+@router.get("/connect-account/earnings")
+async def connect_account_earnings(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConnectEarningsOut:
+    row = await _get_settings_row(ctx, session)
+    if row is None or row.billing_provider != "connect" or row.stripe_account_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conta Stripe Connect ainda não configurada",
+        )
+    try:
+        return await get_account_earnings(row.stripe_account_id)
+    except ConnectApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
 @router.get("/packages")

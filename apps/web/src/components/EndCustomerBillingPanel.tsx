@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { ConnectAccountOnboarding } from "@/components/ConnectAccountOnboarding";
+import { ConnectEarnings } from "@/components/ConnectEarnings";
 import { backendFetch } from "@/lib/client-api";
 
 type Settings = {
@@ -246,6 +247,7 @@ export function EndCustomerBillingPanel() {
             <div className="mt-4">
               <ConnectAccountOnboarding />
             </div>
+            {settings.stripe_account_status === "active" && <ConnectEarnings />}
             <form onSubmit={handleConnectEnabledSubmit} className="mt-6 flex flex-col gap-3">
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input

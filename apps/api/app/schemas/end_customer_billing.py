@@ -92,3 +92,15 @@ class EndCustomerSummaryOut(BaseModel):
 
 class ConnectAccountSessionOut(BaseModel):
     client_secret: str
+
+
+class ConnectPayoutOut(BaseModel):
+    amount_brl: float
+    status: str
+    arrival_date: str | None
+
+
+class ConnectEarningsOut(BaseModel):
+    available_brl: float
+    pending_brl: float
+    recent_payouts: list[ConnectPayoutOut]
