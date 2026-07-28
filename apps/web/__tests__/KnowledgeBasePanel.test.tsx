@@ -198,4 +198,57 @@ describe("KnowledgeBasePanel", () => {
     await waitFor(() => expect(screen.queryByText("regimento.pdf")).not.toBeInTheDocument());
     confirmSpy.mockRestore();
   });
+
+  it("reprocessa um arquivo com erro e reflete o novo status", async () => {
+    let reprocessed = false;
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (path === "knowledge-base/files/f2/reprocess" && init?.method === "POST") {
+        reprocessed = true;
+        return { ok: true, status: 202, json: async () => null };
+      }
+      if (path === "knowledge-base/files") {
+        const current = reprocessed
+          ? files.map((f) => (f.id === "f2" ? { ...f, status: "processing", error_message: null } : f))
+          : files;
+        return { ok: true, status: 200, json: async () => current };
+      }
+      return { ok: true, status: 200, json: async () => null };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("contrato.docx")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText("Reprocessar contrato.docx"));
+
+    await waitFor(() => expect(screen.getAllByText("processando").length).toBeGreaterThan(0));
+  });
+
+  it("botão de reprocessar não aparece pra arquivo pronto", async () => {
+    mockRouting();
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
+
+    expect(screen.queryByLabelText("Reprocessar regimento.pdf")).not.toBeInTheDocument();
+  });
+
+  it("mostra erro quando o reprocessamento falha", async () => {
+    mockRouting(async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "Só é possível reprocessar um arquivo com falha na ingestão" }),
+    }));
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("contrato.docx")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText("Reprocessar contrato.docx"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Só é possível reprocessar um arquivo com falha na ingestão"),
+      ).toBeInTheDocument(),
+    );
+  });
 });

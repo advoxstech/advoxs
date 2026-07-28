@@ -1,13 +1,16 @@
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TenantBillingSettingsOut(BaseModel):
     tenant_id: uuid.UUID
     enabled: bool
     billing_mode: str
+    billing_provider: str
+    stripe_account_id: str | None
+    stripe_account_status: str | None
     stripe_secret_key_configured: bool
     stripe_webhook_secret_configured: bool
     end_customer_tokens_per_credit: int | None
@@ -37,15 +40,30 @@ class EndCustomerCreditPackageOut(BaseModel):
     id: uuid.UUID
     name: str
     price_brl: Decimal
-    credits_granted: int
+    kind: str
+    credits_granted: int | None
     active: bool
 
 
 class EndCustomerCreditPackageIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     price_brl: Decimal = Field(gt=0)
-    credits_granted: int = Field(gt=0)
+    kind: str = Field(default="one_time")
+    credits_granted: int | None = Field(default=None, gt=0)
     active: bool = True
+
+    @model_validator(mode="after")
+    def _valida_kind_e_credits_granted(self) -> "EndCustomerCreditPackageIn":
+        if self.kind not in ("one_time", "subscription"):
+            raise ValueError("kind deve ser 'one_time' ou 'subscription'")
+        if self.kind == "one_time" and self.credits_granted is None:
+            raise ValueError("credits_granted é obrigatório para pacotes avulsos (kind=one_time)")
+        if self.kind == "subscription":
+            # kind é autoritativo — um pacote de assinatura nunca tem
+            # credits_granted (acesso ilimitado, não medido em créditos).
+            # Normaliza em vez de rejeitar.
+            self.credits_granted = None
+        return self
 
 
 class EndCustomerCreditPackageUpdate(BaseModel):
@@ -70,3 +88,19 @@ class EndCustomerSummaryOut(BaseModel):
     credit_balance: float
     total_purchased: float
     total_consumed: float
+
+
+class ConnectAccountSessionOut(BaseModel):
+    client_secret: str
+
+
+class ConnectPayoutOut(BaseModel):
+    amount_brl: float
+    status: str
+    arrival_date: str | None
+
+
+class ConnectEarningsOut(BaseModel):
+    available_brl: float
+    pending_brl: float
+    recent_payouts: list[ConnectPayoutOut]

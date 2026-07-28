@@ -16,6 +16,9 @@ def _settings_row(**overrides) -> SimpleNamespace:
         tenant_id=TENANT_ID,
         enabled=False,
         billing_mode="credits",
+        billing_provider="standalone",
+        stripe_account_id=None,
+        stripe_account_status=None,
         stripe_secret_key_encrypted=None,
         stripe_webhook_secret_encrypted=None,
         end_customer_tokens_per_credit=None,
@@ -169,6 +172,42 @@ def test_patch_habilitar_com_pacote_ativo_funciona(client, session) -> None:
     assert response.json()["enabled"] is True
 
 
+def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) -> None:
+    """Tenant onboarded via Stripe Connect (stripe_account_id set, status=active,
+    stripe_secret_key_encrypted=None) deve conseguir habilitar a cobrança do
+    cliente final — a guarda é OR, não AND. status="active" é explícito aqui
+    porque agora é exigido (ver test_patch_habilitar_com_connect_status_nao_active_retorna_400) —
+    sem isso o teste passaria "por acidente" sem exercitar de fato o caminho
+    de onboarding concluído."""
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_account_status="active",
+        stripe_secret_key_encrypted=None,
+    )
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
+def test_patch_habilitar_com_connect_status_nao_active_retorna_400(client, session) -> None:
+    """Conta conectada existe (stripe_account_id setado) mas a capability
+    ainda não está ativa (onboarding pendente, ou regrediu depois de já ter
+    ficado ativa) — habilitar exige stripe_account_status="active", não só
+    ter um account_id."""
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_account_status="onboarding",
+    )
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 400
+
+
 def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
     client, session
 ) -> None:
@@ -188,10 +227,12 @@ def test_patch_habilitar_sozinho_preserva_secrets_ja_configurados_na_resposta(
 
 
 def test_patch_secret_key_tokens_e_enabled_juntos_funciona(client, session, monkeypatch) -> None:
-    session.scalar.side_effect = [
-        None,  # _get_settings_row — ainda não existe registro
-        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
-    ]
+    """Tenant que já tem uma linha (billing_provider="standalone", já
+    configurado antes do bloqueio de standalone-do-zero) continua podendo
+    fazer PATCH normalmente, incluindo enviar stripe_secret_key — só a
+    criação de uma linha nova a partir do zero fica bloqueada (ver
+    test_patch_com_secret_key_sem_linha_existente_retorna_400)."""
+    session.scalar.return_value = _settings_row()
     monkeypatch.setattr(
         "app.api.v1.end_customer_billing.encrypt_tenant_secret", lambda v: f"cifrado:{v}"
     )
@@ -216,23 +257,64 @@ def test_patch_cria_registro_quando_nao_existe(client, session, monkeypatch) -> 
     session.scalar.return_value = None
     added = []
     session.add = MagicMock(side_effect=lambda obj: added.append(obj))
-    monkeypatch.setattr(
-        "app.api.v1.end_customer_billing.encrypt_tenant_secret", lambda v: f"cifrado:{v}"
-    )
 
     response = client.patch(
         "/api/v1/end-customer-billing/settings",
-        json={"stripe_secret_key": "sk_test_123", "end_customer_tokens_per_credit": 300},
+        json={"end_customer_tokens_per_credit": 300},
     )
 
     assert response.status_code == 200
     assert len(added) == 1
     created = added[0]
     assert created.tenant_id == TENANT_ID
-    assert created.stripe_secret_key_encrypted == "cifrado:sk_test_123"
+    assert created.billing_provider == "standalone"
     assert created.end_customer_tokens_per_credit == 300
+
+
+def test_patch_com_secret_key_sem_linha_existente_retorna_400(client, session) -> None:
+    """Tenant novo não pode configurar standalone do zero — só via Connect
+    (POST /connect-account). Tenants que já têm uma linha (billing_provider=
+    "standalone", já configurados antes desta feature) continuam podendo
+    fazer PATCH normalmente — ver test_patch_secret_key_tokens_e_enabled_juntos_funciona."""
+    session.scalar.return_value = None
+
+    response = client.patch(
+        "/api/v1/end-customer-billing/settings",
+        json={"stripe_secret_key": "sk_test_123"},
+    )
+
+    assert response.status_code == 400
+    assert "Connect" in response.json()["detail"]
 
 
 def test_sem_token_retorna_401() -> None:
     response = TestClient(app).get("/api/v1/end-customer-billing/settings")
     assert response.status_code == 401
+
+
+def test_get_sem_configuracao_retorna_billing_provider_standalone_por_default(
+    client, session
+) -> None:
+    session.scalar.return_value = None
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    body = response.json()
+    assert body["billing_provider"] == "standalone"
+    assert body["stripe_account_id"] is None
+    assert body["stripe_account_status"] is None
+
+
+def test_get_com_conta_connect_retorna_billing_provider_e_status(client, session) -> None:
+    session.scalar.return_value = _settings_row(
+        billing_provider="connect",
+        stripe_account_id="acct_123",
+        stripe_account_status="active",
+    )
+
+    response = client.get("/api/v1/end-customer-billing/settings")
+
+    body = response.json()
+    assert body["billing_provider"] == "connect"
+    assert body["stripe_account_id"] == "acct_123"
+    assert body["stripe_account_status"] == "active"

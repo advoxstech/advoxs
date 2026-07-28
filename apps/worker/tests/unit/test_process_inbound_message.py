@@ -9,6 +9,7 @@ import pytest
 from arq.worker import Retry
 from cryptography.fernet import Fernet
 
+from app.clients.whatsapp import WhatsAppSendError
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.tasks import messages as messages_task
@@ -322,7 +323,12 @@ async def test_load_context_seta_app_tenant_id(patched) -> None:
     assert len(set_config_calls) >= 1
 
 
-def _inbound_com_billing(balance: int, credit_balance: int = 1000) -> InboundContext:
+def _inbound_com_billing(
+    balance: int,
+    credit_balance: int = 1000,
+    exempt: bool = False,
+    has_active_subscription: bool = False,
+) -> InboundContext:
     return InboundContext(
         conversation_state="agent",
         contact_phone_number="5511888888888",
@@ -336,6 +342,8 @@ def _inbound_com_billing(balance: int, credit_balance: int = 1000) -> InboundCon
             {"id": "p-1", "name": "Básico", "price_brl": "49.9", "credits_granted": 500}
         ],
         agents=[],
+        end_customer_billing_exempt=exempt,
+        end_customer_has_active_subscription=has_active_subscription,
     )
 
 
@@ -346,7 +354,6 @@ async def test_moeda_unica_debita_so_o_cliente_final(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["send"].assert_awaited_once()
-    assert patched["send"].await_args.kwargs["end_customer_billing"]["balance"] == 1000
     # Moeda única: o turno custeado pelo cliente NÃO debita o tenant de novo.
     patched["debitar"].assert_not_awaited()
     patched["debitar_cliente_final"].assert_awaited_once()
@@ -355,19 +362,6 @@ async def test_moeda_unica_debita_so_o_cliente_final(patched) -> None:
     # Sem breakdown na resposta -> fallback: tudo como output -> 2000/1000 = 2
     assert args[5] == Decimal("2")
     assert args[8] == PRICING_CONFIG.id
-
-
-async def test_billing_habilitado_sem_saldo_debita_o_tenant(patched) -> None:
-    # Cliente sem saldo: a secretária oferece pacotes — turno custeado pelo tenant.
-    patched["load"].return_value = _inbound_com_billing(balance=0)
-    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    patched["send"].assert_awaited_once()
-    assert patched["send"].await_args.kwargs["end_customer_billing"]["balance"] == 0
-    patched["debitar_cliente_final"].assert_not_awaited()
-    patched["debitar"].assert_awaited_once()
 
 
 async def test_tenant_zerado_mas_cliente_final_com_saldo_roda_o_agente(patched) -> None:
@@ -381,24 +375,6 @@ async def test_tenant_zerado_mas_cliente_final_com_saldo_roda_o_agente(patched) 
     patched["send"].assert_awaited_once()
     patched["debitar_cliente_final"].assert_awaited_once()
     patched["debitar"].assert_not_awaited()
-
-
-async def test_tenant_zerado_e_cliente_sem_saldo_continua_em_silencio(patched) -> None:
-    patched["load"].return_value = _inbound_com_billing(balance=0, credit_balance=0)
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    patched["send"].assert_not_awaited()
-    patched["sync"].assert_awaited_once()
-
-
-async def test_billing_desabilitado_nao_manda_bloco_e_nao_debita(patched) -> None:
-    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
-
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    assert "end_customer_billing" not in patched["send"].await_args.kwargs
-    patched["debitar_cliente_final"].assert_not_awaited()
 
 
 async def test_agents_do_inbound_e_repassado_ao_send_message(patched) -> None:
@@ -427,3 +403,108 @@ async def test_agents_do_inbound_e_repassado_ao_send_message(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert patched["send"].await_args.kwargs["agents"] == agents_payload
+
+
+async def test_entra_no_billing_gate_e_nao_chama_agents(monkeypatch) -> None:
+    entrada_mock = AsyncMock(return_value=True)
+    handle_mock = AsyncMock()
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", entrada_mock)
+    monkeypatch.setattr(messages_task, "handle_billing_gate", handle_mock)
+    ctx = _ctx()
+    session = AsyncMock()
+    ctx["session_factory"].return_value.__aenter__ = AsyncMock(return_value=session)
+
+    monkeypatch.setattr(
+        messages_task,
+        "_load_context",
+        AsyncMock(return_value=_inbound(state="agent", credit_balance=1000)),
+    )
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    entrada_mock.assert_awaited_once()
+    handle_mock.assert_awaited_once()
+    ctx["http"].post.assert_not_called()
+
+
+async def test_falha_dentro_do_billing_gate_escala_pra_human_sem_propagar(monkeypatch) -> None:
+    """Regressão: uma falha de envio (ex: WhatsAppSendError ao mandar a lista
+    de pacotes) dentro de handle_billing_gate não pode propagar incapturada —
+    isso mataria o job do arq e deixaria a conversa travada em
+    state=billing_gate pra sempre (a válvula de MAX_RETRIES só dispara em
+    RESPONSE não reconhecida, nunca numa falha de envio)."""
+    entrada_mock = AsyncMock(return_value=True)
+    handle_mock = AsyncMock(side_effect=WhatsAppSendError("Graph API HTTP 500: erro simulado"))
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", entrada_mock)
+    monkeypatch.setattr(messages_task, "handle_billing_gate", handle_mock)
+    ctx = _ctx()
+    session = AsyncMock()
+    ctx["session_factory"].return_value.__aenter__ = AsyncMock(return_value=session)
+
+    monkeypatch.setattr(
+        messages_task,
+        "_load_context",
+        AsyncMock(return_value=_inbound(state="agent", credit_balance=1000)),
+    )
+
+    # Não deve propagar — se propagasse, este await levantaria WhatsAppSendError.
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    handle_mock.assert_awaited_once()
+    update_values = session.execute.await_args.args[0]
+    compiled = str(update_values.compile(compile_kwargs={"literal_binds": True}))
+    assert "state='human'" in compiled
+
+
+async def test_contato_isento_nunca_e_customer_funded(patched) -> None:
+    patched["load"].return_value = _inbound_com_billing(balance=1000, exempt=True)
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+    patched["debitar_cliente_final"].assert_not_awaited()
+    patched["debitar"].assert_awaited_once()
+
+
+async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patched) -> None:
+    patched["load"].return_value = _inbound_com_billing(
+        balance=1000, credit_balance=0, exempt=True
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()
+
+
+async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched) -> None:
+    """Ilimitado significa nenhum custo contabilizado nesta execução, não só
+    nenhum débito — sem isso, o relatório de Consumo do tenant (que agrega
+    messages.credits_consumed, não o ledger) mostraria conversas de assinante
+    "consumindo" créditos que nunca foram cobrados em lugar nenhum."""
+    patched["load"].return_value = _inbound_com_billing(
+        balance=0, credit_balance=0, has_active_subscription=True
+    )
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    persist_args = patched["persist"].await_args.args
+    assert persist_args[4] == 0  # tokens_used não contabilizado (ilimitado)
+    assert persist_args[5] == 0  # credits não contabilizado (ilimitado)
+
+
+async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> None:
+    # Assinatura ativa + tenant e cliente final zerados: mesmo assim não fica
+    # em silêncio (o gate/silêncio nunca dispara pra assinante) e nenhum dos
+    # dois lados é debitado (a assinatura cobre o custo do turno).
+    patched["load"].return_value = _inbound_com_billing(
+        balance=0, credit_balance=0, has_active_subscription=True
+    )
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 2000}
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+    patched["debitar"].assert_not_awaited()
+    patched["debitar_cliente_final"].assert_not_awaited()

@@ -45,6 +45,7 @@ export function AgentFolder({
   onAttach,
   onDetach,
   onDelete,
+  onReprocess,
 }: {
   agent: Agent;
   files: KbFile[];
@@ -55,6 +56,7 @@ export function AgentFolder({
   onAttach: (fileId: string, agentId: string) => void;
   onDetach: (agentId: string, fileId: string) => void;
   onDelete: (file: KbFile) => void;
+  onReprocess: (file: KbFile) => void;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +144,16 @@ export function AgentFolder({
                       </option>
                     ))}
                   </select>
+                )}
+                {file.status === "error" && (
+                  <button
+                    type="button"
+                    onClick={() => onReprocess(file)}
+                    aria-label={`Reprocessar ${file.filename}`}
+                    className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-accent"
+                  >
+                    Reprocessar
+                  </button>
                 )}
                 <button
                   type="button"

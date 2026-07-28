@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,6 +20,7 @@ def _session_with(
     packages,
     agents_rows=None,
     agent_kb_links=None,
+    active_subscription=None,
 ):
     session = AsyncMock()
 
@@ -42,15 +44,25 @@ def _session_with(
             _result(rows=agent_kb_links),
             _result(scalar=balance),
             _result(rows=packages),
+            _result(scalar=active_subscription),
         ]
     )
     return session
 
 
-def _conversation():
-    return SimpleNamespace(
-        state="agent", contact_phone_number="5511999998888", human_last_seen_at=None
+def _conversation(**overrides):
+    row = SimpleNamespace(
+        state="agent",
+        contact_phone_number="5511999998888",
+        human_last_seen_at=None,
+        billing_gate_step=None,
+        billing_gate_retries=0,
+        billing_gate_checkout_url=None,
+        end_customer_billing_exempt=False,
     )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
 
 
 def _number():
@@ -76,9 +88,9 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
 
 
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
-    billing_settings = SimpleNamespace(enabled=True)
+    billing_settings = SimpleNamespace(enabled=True, billing_gate_welcome_text=None)
     package_row = SimpleNamespace(
-        id=uuid.uuid4(), name="Básico", price_brl=49.9, credits_granted=500
+        id=uuid.uuid4(), name="Básico", price_brl=49.9, kind="one_time", credits_granted=500
     )
     session = _session_with(
         conversation=_conversation(),
@@ -99,13 +111,14 @@ async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
             "id": str(package_row.id),
             "name": "Básico",
             "price_brl": "49.9",
+            "kind": "one_time",
             "credits_granted": 500,
         }
     ]
 
 
 async def test_billing_habilitado_sem_saldo_ainda_usa_zero() -> None:
-    billing_settings = SimpleNamespace(enabled=True)
+    billing_settings = SimpleNamespace(enabled=True, billing_gate_welcome_text=None)
     session = _session_with(
         conversation=_conversation(),
         content="Olá",
@@ -183,3 +196,148 @@ async def test_sem_agentes_retorna_lista_vazia() -> None:
 
     assert context.agents == []
     assert session.execute.await_count == 7
+
+
+async def test_carrega_campos_do_billing_gate_da_conversa() -> None:
+    conversation = _conversation(
+        billing_gate_step="aguardando_pagamento",
+        billing_gate_retries=2,
+        billing_gate_checkout_url="https://checkout.stripe.com/xyz",
+    )
+    session = _session_with(
+        conversation=conversation,
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.billing_gate_step == "aguardando_pagamento"
+    assert context.billing_gate_retries == 2
+    assert context.billing_gate_checkout_url == "https://checkout.stripe.com/xyz"
+
+
+async def test_carrega_texto_de_boas_vindas_do_tenant() -> None:
+    billing_settings = SimpleNamespace(
+        enabled=True, billing_gate_welcome_text="Bem-vindo ao nosso escritório!"
+    )
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=billing_settings,
+        balance=0,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.billing_gate_welcome_text == "Bem-vindo ao nosso escritório!"
+
+
+async def test_sem_billing_settings_usa_welcome_text_none() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.billing_gate_welcome_text is None
+
+
+async def test_carrega_isencao_de_cobranca_da_conversa() -> None:
+    session = _session_with(
+        conversation=_conversation(end_customer_billing_exempt=True),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.end_customer_billing_exempt is True
+
+
+async def test_isencao_default_e_false() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.end_customer_billing_exempt is False
+
+
+async def test_com_assinatura_ativa_marca_end_customer_has_active_subscription() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[],
+        active_subscription=uuid.uuid4(),
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_has_active_subscription is True
+
+
+async def test_pacotes_incluem_kind() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[
+            SimpleNamespace(
+                id=uuid.uuid4(), name="Básico", price_brl=Decimal("49.90"),
+                credits_granted=500, kind="one_time",
+            )
+        ],
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_packages[0]["kind"] == "one_time"
+
+
+async def test_billing_habilitado_sem_assinatura_marca_false() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="oi",
+        number=_number(),
+        credit_balance=Decimal(1000),
+        billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
+        balance=Decimal(0),
+        packages=[],
+        active_subscription=None,
+    )
+
+    inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert inbound.end_customer_has_active_subscription is False

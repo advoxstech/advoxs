@@ -1,20 +1,21 @@
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
 from arq.worker import Retry
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
+from app.billing_gate import _escalate_to_human, handle_billing_gate, maybe_enter_gate
 from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
 from app.pricing import calcular_creditos, get_current_pricing_config
+from app.tasks.inbound_context import InboundContext
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +23,6 @@ logger = logging.getLogger(__name__)
 # default de max_tries do Arq também é 5 — manter em sincronia, mesmo padrão
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
-
-
-@dataclass
-class InboundContext:
-    conversation_state: str
-    contact_phone_number: str
-    message_content: str
-    phone_number_id: str
-    access_token_encrypted: str
-    credit_balance: Decimal
-    end_customer_billing_enabled: bool
-    end_customer_balance: Decimal
-    end_customer_packages: list[dict]
-    agents: list[dict]
-    human_last_seen_at: datetime | None = None
 
 
 def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
@@ -122,6 +108,34 @@ async def process_inbound_message(
     if inbound is None:
         return
 
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
+    if entrou_no_gate:
+        try:
+            async with open_tenant_session(session_factory, tenant_id) as session:
+                await handle_billing_gate(session, tenant_id, conversation_id, inbound)
+        except Exception as exc:
+            # Qualquer chamada externa dentro do billing gate (envio de texto/
+            # lista via WhatsApp, criação do checkout) pode falhar — se a
+            # exceção subisse incapturada, o job do arq morreria (depois das
+            # tentativas do próprio arq) e a conversa ficaria travada em
+            # state=billing_gate pra sempre: a válvula de MAX_RETRIES do gate
+            # só dispara numa RESPOSTA não reconhecida, nunca numa falha de
+            # ENVIO. Mesmo princípio da escalada em send_message_to_agents
+            # abaixo: silêncio nunca é melhor que qualquer erro transiente de
+            # rede. Sessão nova (não a que pode ter ficado com a transação
+            # suja/abortada) — garante app.tenant_id setado de novo pra RLS.
+            logger.error(
+                "Falha ao processar o billing gate, virando conversa pra human | "
+                "tenant=%s conversation=%s erro=%s",
+                tenant_id,
+                conversation_id,
+                exc,
+            )
+            async with open_tenant_session(session_factory, tenant_id) as session:
+                await _escalate_to_human(session, conversation_id)
+        return
+
     if inbound.conversation_state != "agent":
         if not _takeover_expirado(inbound.human_last_seen_at):
             # Takeover ativo: a mensagem aparece no painel e entra no
@@ -153,8 +167,16 @@ async def process_inbound_message(
     # saldo positivo) roda mesmo com o estoque do tenant zerado — esse crédito
     # já saiu do estoque na revenda. Silêncio total só quando o turno seria
     # custeado pelo tenant E o saldo dele esgotou.
-    customer_funded = inbound.end_customer_billing_enabled and inbound.end_customer_balance > 0
-    if inbound.credit_balance <= 0 and not customer_funded:
+    customer_funded = (
+        not inbound.end_customer_billing_exempt
+        and inbound.end_customer_billing_enabled
+        and inbound.end_customer_balance > 0
+    )
+    if (
+        inbound.credit_balance <= 0
+        and not customer_funded
+        and not inbound.end_customer_has_active_subscription
+    ):
         logger.info(
             "Saldo esgotado, agente não acionado | tenant=%s conversation=%s saldo=%s",
             tenant_id,
@@ -166,14 +188,6 @@ async def process_inbound_message(
 
     access_token = decrypt_access_token(inbound.access_token_encrypted)
 
-    extra_kwargs: dict = {}
-    if inbound.end_customer_billing_enabled:
-        extra_kwargs["end_customer_billing"] = {
-            "enabled": True,
-            "balance": inbound.end_customer_balance,
-            "packages": inbound.end_customer_packages,
-        }
-
     try:
         result = await send_message_to_agents(
             http,
@@ -183,7 +197,6 @@ async def process_inbound_message(
             phone_number_id=inbound.phone_number_id,
             access_token=access_token,
             agents=inbound.agents,
-            **extra_kwargs,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -242,15 +255,39 @@ async def process_inbound_message(
         config = await get_current_pricing_config(session)
         credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
 
+        # Ilimitado: assinante ativo não deve ter custo contabilizado nesta
+        # execução, não só nenhum débito — sem isso, o relatório de Consumo
+        # do tenant (agrega messages.credits_consumed, não o ledger) mostraria
+        # um valor "consumido" que nunca foi cobrado em lugar nenhum. As
+        # variáveis reais (tokens_used/credits) seguem usadas só pra decidir
+        # o branch de débito abaixo, nunca pro que é persistido na mensagem.
+        if inbound.end_customer_has_active_subscription:
+            tokens_used_persistido: int | Decimal = 0
+            credits_persistido: int | Decimal = 0
+        else:
+            tokens_used_persistido = tokens_used
+            credits_persistido = credits
+
         first_message_id = await _persist_agent_responses(
-            session, tenant_id, conversation_id, responses, tokens_used, credits, delivery_failures
+            session,
+            tenant_id,
+            conversation_id,
+            responses,
+            tokens_used_persistido,
+            credits_persistido,
+            delivery_failures,
         )
         if credits and first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final
             # (quando a cobrança está habilitada e havia saldo antes da
             # chamada) OU o estoque do tenant — nunca os dois. Ledger + saldo
             # na mesma transação das mensagens.
-            if customer_funded:
+            if inbound.end_customer_has_active_subscription:
+                # Ilimitado: nenhum dos dois lados é debitado enquanto a
+                # assinatura estiver ativa — o tenant absorve o custo do LLM,
+                # sem teto automático nesta v1 (ver design doc).
+                pass
+            elif customer_funded:
                 await _debitar_creditos_cliente_final(
                     session,
                     tenant_id,
@@ -286,6 +323,10 @@ async def _load_context(
                 tables.conversations.c.state,
                 tables.conversations.c.contact_phone_number,
                 tables.conversations.c.human_last_seen_at,
+                tables.conversations.c.billing_gate_step,
+                tables.conversations.c.billing_gate_retries,
+                tables.conversations.c.billing_gate_checkout_url,
+                tables.conversations.c.end_customer_billing_exempt,
             ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
         )
     ).one_or_none()
@@ -327,9 +368,10 @@ async def _load_context(
 
     billing_settings = (
         await session.execute(
-            select(tables.tenant_billing_settings.c.enabled).where(
-                tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id)
-            )
+            select(
+                tables.tenant_billing_settings.c.enabled,
+                tables.tenant_billing_settings.c.billing_gate_welcome_text,
+            ).where(tables.tenant_billing_settings.c.tenant_id == uuid.UUID(tenant_id))
         )
     ).one_or_none()
 
@@ -338,6 +380,7 @@ async def _load_context(
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
     end_customer_balance = Decimal(0)
     end_customer_packages: list[dict] = []
+    active_subscription = None
 
     if end_customer_billing_enabled:
         balance = (
@@ -356,6 +399,7 @@ async def _load_context(
                 tables.end_customer_credit_packages.c.id,
                 tables.end_customer_credit_packages.c.name,
                 tables.end_customer_credit_packages.c.price_brl,
+                tables.end_customer_credit_packages.c.kind,
                 tables.end_customer_credit_packages.c.credits_granted,
             ).where(
                 tables.end_customer_credit_packages.c.tenant_id == uuid.UUID(tenant_id),
@@ -367,10 +411,26 @@ async def _load_context(
                 "id": str(row.id),
                 "name": row.name,
                 "price_brl": str(row.price_brl),
+                "kind": row.kind,
                 "credits_granted": row.credits_granted,
             }
             for row in packages_result
         ]
+
+        active_subscription = (
+            await session.execute(
+                select(tables.end_customer_subscriptions.c.id).where(
+                    tables.end_customer_subscriptions.c.tenant_id == uuid.UUID(tenant_id),
+                    tables.end_customer_subscriptions.c.contact_phone_number
+                    == conversation.contact_phone_number,
+                    tables.end_customer_subscriptions.c.status == "active",
+                    or_(
+                        tables.end_customer_subscriptions.c.current_period_end.is_(None),
+                        tables.end_customer_subscriptions.c.current_period_end >= func.now(),
+                    ),
+                )
+            )
+        ).scalar_one_or_none()
 
     return InboundContext(
         conversation_state=conversation.state,
@@ -384,6 +444,14 @@ async def _load_context(
         end_customer_packages=end_customer_packages,
         agents=agents,
         human_last_seen_at=conversation.human_last_seen_at,
+        billing_gate_step=conversation.billing_gate_step,
+        billing_gate_retries=conversation.billing_gate_retries,
+        billing_gate_checkout_url=conversation.billing_gate_checkout_url,
+        billing_gate_welcome_text=(
+            billing_settings.billing_gate_welcome_text if billing_settings is not None else None
+        ),
+        end_customer_billing_exempt=conversation.end_customer_billing_exempt,
+        end_customer_has_active_subscription=active_subscription is not None,
     )
 
 

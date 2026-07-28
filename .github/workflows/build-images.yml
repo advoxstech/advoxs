@@ -41,3 +41,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ${{ matrix.app == 'web' && format('NEXT_PUBLIC_STRIPE_CONNECT_PUBLISHABLE_KEY={0}', secrets.STRIPE_CONNECT_PUBLISHABLE_KEY) || '' }}

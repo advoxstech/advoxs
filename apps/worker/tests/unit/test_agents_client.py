@@ -1,7 +1,5 @@
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 from httpx import HTTPStatusError, Request, Response
 
@@ -93,29 +91,6 @@ async def test_raises_on_5xx() -> None:
         await send_message_to_agents(http, **KWARGS)
 
 
-async def test_inclui_end_customer_billing_quando_presente() -> None:
-    response = MagicMock(spec=Response, status_code=200)
-    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
-    http = _http_returning(response)
-    billing = {"enabled": True, "balance": 0, "packages": [{"id": "p-1", "name": "Básico"}]}
-
-    await send_message_to_agents(http, **KWARGS, end_customer_billing=billing)
-
-    body = http.post.await_args.kwargs["json"]
-    assert body["end_customer_billing"] == billing
-
-
-async def test_omite_end_customer_billing_quando_none() -> None:
-    response = MagicMock(spec=Response, status_code=200)
-    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
-    http = _http_returning(response)
-
-    await send_message_to_agents(http, **KWARGS)
-
-    body = http.post.await_args.kwargs["json"]
-    assert "end_customer_billing" not in body
-
-
 async def test_inclui_agents_quando_informado() -> None:
     response = MagicMock(spec=Response, status_code=200)
     response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
@@ -145,24 +120,3 @@ async def test_sem_agents_manda_lista_vazia() -> None:
 
     body = http.post.await_args.kwargs["json"]
     assert body["agents"] == []
-
-
-async def test_balance_decimal_e_serializavel_de_verdade() -> None:
-    """Regressão: end_customer_balances.credit_balance é Numeric(12,4) desde a
-    Etapa 1/2 (moeda única) — vem como Decimal do banco. Um AsyncMock em
-    `http.post` (como os testes acima usam) nunca chega a serializar o
-    payload de verdade, mascarando TypeError: Object of type Decimal is not
-    JSON serializable — só apareceu em produção. Aqui usamos um
-    httpx.AsyncClient real com MockTransport pra forçar a codificação JSON
-    de fato acontecer."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"responses": ["oi"], "tokens_used": 100})
-
-    async with httpx.AsyncClient(
-        base_url="http://agents-test", transport=httpx.MockTransport(handler)
-    ) as http:
-        billing = {"enabled": True, "balance": Decimal("120.5000"), "packages": []}
-        result = await send_message_to_agents(http, **KWARGS, end_customer_billing=billing)
-
-    assert result["responses"] == ["oi"]

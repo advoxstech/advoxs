@@ -335,9 +335,9 @@ class TestProcessCheckoutCompleted:
         session.commit.assert_awaited_once()
 
     async def test_recompra_nao_gera_token(self, session, monkeypatch) -> None:
-        session.scalar.return_value = None
         tenant = SimpleNamespace(id=uuid.uuid4(), credit_balance=500)
-        session.get = AsyncMock(side_effect=[_package(), tenant])
+        session.scalar = AsyncMock(side_effect=[None, tenant])
+        session.get = AsyncMock(return_value=_package())
         session.add = MagicMock()
 
         store_mock = AsyncMock()
@@ -391,9 +391,9 @@ class TestProcessCheckoutCompletedRecompra:
         return {"id": "cs_789", "metadata": metadata}
 
     async def test_credita_tenant_existente_sem_criar_user(self, session) -> None:
-        session.scalar.return_value = None
         tenant = SimpleNamespace(id=uuid.uuid4(), credit_balance=500)
-        session.get = AsyncMock(side_effect=[_package(), tenant])
+        session.scalar = AsyncMock(side_effect=[None, tenant])
+        session.get = AsyncMock(return_value=_package())
         added = []
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
 
@@ -411,9 +411,9 @@ class TestProcessCheckoutCompletedRecompra:
     async def test_stripe_session_real_funciona_na_recompra(self, session) -> None:
         """Regressão: a mesma pegadinha do StripeObject sem .get() se aplica
         à recompra — cobrir explicitamente pra não regredir."""
-        session.scalar.return_value = None
         tenant = SimpleNamespace(id=uuid.uuid4(), credit_balance=0)
-        session.get = AsyncMock(side_effect=[_package(), tenant])
+        session.scalar = AsyncMock(side_effect=[None, tenant])
+        session.get = AsyncMock(return_value=_package())
         session.add = MagicMock()
 
         raw = self._recompra_session(tenant_id=str(tenant.id))
@@ -425,8 +425,8 @@ class TestProcessCheckoutCompletedRecompra:
         session.commit.assert_awaited_once()
 
     async def test_tenant_inexistente_nao_processa(self, session) -> None:
-        session.scalar.return_value = None
-        session.get = AsyncMock(side_effect=[_package(), None])
+        session.scalar = AsyncMock(side_effect=[None, None])
+        session.get = AsyncMock(return_value=_package())
         session.add = MagicMock()
 
         await process_checkout_completed(session, self._recompra_session())
@@ -453,9 +453,9 @@ class TestProcessCheckoutCompletedRecompra:
         session.add.assert_not_called()
 
     async def test_integrity_error_na_recompra_e_tratado(self, session) -> None:
-        session.scalar.return_value = None
         tenant = SimpleNamespace(id=uuid.uuid4(), credit_balance=0)
-        session.get = AsyncMock(side_effect=[_package(), tenant])
+        session.scalar = AsyncMock(side_effect=[None, tenant])
+        session.get = AsyncMock(return_value=_package())
         session.add = MagicMock()
         session.commit = AsyncMock(side_effect=billing.IntegrityError("stmt", {}, Exception("dup")))
         session.rollback = AsyncMock()

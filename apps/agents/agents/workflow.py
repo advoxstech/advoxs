@@ -12,7 +12,6 @@ class State(TypedDict):
     num_before_messages: int
     current_agent_id: str | None
     receptive_message_specialist: bool
-    end_customer_billing: dict | None
     agents: list[dict]
 
 

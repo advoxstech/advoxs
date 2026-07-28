@@ -214,7 +214,6 @@ Desde a introdução dos agentes por tenant, não existe mais uma lista fixa de
   "tools": [
     { "name": "buscar_base_conhecimento_agente", "description": "..." },
     { "name": "bucar_base_conhecimento_usuario", "description": "..." },
-    { "name": "gerar_link_pagamento_cliente", "description": "..." },
     { "name": "transfer_to_agent", "description": "..." }
   ]
 }
@@ -339,7 +338,6 @@ class State(TypedDict):
     num_before_messages: int                             # janela de histórico
     current_agent_id: str | None                         # agente fixado (id na lista `agents`)
     receptive_message_specialist: bool                   # flag "primeira resposta"
-    end_customer_billing: dict | None                    # saldo/pacotes do cliente final
     agents: list[dict]                                   # agentes do tenant (id, name, instructions, is_entry_point, knowledge_base_file_ids)
 ```
 
@@ -370,14 +368,10 @@ marcado como ponto de entrada (bug do chamador — todo tenant deveria ter ≥1
 agente), o `agent_node` devolve uma mensagem de erro genérica sem chamar o LLM.
 
 `agent_node`, por execução:
-1. Resolve o agente ativo (`current`) e verifica o bloqueio de saldo esgotado
-   do cliente final (`is_billing_blocked`) — quando bloqueado e o agente atual
-   não é o ponto de entrada, `current` passa a ser o ponto de entrada (mesmo
-   turno, sem um hop extra no grafo).
+1. Resolve o agente ativo (`current`, fallback pro ponto de entrada).
 2. Recorta o histórico com `strip_messages(state["messages"], num_before_messages)`.
 3. Monta a lista de tools (`transfer_to_agent`, `buscar_base_conhecimento_agente`,
-   `bucar_base_conhecimento_usuario`, + `gerar_link_pagamento_cliente` só
-   quando a cobrança do cliente final está habilitada) e faz `bind_tools`+`ainvoke`.
+   `bucar_base_conhecimento_usuario`) e faz `bind_tools`+`ainvoke`.
 4. Se o modelo chamou tools → `Command(goto="tool_node")`; senão →
    `Command(goto=END)`. Em ambos os casos, `current_agent_id` é sempre
    gravado no `update`.
@@ -389,11 +383,9 @@ depois a flag é zerada. O ponto de entrada nunca recebe essa instrução, mesmo
 que a flag venha `True` por engano no estado.
 
 **Despedida de transferência:** quando o modelo chama `transfer_to_agent` sem
-texto próprio (e a transferência não está bloqueada por saldo), injeta-se uma
-`AIMessage` do tipo _"um momento... vou te passar pra(o) X agora"_ (`X` = nome
-do agente de destino) antes de ir pro `tool_node` — agora se aplica a
-**qualquer** agente, não só à secretária/condominial de antes (fechamento de
-um débito técnico documentado anteriormente).
+texto próprio, injeta-se uma `AIMessage` do tipo _"um momento... vou te
+passar pra(o) X agora"_ (`X` = nome do agente de destino) antes de ir pro
+`tool_node` — se aplica a **qualquer** agente.
 
 ### 5.3 Roteamento
 
@@ -421,9 +413,9 @@ START → agent_node (ponto de entrada) → (transfer_to_agent) → tool_node
   `await tool.ainvoke(args)`.
 - **Injeção de `conversation_id` do estado (segurança multi-tenant):** para as
   tools em `STATE_SCOPED_TOOLS` (`bucar_base_conhecimento_usuario`,
-  `buscar_base_conhecimento_agente`, `gerar_link_pagamento_cliente`), o
-  `conversation_id` recebido do LLM em `tool_call["args"]` é **sempre
-  sobrescrito** por `state["conversation_id"]` antes do `ainvoke`.
+  `buscar_base_conhecimento_agente`), o `conversation_id` recebido do LLM em
+  `tool_call["args"]` é **sempre sobrescrito** por `state["conversation_id"]`
+  antes do `ainvoke`.
 - **Injeção de `knowledge_base_file_ids` do agente ativo:** para
   `buscar_base_conhecimento_agente`, resolve o agente ativo
   (`state["current_agent_id"]`) em `state["agents"]` e sobrescreve
@@ -432,12 +424,8 @@ START → agent_node (ponto de entrada) → (transfer_to_agent) → tool_node
 - **Injeção de `valid_agent_ids`:** para `transfer_to_agent`, sobrescreve
   `valid_agent_ids` com os ids reais de `state["agents"]` — a tool recusa a
   transferência se o `agent_id` escolhido pelo LLM não estiver nessa lista.
-- **Injeção de saldo do cliente final:** para `transfer_to_agent`
-  (`BILLING_GATED_TOOLS`), sobrescreve `end_customer_billing_enabled`/
-  `end_customer_balance` a partir de `state["end_customer_billing"]`.
 - O LLM nunca decide de fato nenhum desses valores — evita que uma mensagem
-  maliciosa induza a tool a vazar dado de outro tenant/agente ou a burlar o
-  bloqueio de saldo.
+  maliciosa induza a tool a vazar dado de outro tenant/agente.
 - Se a tool retorna um `Command` (caso de `transfer_to_agent`), aplica o
   `update` ao estado (seta `current_agent_id`) e emite uma `ToolMessage`
   vazia.
@@ -460,13 +448,12 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 
 | Tool                                                          | Tipo   | Função                                                                 |
 |----------------------------------------------------------------|--------|------------------------------------------------------------------------|
-| `transfer_to_agent(agent_id, valid_agent_ids, ...)`             | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`) e o saldo do cliente final não estiver bloqueado. |
+| `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
 | `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. |
 | `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
-| `gerar_link_pagamento_cliente(package_id, conversation_id)`     | async  | Gera link de pagamento (Stripe) do cliente final — inalterada.         |
 | `enviar_documento(url, conversation_id)`                        | sync   | Baixa um documento de uma URL e faz upload para endpoint de inserção.  |
 
-A lista `tools` exportada (usada pelo `tool_node`) contém as 4 primeiras da
+A lista `tools` exportada (usada pelo `tool_node`) contém as 3 primeiras da
 tabela (`enviar_documento` não está bindada a nenhum agente — ver §11).
 
 `transfer_to_agent`/`buscar_base_conhecimento_agente` substituem, respectivamente,
@@ -479,11 +466,10 @@ agentes da plataforma.
 
 Para `bucar_base_conhecimento_usuario`, `buscar_base_conhecimento_agente` e
 `transfer_to_agent`, os campos que o LLM "preenche" na chamada
-(`conversation_id`, `knowledge_base_file_ids`, `valid_agent_ids`,
-`end_customer_billing_enabled`, `end_customer_balance`) existem na assinatura
-só para permitir a injeção — o `tool_node` **sempre** sobrescreve esses
-valores a partir do estado real antes de invocar (ver §5.4). Isso é o que
-garante isolamento de tenant/agente: o LLM nunca controla de fato qual
+(`conversation_id`, `knowledge_base_file_ids`, `valid_agent_ids`) existem na
+assinatura só para permitir a injeção — o `tool_node` **sempre** sobrescreve
+esses valores a partir do estado real antes de invocar (ver §5.4). Isso é o
+que garante isolamento de tenant/agente: o LLM nunca controla de fato qual
 tenant/conversa/base de conhecimento é consultada, nem qual agente é um
 destino válido de transferência.
 
