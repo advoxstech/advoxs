@@ -266,3 +266,37 @@ async def delete_file(
 
     await session.delete(record)
     await session.commit()
+
+
+@router.post("/files/{file_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_file(
+    file_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+    arq: ArqRedis = Depends(get_arq_pool),
+) -> None:
+    record = await session.scalar(
+        select(KnowledgeBaseFile).where(
+            KnowledgeBaseFile.id == file_id,
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+        )
+    )
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
+    if record.status != "error":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Só é possível reprocessar um arquivo com falha na ingestão",
+        )
+
+    record.status = "processing"
+    record.error_message = None
+    await session.commit()
+    # O arquivo temporário permanece no volume quando a ingestão falha (só é
+    # apagado no caminho de sucesso, ver ingest_knowledge_base_file) — o
+    # worker reencontra o mesmo arquivo, sem precisar de novo upload.
+    await arq.enqueue_job(
+        "ingest_knowledge_base_file",
+        tenant_id=str(ctx.tenant_id),
+        file_id=str(file_id),
+    )
