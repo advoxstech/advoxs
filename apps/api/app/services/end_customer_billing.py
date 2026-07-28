@@ -132,8 +132,8 @@ async def create_end_customer_checkout_session(
                 mode=mode,
                 line_items=line_items,
                 metadata=metadata,
-                success_url=f"{settings.web_app_url}/pagamento-confirmado",
-                cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
+                success_url=f"{settings.web_app_url}/pagamento-confirmado?status=sucesso",
+                cancel_url=f"{settings.web_app_url}/pagamento-confirmado?status=cancelado",
             )
         else:
             secret_key = decrypt_tenant_secret(billing_settings.stripe_secret_key_encrypted)
@@ -143,8 +143,8 @@ async def create_end_customer_checkout_session(
                 mode=mode,
                 line_items=line_items,
                 metadata=metadata,
-                success_url=f"{settings.web_app_url}/pagamento-confirmado",
-                cancel_url=f"{settings.web_app_url}/pagamento-confirmado",
+                success_url=f"{settings.web_app_url}/pagamento-confirmado?status=sucesso",
+                cancel_url=f"{settings.web_app_url}/pagamento-confirmado?status=cancelado",
             )
     except stripe.error.StripeError as exc:
         logger.error("Falha ao criar checkout do cliente final | erro=%s", exc)
