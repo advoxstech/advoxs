@@ -1,5 +1,7 @@
 """Recompra de créditos pelo tenant autenticado: saldo, checkout e status."""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,11 +15,13 @@ from app.schemas.billing import (
     BillingCheckoutUrlOut,
     BillingStatusOut,
     BillingTransactionOut,
+    SpendingReportOut,
 )
 from app.services.billing import (
     InvalidPackageError,
     StripeApiError,
     create_recompra_checkout_session,
+    get_spending_report,
 )
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -80,3 +84,18 @@ async def billing_status(
         )
     )
     return BillingStatusOut(ready=found is not None)
+
+
+@router.get("/spending")
+async def spending_report(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> SpendingReportOut:
+    if to < from_:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'to' não pode ser anterior a 'from'",
+        )
+    return await get_spending_report(session, ctx.tenant_id, from_, to)

@@ -9,9 +9,11 @@ cria tenant/user/credit_transaction.
 import asyncio
 import logging
 import uuid
+from datetime import UTC, date, datetime, time
+from decimal import Decimal
 
 import stripe
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,7 @@ from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.security import hash_password
 from app.models import CreditPackage, CreditTransaction, Tenant, User
+from app.schemas.billing import SpendingByMonthOut, SpendingReportOut
 from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
 from app.services.signup_tokens import store_login_token
@@ -285,3 +288,42 @@ async def _process_recompra(session: AsyncSession, session_id: str, metadata: di
             session_id,
             tenant_id,
         )
+
+
+async def get_spending_report(
+    session: AsyncSession, tenant_id: uuid.UUID, date_from: date, date_to: date
+) -> SpendingReportOut:
+    """Quanto o tenant gastou comprando créditos da Advoxs, agregado por mês.
+    Mesma ressalva já documentada no CLAUDE.md pro dashboard de admin:
+    price_brl reflete o preço do pacote no momento da consulta, não
+    necessariamente o pago na época (a transação não guarda o preço pago)."""
+    upper_bound = datetime.combine(date_to, time.max, tzinfo=UTC)
+    lower_bound = datetime.combine(date_from, time.min, tzinfo=UTC)
+
+    rows = (
+        await session.execute(
+            select(
+                func.date_trunc("month", CreditTransaction.created_at),
+                CreditPackage.price_brl,
+            )
+            .join(CreditPackage, CreditPackage.id == CreditTransaction.credit_package_id)
+            .where(
+                CreditTransaction.tenant_id == tenant_id,
+                CreditTransaction.type == "purchase",
+                CreditTransaction.created_at >= lower_bound,
+                CreditTransaction.created_at <= upper_bound,
+            )
+        )
+    ).all()
+
+    by_month: dict[str, Decimal] = {}
+    for month, price in rows:
+        month_key = month.strftime("%Y-%m")
+        by_month[month_key] = by_month.get(month_key, Decimal(0)) + price
+
+    return SpendingReportOut(
+        by_month=[
+            SpendingByMonthOut(month=month_key, total_brl=float(total))
+            for month_key, total in sorted(by_month.items())
+        ]
+    )

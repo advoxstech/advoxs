@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -7,15 +8,18 @@ import pytest
 import stripe
 
 import app.services.billing as billing
+from app.schemas.billing import SpendingByMonthOut
 from app.services.billing import (
     EmailAlreadyExistsError,
     InvalidPackageError,
     StripeApiError,
     create_checkout_session,
     create_recompra_checkout_session,
+    get_spending_report,
     process_checkout_completed,
 )
 
+TENANT_ID = uuid.uuid4()
 PACKAGE_ID = uuid.uuid4()
 
 
@@ -489,3 +493,27 @@ class TestProcessCheckoutCompletedRecompra:
 
         assert len(added) == 8
         session.commit.assert_awaited_once()
+
+
+class TestGetSpendingReport:
+    async def test_soma_compras_por_mes(self, session) -> None:
+        rows = [
+            (datetime(2026, 7, 5, tzinfo=UTC), Decimal("100.00")),
+            (datetime(2026, 7, 20, tzinfo=UTC), Decimal("250.00")),
+        ]
+        result = MagicMock()
+        result.all.return_value = rows
+        session.execute = AsyncMock(return_value=result)
+
+        report = await get_spending_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31))
+
+        assert report.by_month == [SpendingByMonthOut(month="2026-07", total_brl=350.0)]
+
+    async def test_sem_compra_no_periodo_retorna_lista_vazia(self, session) -> None:
+        result = MagicMock()
+        result.all.return_value = []
+        session.execute = AsyncMock(return_value=result)
+
+        report = await get_spending_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31))
+
+        assert report.by_month == []

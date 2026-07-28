@@ -10,6 +10,7 @@ import app.api.v1.billing as billing_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.db import get_system_session
 from app.main import app
+from app.schemas.billing import SpendingByMonthOut, SpendingReportOut
 from app.services.billing import InvalidPackageError, StripeApiError
 
 TENANT_ID = uuid.uuid4()
@@ -198,3 +199,24 @@ class TestTransactions:
         compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
         assert "LIMIT 10" in compiled
         assert "OFFSET 20" in compiled
+
+
+class TestSpending:
+    def test_sem_token_retorna_401(self) -> None:
+        response = TestClient(app).get("/api/v1/billing/spending?from=2026-07-01&to=2026-07-31")
+        assert response.status_code == 401
+
+    def test_spending_com_to_anterior_a_from_retorna_422(self, client, session) -> None:
+        response = client.get("/api/v1/billing/spending?from=2026-07-31&to=2026-07-01")
+
+        assert response.status_code == 422
+
+    def test_spending_retorna_relatorio(self, client, session, monkeypatch) -> None:
+        report = SpendingReportOut(by_month=[SpendingByMonthOut(month="2026-07", total_brl=350.0)])
+        get_spending_report_mock = AsyncMock(return_value=report)
+        monkeypatch.setattr(billing_module, "get_spending_report", get_spending_report_mock)
+
+        response = client.get("/api/v1/billing/spending?from=2026-07-01&to=2026-07-31")
+
+        assert response.status_code == 200
+        assert response.json()["by_month"][0]["total_brl"] == 350.0

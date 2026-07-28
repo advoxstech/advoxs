@@ -28,3 +28,12 @@ class BillingTransactionOut(BaseModel):
     amount_credits: float
     description: str | None
     created_at: datetime
+
+
+class SpendingByMonthOut(BaseModel):
+    month: str
+    total_brl: float
+
+
+class SpendingReportOut(BaseModel):
+    by_month: list[SpendingByMonthOut]
