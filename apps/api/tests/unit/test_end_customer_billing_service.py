@@ -752,6 +752,44 @@ class TestProcessEndCustomerSubscriptionRenewed:
         assert payment.stripe_invoice_id == "in_999"
         assert payment.paid_at == datetime.fromtimestamp(1735689500, UTC)
 
+    async def test_sem_status_transitions_usa_fallback_do_momento_do_processamento(
+        self, session, monkeypatch
+    ) -> None:
+        """`status_transitions` pode vir ausente do payload (não só
+        `paid_at=None` dentro dele) — este é o campo que o brief pediu pra
+        confirmar com cautela (2 bugs reais já encontrados neste arquivo
+        sobre suposições erradas do shape do `Invoice`), então o fallback
+        pro momento do processamento precisa de cobertura direta no caminho
+        em que o pagamento É de fato persistido (session.add chamado), não
+        só nos caminhos que retornam antes de chegar em `_extract_paid_at`."""
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="past_due",
+            current_period_end=None,
+            end_customer_credit_package_id=PACKAGE_ID,
+        )
+        package = SimpleNamespace(id=PACKAGE_ID, price_brl=Decimal("49.90"))
+        session.scalar = AsyncMock(side_effect=[subscription, None])
+        session.get = AsyncMock(return_value=package)
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        invoice = {
+            "id": "in_999",
+            "subscription": "sub_123",
+            "lines": {"data": [{"period": {"end": 1735689600}}]},
+        }
+
+        before = datetime.now(UTC)
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+        after = datetime.now(UTC)
+
+        assert len(added) == 1
+        payment = added[0]
+        assert before <= payment.paid_at <= after
+
     async def test_invoice_duplicado_nao_registra_pagamento_2x(self, session, monkeypatch) -> None:
         subscription = SimpleNamespace(
             id=uuid.uuid4(),

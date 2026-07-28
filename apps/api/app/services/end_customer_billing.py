@@ -537,6 +537,12 @@ async def _record_subscription_payment(
         EndCustomerCreditPackage, subscription.end_customer_credit_package_id
     )
     if package is None:
+        logger.warning(
+            "Pacote da assinatura não encontrado (excluído), pagamento não "
+            "registrado no histórico de faturamento | tenant=%s subscription=%s",
+            tenant_id,
+            subscription.stripe_subscription_id,
+        )
         return
 
     session.add(
