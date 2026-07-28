@@ -38,3 +38,8 @@ export function formatFullDateTime(iso: string): string {
 export function formatCredits(value: number): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
+
+/** Valor em reais — pt-BR, sempre 2 casas decimais. */
+export function formatBRL(value: number): string {
+  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { formatBRL } from "@/lib/format";
 import { backendFetch } from "@/lib/client-api";
 
 type Payout = {
@@ -23,10 +24,6 @@ const STATUS_LABEL: Record<string, string> = {
   canceled: "cancelado",
   failed: "falhou",
 };
-
-function formatBRL(value: number): string {
-  return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 export function ConnectEarnings() {
   const [earnings, setEarnings] = useState<Earnings | null>(null);

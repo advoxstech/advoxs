@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
+import { formatBRL, formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
 
 describe("formatPhone", () => {
   it("formata número brasileiro com 9 dígitos", () => {
@@ -43,5 +43,13 @@ describe("formatCredits", () => {
 
   it("formata zero normalmente", () => {
     expect(formatCredits(0)).toBe("0");
+  });
+});
+
+describe("formatBRL", () => {
+  it("formata com vírgula decimal e 2 casas, padrão pt-BR", () => {
+    expect(formatBRL(49.9)).toBe("49,90");
+    expect(formatBRL(1234.5)).toBe("1.234,50");
+    expect(formatBRL(0)).toBe("0,00");
   });
 });
