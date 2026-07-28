@@ -35,3 +35,6 @@ infra/redis/data/
 
 # Scratch de execução do superpowers (task briefs, relatórios, diffs de review)
 .superpowers/
+
+# Worktrees isolados de features em desenvolvimento
+.worktrees/
