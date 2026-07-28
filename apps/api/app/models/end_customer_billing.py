@@ -163,3 +163,27 @@ class EndCustomerSubscription(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class EndCustomerSubscriptionPayment(Base):
+    """1 linha por invoice pago de uma assinatura mensal recorrente
+    (criação + cada renovação) — histórico de faturamento, equivalente pra
+    assinatura do que `EndCustomerCreditTransaction` (type=purchase) já é
+    pra compra avulsa. Nunca lido em tempo real pelo worker — só consumido
+    pelo relatório de faturamento (apps/api/app/api/v1/end_customer_billing.py)."""
+
+    __tablename__ = "end_customer_subscription_payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
+    end_customer_subscription_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("end_customer_subscriptions.id"), nullable=False
+    )
+    amount_brl: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    stripe_invoice_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

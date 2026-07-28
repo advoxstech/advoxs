@@ -8,6 +8,7 @@ from app.models.end_customer_billing import (
     EndCustomerCreditPackage,
     EndCustomerCreditTransaction,
     EndCustomerSubscription,
+    EndCustomerSubscriptionPayment,
     TenantBillingSettings,
 )
 from app.models.knowledge_base_file import KnowledgeBaseFile
@@ -30,6 +31,7 @@ __all__ = [
     "EndCustomerCreditPackage",
     "EndCustomerCreditTransaction",
     "EndCustomerSubscription",
+    "EndCustomerSubscriptionPayment",
     "KnowledgeBaseFile",
     "Message",
     "PlatformAdmin",
