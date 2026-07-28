@@ -10,8 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.config import settings
 from app.core.crypto import encrypt_tenant_secret
-from app.models import EndCustomerCreditPackage, EndCustomerCreditTransaction, TenantBillingSettings
+from app.models import (
+    EndCustomerCreditPackage,
+    EndCustomerCreditTransaction,
+    EndCustomerSubscription,
+    TenantBillingSettings,
+)
 from app.schemas.end_customer_billing import (
+    ConnectAccountSessionOut,
+    ConnectEarningsOut,
     EndCustomerCreditPackageIn,
     EndCustomerCreditPackageOut,
     EndCustomerCreditPackageUpdate,
@@ -19,7 +26,16 @@ from app.schemas.end_customer_billing import (
     TenantBillingSettingsOut,
     TenantBillingSettingsUpdate,
 )
-from app.services.end_customer_billing import list_customers
+from app.services.end_customer_billing import (
+    EndCustomerBalanceNotFoundError,
+    list_customers,
+    zero_end_customer_balance,
+)
+from app.services.stripe_connect import (
+    ConnectApiError,
+    create_or_refresh_connect_account,
+    get_account_earnings,
+)
 
 router = APIRouter(prefix="/end-customer-billing", tags=["end-customer-billing"])
 
@@ -40,6 +56,9 @@ def _to_settings_out(
             tenant_id=tenant_id,
             enabled=False,
             billing_mode="credits",
+            billing_provider="standalone",
+            stripe_account_id=None,
+            stripe_account_status=None,
             stripe_secret_key_configured=False,
             stripe_webhook_secret_configured=False,
             end_customer_tokens_per_credit=None,
@@ -49,6 +68,9 @@ def _to_settings_out(
         tenant_id=tenant_id,
         enabled=settings_row.enabled,
         billing_mode=settings_row.billing_mode,
+        billing_provider=settings_row.billing_provider,
+        stripe_account_id=settings_row.stripe_account_id,
+        stripe_account_status=settings_row.stripe_account_status,
         stripe_secret_key_configured=settings_row.stripe_secret_key_encrypted is not None,
         stripe_webhook_secret_configured=settings_row.stripe_webhook_secret_encrypted is not None,
         end_customer_tokens_per_credit=settings_row.end_customer_tokens_per_credit,
@@ -62,6 +84,11 @@ async def _get_settings_row(
     return await session.scalar(
         select(TenantBillingSettings).where(TenantBillingSettings.tenant_id == ctx.tenant_id)
     )
+
+
+async def _get_billing_provider(ctx: TenantContext, session: AsyncSession) -> str:
+    row = await _get_settings_row(ctx, session)
+    return row.billing_provider if row is not None else "standalone"
 
 
 @router.get("/settings")
@@ -80,10 +107,23 @@ async def update_settings(
 ) -> TenantBillingSettingsOut:
     row = await _get_settings_row(ctx, session)
     if row is None:
+        if body.stripe_secret_key is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Configuração via secret key não está mais disponível pra tenants novos — "
+                    "use POST /end-customer-billing/connect-account (Stripe Connect)."
+                ),
+            )
         # Valores explícitos (em vez de confiar no `server_default` das colunas):
         # sem um flush/refresh contra o Postgres, o objeto Python não teria
         # `enabled`/`billing_mode` populados antes do `_to_settings_out` abaixo.
-        row = TenantBillingSettings(tenant_id=ctx.tenant_id, enabled=False, billing_mode="credits")
+        row = TenantBillingSettings(
+            tenant_id=ctx.tenant_id,
+            enabled=False,
+            billing_mode="credits",
+            billing_provider="standalone",
+        )
         session.add(row)
 
     if body.stripe_secret_key is not None:
@@ -93,16 +133,55 @@ async def update_settings(
     if body.end_customer_tokens_per_credit is not None:
         row.end_customer_tokens_per_credit = body.end_customer_tokens_per_credit
 
-    if body.enabled is True and row.stripe_secret_key_encrypted is None:
+    # Lado connect da guarda: ter um stripe_account_id não basta — o
+    # onboarding só está genuinamente completo quando a capability está
+    # "active" (ver create_end_customer_checkout_session, que é o ponto que
+    # de fato importa; esta checagem aqui é só a defesa antecipada, com uma
+    # mensagem de erro mais clara pro tenant). O lado standalone da guarda
+    # (stripe_secret_key_encrypted) não muda.
+    connect_pronto = row.stripe_account_id is not None and row.stripe_account_status == "active"
+    if body.enabled is True and row.stripe_secret_key_encrypted is None and not connect_pronto:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configure a secret key da Stripe antes de ativar a cobrança",
+            detail=(
+                "Configure a secret key da Stripe (ou conclua o onboarding Connect) "
+                "antes de ativar a cobrança"
+            ),
         )
     if body.enabled is not None:
         row.enabled = body.enabled
 
     await session.commit()
     return _to_settings_out(ctx.tenant_id, row)
+
+
+@router.post("/connect-account")
+async def connect_account(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConnectAccountSessionOut:
+    try:
+        client_secret = await create_or_refresh_connect_account(session, ctx.tenant_id)
+    except ConnectApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return ConnectAccountSessionOut(client_secret=client_secret)
+
+
+@router.get("/connect-account/earnings")
+async def connect_account_earnings(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConnectEarningsOut:
+    row = await _get_settings_row(ctx, session)
+    if row is None or row.billing_provider != "connect" or row.stripe_account_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conta Stripe Connect ainda não configurada",
+        )
+    try:
+        return await get_account_earnings(row.stripe_account_id)
+    except ConnectApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
 @router.get("/packages")
@@ -122,6 +201,14 @@ async def create_package(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> EndCustomerCreditPackageOut:
+    if body.kind == "subscription" and await _get_billing_provider(ctx, session) != "connect":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Assinatura recorrente só está disponível pra tenants "
+                "configurados via Stripe Connect"
+            ),
+        )
     package = EndCustomerCreditPackage(tenant_id=ctx.tenant_id, **body.model_dump())
     session.add(package)
     await session.commit()
@@ -151,7 +238,13 @@ async def update_package(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> EndCustomerCreditPackageOut:
     package = await _get_package(package_id, ctx, session)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if package.kind == "one_time" and "credits_granted" in data and data["credits_granted"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="credits_granted é obrigatório para pacotes avulsos (kind=one_time)",
+        )
+    for field, value in data.items():
         setattr(package, field, value)
     await session.commit()
     await session.refresh(package)
@@ -175,6 +268,20 @@ async def delete_package(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pacote já usado em compras — desative em vez de excluir",
         )
+    # Pacote kind=subscription nunca gera EndCustomerCreditTransaction — a
+    # referência sobrevive em EndCustomerSubscription mesmo depois de um
+    # cancelamento (a linha só muda de `status`, nunca é apagada). Sem esta
+    # checagem, o DELETE seguiria pro IntegrityError da FK (500).
+    used_by_subscription = await session.scalar(
+        select(EndCustomerSubscription.id).where(
+            EndCustomerSubscription.end_customer_credit_package_id == package_id
+        )
+    )
+    if used_by_subscription is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pacote já usado em compras — desative em vez de excluir",
+        )
     await session.delete(package)
     await session.commit()
 
@@ -187,3 +294,17 @@ async def list_end_customers(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[EndCustomerSummaryOut]:
     return await list_customers(session, ctx.tenant_id, limit, offset)
+
+
+@router.post(
+    "/customers/{contact_phone_number}/zero-balance", status_code=status.HTTP_204_NO_CONTENT
+)
+async def zero_balance(
+    contact_phone_number: str,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> None:
+    try:
+        await zero_end_customer_balance(session, ctx.tenant_id, contact_phone_number)
+    except EndCustomerBalanceNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

@@ -1,7 +1,6 @@
 from langchain.tools import tool
 from langgraph.types import Command
 from clients.retrieval import retrieval_usuario, retrieval_escritorio
-from clients.billing import criar_link_pagamento
 from loguru import logger
 import requests
 import tempfile
@@ -160,43 +159,8 @@ async def bucar_base_conhecimento_usuario(query: str, conversation_id: str) -> s
     return await retrieval_usuario(conversation_id, query)
 
 
-@tool("gerar_link_pagamento_cliente")
-async def gerar_link_pagamento_cliente(package_id: str, conversation_id: str) -> str:
-    """Gera o link de pagamento (Stripe) pro cliente comprar um pacote de créditos.
-
-    Use quando o cliente não tiver saldo suficiente pra continuar sendo
-    atendido por um especialista, ou quando ele pedir explicitamente pra
-    comprar mais créditos. Escolha o package_id entre os pacotes informados
-    no seu contexto — nunca invente um id.
-
-    Args:
-        package_id: id do pacote escolhido (vem da lista de pacotes disponíveis).
-        conversation_id: preenchido automaticamente pelo sistema.
-    """
-    tenant_id, _, contact_phone_number = str(conversation_id).partition(":")
-    checkout_url = await criar_link_pagamento(tenant_id, contact_phone_number, package_id)
-    if checkout_url is None:
-        return (
-            "Não foi possível gerar o link de pagamento agora — peça pro cliente "
-            "tentar de novo em instantes."
-        )
-    return f"Link de pagamento gerado: {checkout_url}"
-
-def is_billing_blocked(enabled: bool, balance: float) -> bool:
-    """Bloqueia oferta/transferência quando a cobrança do cliente final está
-    ativa e o saldo está zerado — usada tanto pelo gate técnico em
-    transfer_to_agent quanto pela decisão de injetar os pacotes/pular a
-    despedida em agente_secretaria, pra nunca divergir entre os dois."""
-    return bool(enabled) and balance <= 0
-
-
 @tool("transfer_to_agent")
-def transfer_to_agent(
-    agent_id: str,
-    valid_agent_ids: list[str] | None = None,
-    end_customer_billing_enabled: bool = False,
-    end_customer_balance: float = 0,
-) -> str:
+def transfer_to_agent(agent_id: str, valid_agent_ids: list[str] | None = None) -> str:
     """
     Transfere a conversa para outro agente do escritório.
 
@@ -204,19 +168,11 @@ def transfer_to_agent(
         agent_id: id do agente de destino — escolha entre os agentes
             disponíveis no seu contexto, nunca invente um id.
         valid_agent_ids: preenchido automaticamente pelo sistema.
-        end_customer_billing_enabled: preenchido automaticamente pelo sistema.
-        end_customer_balance: preenchido automaticamente pelo sistema.
     """
     if agent_id not in (valid_agent_ids or []):
         return (
             "Transferência recusada: agent_id inválido — escolha um dos agentes "
             "disponíveis no seu contexto."
-        )
-    if is_billing_blocked(end_customer_billing_enabled, end_customer_balance):
-        return (
-            "Transferência bloqueada: o cliente ainda não tem créditos disponíveis. "
-            "Ofereça os pacotes de crédito e gere o link de pagamento antes de "
-            "transferir para outro agente."
         )
     return Command(
         update={
@@ -226,10 +182,8 @@ def transfer_to_agent(
     )
 
 
-
 tools = [
     buscar_base_conhecimento_agente,
     bucar_base_conhecimento_usuario,
-    gerar_link_pagamento_cliente,
     transfer_to_agent,
 ]

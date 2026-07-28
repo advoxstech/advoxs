@@ -10,7 +10,7 @@ class ConversationOut(BaseModel):
 
     id: uuid.UUID
     contact_phone_number: str
-    state: Literal["agent", "human"]
+    state: Literal["agent", "human", "billing_gate"]
     is_test: bool
     last_message_at: datetime | None
     created_at: datetime
@@ -19,6 +19,8 @@ class ConversationOut(BaseModel):
     end_customer_balance: float | None = None
     end_customer_cycle_total: float | None = None
     end_customer_cycle_consumed: float | None = None
+    end_customer_billing_exempt: bool = False
+    end_customer_billing_enabled: bool = False
 
 
 class MessageOut(BaseModel):
@@ -35,6 +37,10 @@ class MessageOut(BaseModel):
 
 class ConversationStateUpdate(BaseModel):
     state: Literal["agent", "human"]
+
+
+class BillingExemptionUpdate(BaseModel):
+    exempt: bool
 
 
 class SendMessageRequest(BaseModel):

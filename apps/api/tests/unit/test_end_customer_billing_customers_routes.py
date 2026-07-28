@@ -66,3 +66,24 @@ def test_respeita_limit_e_offset(client, session, monkeypatch) -> None:
 
     assert response.status_code == 200
     fake.assert_awaited_once_with(session, TENANT_ID, 10, 5)
+
+
+def test_zerar_saldo_delegando_ao_service(client, session, monkeypatch) -> None:
+    fake = AsyncMock(return_value=None)
+    monkeypatch.setattr(end_customer_billing_module, "zero_end_customer_balance", fake)
+
+    response = client.post("/api/v1/end-customer-billing/customers/5511999990001/zero-balance")
+
+    assert response.status_code == 204
+    fake.assert_awaited_once_with(session, TENANT_ID, "5511999990001")
+
+
+def test_zerar_saldo_contato_sem_saldo_retorna_404(client, session, monkeypatch) -> None:
+    fake = AsyncMock(
+        side_effect=end_customer_billing_module.EndCustomerBalanceNotFoundError("sem saldo")
+    )
+    monkeypatch.setattr(end_customer_billing_module, "zero_end_customer_balance", fake)
+
+    response = client.post("/api/v1/end-customer-billing/customers/5511999990001/zero-balance")
+
+    assert response.status_code == 404

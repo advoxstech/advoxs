@@ -47,6 +47,10 @@ conversations = Table(
     Column("is_test", Boolean, nullable=False),
     Column("last_message_at", DateTime(timezone=True)),
     Column("human_last_seen_at", DateTime(timezone=True)),
+    Column("billing_gate_step", String),
+    Column("billing_gate_retries", Integer),
+    Column("billing_gate_checkout_url", Text),
+    Column("end_customer_billing_exempt", Boolean, nullable=False),
 )
 
 messages = Table(
@@ -122,6 +126,7 @@ tenant_billing_settings = Table(
     Column("tenant_id", Uuid),
     Column("enabled", Boolean),
     Column("end_customer_tokens_per_credit", Integer),
+    Column("billing_gate_welcome_text", Text),
 )
 
 end_customer_credit_packages = Table(
@@ -131,6 +136,7 @@ end_customer_credit_packages = Table(
     Column("tenant_id", Uuid),
     Column("name", String),
     Column("price_brl", Numeric(10, 2)),
+    Column("kind", String),
     Column("credits_granted", Integer),
     Column("active", Boolean),
 )
@@ -158,4 +164,14 @@ end_customer_credit_transactions = Table(
     Column("related_message_id", Uuid),
     Column("description", String),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
+end_customer_subscriptions = Table(
+    "end_customer_subscriptions",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("contact_phone_number", String),
+    Column("status", String),
+    Column("current_period_end", DateTime(timezone=True)),
 )

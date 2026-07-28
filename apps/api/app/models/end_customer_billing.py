@@ -11,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     text,
 )
@@ -38,10 +39,12 @@ class TenantBillingSettings(Base):
     billing_mode: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'credits'")
     )
-    # Único valor suportado por ora — hook de extensibilidade (como billing_mode).
-    insufficient_balance_policy: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=text("'block_with_message'")
+    billing_provider: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'standalone'")
     )
+    stripe_account_id: Mapped[str | None] = mapped_column(String)
+    stripe_account_status: Mapped[str | None] = mapped_column(String)
+    billing_gate_welcome_text: Mapped[str | None] = mapped_column(Text)
     stripe_secret_key_encrypted: Mapped[str | None] = mapped_column(Text)
     stripe_webhook_secret_encrypted: Mapped[str | None] = mapped_column(Text)
     end_customer_tokens_per_credit: Mapped[int | None] = mapped_column(Integer)
@@ -54,7 +57,10 @@ class TenantBillingSettings(Base):
 
 
 class EndCustomerCreditPackage(Base):
-    """Pacote de créditos que o tenant vende aos próprios clientes finais."""
+    """Pacote de créditos (kind="one_time") ou assinatura mensal recorrente
+    (kind="subscription", só disponível pra tenants billing_provider="connect"
+    — ver app/api/v1/end_customer_billing.py) que o tenant vende aos próprios
+    clientes finais."""
 
     __tablename__ = "end_customer_credit_packages"
 
@@ -66,7 +72,8 @@ class EndCustomerCreditPackage(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     price_brl: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    credits_granted: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'one_time'"))
+    credits_granted: Mapped[int | None] = mapped_column(Integer)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
 
@@ -121,5 +128,38 @@ class EndCustomerCreditTransaction(Base):
     stripe_payment_id: Mapped[str | None] = mapped_column(String, unique=True)
     description: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class EndCustomerSubscription(Base):
+    """Assinatura mensal recorrente ativa (ou já cancelada) de um cliente
+    final com um tenant — equivalente, pra assinatura, do que
+    `EndCustomerBalance` é pro saldo de créditos avulsos."""
+
+    __tablename__ = "end_customer_subscriptions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "contact_phone_number", name="uq_end_customer_subscriptions_tenant_contact"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
+    end_customer_credit_package_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("end_customer_credit_packages.id")
+    )
+    stripe_subscription_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

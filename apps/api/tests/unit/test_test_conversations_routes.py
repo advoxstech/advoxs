@@ -59,6 +59,7 @@ class TestCreate:
             obj.last_message_at = None
             obj.summary = None
             obj.summary_generated_at = None
+            obj.end_customer_billing_exempt = False
 
         session.refresh.side_effect = fake_refresh
 

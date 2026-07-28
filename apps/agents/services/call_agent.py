@@ -49,7 +49,6 @@ async def run_agent(
     db_uri: str = DB_URI,
     num_before_messages: int = 35,
     extra_data: dict = {},
-    end_customer_billing: dict | None = None,
     agents: list[dict] | None = None,
 ) -> tuple[list[str], dict, str | None]:
     started_at = time.perf_counter()
@@ -82,7 +81,6 @@ async def run_agent(
                 "attachments": attachments,
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
-                "end_customer_billing": end_customer_billing,
                 "agents": agents,
             },
             config=config,
