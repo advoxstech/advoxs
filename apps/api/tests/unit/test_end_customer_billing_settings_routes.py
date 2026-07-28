@@ -148,6 +148,30 @@ def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:
     assert response.json()["enabled"] is True
 
 
+def test_patch_habilitar_sem_pacote_ativo_retorna_400(client, session) -> None:
+    session.scalar.side_effect = [
+        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
+        None,  # checagem de pacote ativo — nenhum cadastrado
+    ]
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 400
+    assert "pacote" in response.json()["detail"].lower()
+
+
+def test_patch_habilitar_com_pacote_ativo_funciona(client, session) -> None:
+    session.scalar.side_effect = [
+        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
+        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
+    ]
+
+    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+
+
 def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) -> None:
     """Tenant onboarded via Stripe Connect (stripe_account_id set, status=active,
     stripe_secret_key_encrypted=None) deve conseguir habilitar a cobrança do
