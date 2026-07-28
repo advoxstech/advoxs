@@ -986,10 +986,10 @@ class TestGetRevenueReport:
 
         assert report.by_month == [RevenueByMonthOut(month="2026-07", total_brl=179.70)]
         assert report.by_customer[0] == RevenueByCustomerOut(
-            contact_phone_number="5511999998888", total_brl=79.80
+            contact_phone_number="5511999997777", total_brl=99.90
         )
         assert report.by_customer[1] == RevenueByCustomerOut(
-            contact_phone_number="5511999997777", total_brl=99.90
+            contact_phone_number="5511999998888", total_brl=79.80
         )
 
     async def test_sem_movimento_no_periodo_retorna_listas_vazias(self, session) -> None:

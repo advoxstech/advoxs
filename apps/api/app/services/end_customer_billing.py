@@ -800,6 +800,8 @@ async def get_revenue_report(
         ],
         by_customer=[
             RevenueByCustomerOut(contact_phone_number=contact, total_brl=float(total))
-            for contact, total in sorted(by_customer.items(), key=lambda item: item[1])
+            for contact, total in sorted(
+                by_customer.items(), key=lambda item: item[1], reverse=True
+            )
         ],
     )
