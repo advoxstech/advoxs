@@ -27,20 +27,41 @@ export function SpendingChart() {
   const [range, setRange] = useState(() => rangeForPreset("30"));
   const [byMonth, setByMonth] = useState<ByMonth[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     async function load() {
       setLoaded(false);
+      setError(null);
       try {
         const response = await backendFetch(`billing/spending?from=${range.from}&to=${range.to}`);
-        if (response.ok) {
-          setByMonth((await response.json()).by_month);
+        if (!active) return;
+        if (!response.ok) {
+          setError("Falha ao carregar o gasto — tente novamente.");
+          setByMonth([]);
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        if (!body || !Array.isArray(body.by_month)) {
+          setError("Falha ao carregar o gasto — tente novamente.");
+          setByMonth([]);
+          return;
+        }
+        setByMonth(body.by_month);
+      } catch {
+        if (active) {
+          setError("Falha ao carregar o gasto — tente novamente.");
+          setByMonth([]);
         }
       } finally {
-        setLoaded(true);
+        if (active) setLoaded(true);
       }
     }
     void load();
+    return () => {
+      active = false;
+    };
   }, [range]);
 
   function selectPreset(next: Preset) {
@@ -97,6 +118,10 @@ export function SpendingChart() {
       </div>
       {!loaded ? (
         <p className="mt-4 text-sm text-muted">Carregando...</p>
+      ) : error ? (
+        <p role="alert" className="mt-4 text-sm text-danger">
+          {error}
+        </p>
       ) : (
         <div className="mt-4 max-w-2xl">
           <MonthlyBarChart data={byMonth} />

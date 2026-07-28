@@ -39,4 +39,41 @@ describe("SpendingChart", () => {
 
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
   });
+
+  it("mostra erro em vez do gráfico antigo quando a requisição falha (422)", async () => {
+    mockedFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ by_month: [{ month: "2026-07", total_brl: 350 }] }),
+    });
+
+    render(<SpendingChart />);
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
+
+    mockedFetch.mockResolvedValueOnce({ ok: false, status: 422, json: async () => null });
+    screen.getByRole("button", { name: /90 dias/i }).click();
+
+    await waitFor(() =>
+      expect(screen.getByText("Falha ao carregar o gasto — tente novamente.")).toBeInTheDocument(),
+    );
+  });
+
+  it("trata corpo malformado (sem by_month) como erro", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    render(<SpendingChart />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Falha ao carregar o gasto — tente novamente.")).toBeInTheDocument(),
+    );
+  });
+
+  it("mostra erro em falha de rede", async () => {
+    mockedFetch.mockRejectedValue(new Error("network down"));
+
+    render(<SpendingChart />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Falha ao carregar o gasto — tente novamente.")).toBeInTheDocument(),
+    );
+  });
 });

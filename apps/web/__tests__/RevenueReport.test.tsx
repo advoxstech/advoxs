@@ -62,4 +62,51 @@ describe("RevenueReport", () => {
       expect(screen.getByText(/nenhum cliente comprou no período/i)).toBeInTheDocument(),
     );
   });
+
+  it("mostra erro em vez de dados obsoletos quando a requisição falha (422)", async () => {
+    mockedFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        by_month: [{ month: "2026-07", total_brl: 179.7 }],
+        by_customer: [{ contact_phone_number: "5511999998888", total_brl: 79.8 }],
+      }),
+    });
+
+    render(<RevenueReport />);
+    await waitFor(() => expect(screen.getByText(/79,80/)).toBeInTheDocument());
+
+    mockedFetch.mockResolvedValueOnce({ ok: false, status: 422, json: async () => null });
+    screen.getByRole("button", { name: /90 dias/i }).click();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Falha ao carregar o relatório — tente novamente."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/79,80/)).not.toBeInTheDocument();
+  });
+
+  it("trata corpo malformado (sem by_month/by_customer) como erro", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    render(<RevenueReport />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Falha ao carregar o relatório — tente novamente."),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("mostra erro em falha de rede", async () => {
+    mockedFetch.mockRejectedValue(new Error("network down"));
+
+    render(<RevenueReport />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Falha ao carregar o relatório — tente novamente."),
+      ).toBeInTheDocument(),
+    );
+  });
 });

@@ -25,27 +25,50 @@ function rangeForPreset(preset: Preset): { from: string; to: string } {
   return { from: isoDate(from), to: isoDate(to) };
 }
 
+const EMPTY_REPORT: Report = { by_month: [], by_customer: [] };
+
 export function RevenueReport() {
   const [preset, setPreset] = useState<Preset>("30");
   const [range, setRange] = useState(() => rangeForPreset("30"));
-  const [report, setReport] = useState<Report>({ by_month: [], by_customer: [] });
+  const [report, setReport] = useState<Report>(EMPTY_REPORT);
   const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     async function load() {
       setLoaded(false);
+      setError(null);
       try {
         const response = await backendFetch(
           `end-customer-billing/revenue?from=${range.from}&to=${range.to}`,
         );
-        if (response.ok) {
-          setReport(await response.json());
+        if (!active) return;
+        if (!response.ok) {
+          setError("Falha ao carregar o relatório — tente novamente.");
+          setReport(EMPTY_REPORT);
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        if (!body || !Array.isArray(body.by_month) || !Array.isArray(body.by_customer)) {
+          setError("Falha ao carregar o relatório — tente novamente.");
+          setReport(EMPTY_REPORT);
+          return;
+        }
+        setReport(body);
+      } catch {
+        if (active) {
+          setError("Falha ao carregar o relatório — tente novamente.");
+          setReport(EMPTY_REPORT);
         }
       } finally {
-        setLoaded(true);
+        if (active) setLoaded(true);
       }
     }
     void load();
+    return () => {
+      active = false;
+    };
   }, [range]);
 
   function selectPreset(next: Preset) {
@@ -102,6 +125,10 @@ export function RevenueReport() {
 
       {!loaded ? (
         <p className="mt-6 text-sm text-muted">Carregando...</p>
+      ) : error ? (
+        <p role="alert" className="mt-6 text-sm text-danger">
+          {error}
+        </p>
       ) : (
         <>
           <div className="mt-6 max-w-2xl">
