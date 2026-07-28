@@ -10,7 +10,7 @@ vi.mock("@/lib/client-api", () => ({
 
 const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
 
-function mockRouting(enabled: boolean) {
+function mockRouting(enabled: boolean, billingProvider: string = "standalone") {
   mockedFetch.mockImplementation(async (path: string) => {
     if (path === "end-customer-billing/settings") {
       return {
@@ -23,7 +23,7 @@ function mockRouting(enabled: boolean) {
           // coberto em EndCustomerBillingPanel.test.tsx); manter
           // stripe_secret_key_configured=true evita renderizar o
           // ConnectAccountOnboarding real (não mockado aqui).
-          billing_provider: "standalone",
+          billing_provider: billingProvider,
           stripe_secret_key_configured: true,
           stripe_webhook_secret_configured: false,
           end_customer_tokens_per_credit: null,
@@ -31,6 +31,7 @@ function mockRouting(enabled: boolean) {
         }),
       };
     }
+    if (path.startsWith("end-customer-billing/revenue")) return { ok: true, json: async () => ({ by_month: [], by_customer: [] }) };
     if (path === "end-customer-billing/packages") return { ok: true, json: async () => [] };
     if (path === "end-customer-billing/customers") return { ok: true, json: async () => [] };
     if (path.startsWith("conversations/usage")) return { ok: true, json: async () => [] };
@@ -88,5 +89,26 @@ describe("EndCustomerBillingTabs", () => {
     await waitFor(() =>
       expect(screen.getByText("Nenhum consumo no período selecionado.")).toBeInTheDocument(),
     );
+  });
+
+  it("mostra a aba Faturamento quando habilitada com billing_provider connect", async () => {
+    mockRouting(true, "connect");
+
+    render(<EndCustomerBillingTabs />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /faturamento/i })).toBeInTheDocument(),
+    );
+  });
+
+  it("não mostra a aba Faturamento quando habilitada mas billing_provider é standalone (tenant legado)", async () => {
+    mockRouting(true, "standalone");
+
+    render(<EndCustomerBillingTabs />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Clientes" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /faturamento/i })).not.toBeInTheDocument();
   });
 });

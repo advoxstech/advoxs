@@ -7,12 +7,14 @@ import { backendFetch } from "@/lib/client-api";
 import { ConversationsUsageReport } from "./ConversationsUsageReport";
 import { EndCustomerBillingPanel } from "./EndCustomerBillingPanel";
 import { EndCustomerList } from "./EndCustomerList";
+import { RevenueReport } from "./RevenueReport";
 
-type Tab = "config" | "clientes" | "consumo";
+type Tab = "config" | "clientes" | "faturamento" | "consumo";
 
 export function EndCustomerBillingTabs() {
   const [tab, setTab] = useState<Tab>("config");
   const [enabled, setEnabled] = useState(false);
+  const [billingProvider, setBillingProvider] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -21,13 +23,16 @@ export function EndCustomerBillingTabs() {
         if (response.ok) {
           const body = await response.json();
           setEnabled(Boolean(body.enabled));
+          setBillingProvider(body.billing_provider);
         }
       } catch {
-        // fail-safe: sem settings carregadas, a aba Clientes fica escondida
+        // fail-safe: sem settings carregadas, as abas Clientes/Faturamento ficam escondidas
       }
     }
     void load();
   }, []);
+
+  const showRevenueReport = enabled && billingProvider === "connect";
 
   const tabClass = (active: boolean) =>
     `rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
@@ -55,6 +60,16 @@ export function EndCustomerBillingTabs() {
             Clientes
           </button>
         )}
+        {showRevenueReport && (
+          <button
+            type="button"
+            onClick={() => setTab("faturamento")}
+            aria-pressed={tab === "faturamento"}
+            className={tabClass(tab === "faturamento")}
+          >
+            Faturamento
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setTab("consumo")}
@@ -67,6 +82,7 @@ export function EndCustomerBillingTabs() {
 
       {tab === "config" && <EndCustomerBillingPanel />}
       {tab === "clientes" && enabled && <EndCustomerList />}
+      {tab === "faturamento" && showRevenueReport && <RevenueReport />}
       {tab === "consumo" && <ConversationsUsageReport />}
     </div>
   );
