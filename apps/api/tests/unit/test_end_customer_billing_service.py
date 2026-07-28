@@ -129,6 +129,8 @@ class TestCreateEndCustomerCheckoutSession:
         assert kwargs["api_key"] == "sk_test_do_tenant"
         assert kwargs["mode"] == "payment"
         assert kwargs["line_items"][0]["price_data"]["unit_amount"] == 4990
+        assert kwargs["success_url"].endswith("/pagamento-confirmado?status=sucesso")
+        assert kwargs["cancel_url"].endswith("/pagamento-confirmado?status=cancelado")
         assert kwargs["metadata"] == {
             "tenant_id": str(TENANT_ID),
             "contact_phone_number": CONTACT,
@@ -173,6 +175,8 @@ class TestCreateEndCustomerCheckoutSession:
         assert kwargs["stripe_account"] == "acct_123"
         assert kwargs["api_key"] == service.settings.stripe_connect_secret_key
         assert "application_fee_amount" not in kwargs
+        assert kwargs["success_url"].endswith("/pagamento-confirmado?status=sucesso")
+        assert kwargs["cancel_url"].endswith("/pagamento-confirmado?status=cancelado")
 
     async def test_checkout_connect_sem_stripe_account_id_levanta_erro(self, session) -> None:
         session.scalar = AsyncMock(
