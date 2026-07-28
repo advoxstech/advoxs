@@ -717,6 +717,81 @@ class TestProcessEndCustomerSubscriptionRenewed:
         session.commit.assert_awaited_once()
         notify.assert_not_awaited()
 
+    async def test_registra_pagamento_no_historico_de_faturamento(
+        self, session, monkeypatch
+    ) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="past_due",
+            current_period_end=None,
+            end_customer_credit_package_id=PACKAGE_ID,
+        )
+        package = SimpleNamespace(id=PACKAGE_ID, price_brl=Decimal("49.90"))
+        session.scalar = AsyncMock(side_effect=[subscription, None])
+        session.get = AsyncMock(return_value=package)
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+        invoice = {
+            "id": "in_999",
+            "subscription": "sub_123",
+            "lines": {"data": [{"period": {"end": 1735689600}}]},
+            "status_transitions": {"paid_at": 1735689500},
+        }
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+
+        assert len(added) == 1
+        payment = added[0]
+        assert payment.tenant_id == TENANT_ID
+        assert payment.contact_phone_number == CONTACT
+        assert payment.end_customer_subscription_id == subscription.id
+        assert payment.amount_brl == Decimal("49.90")
+        assert payment.stripe_invoice_id == "in_999"
+        assert payment.paid_at == datetime.fromtimestamp(1735689500, UTC)
+
+    async def test_invoice_duplicado_nao_registra_pagamento_2x(self, session, monkeypatch) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="active",
+            current_period_end=None,
+            end_customer_credit_package_id=PACKAGE_ID,
+        )
+        session.scalar = AsyncMock(side_effect=[subscription, uuid.uuid4()])
+        session.add = MagicMock()
+        invoice = {"id": "in_999", "subscription": "sub_123", "lines": {"data": []}}
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+
+        session.add.assert_not_called()
+
+    async def test_assinatura_sem_pacote_nao_quebra_atualizacao_de_status(
+        self, session, monkeypatch
+    ) -> None:
+        subscription = SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=TENANT_ID,
+            contact_phone_number=CONTACT,
+            stripe_subscription_id="sub_123",
+            status="past_due",
+            current_period_end=None,
+            end_customer_credit_package_id=None,
+        )
+        session.scalar = AsyncMock(side_effect=[subscription, None])
+        session.add = MagicMock()
+        invoice = {"id": "in_999", "subscription": "sub_123", "lines": {"data": []}}
+
+        await process_end_customer_subscription_renewed(session, TENANT_ID, invoice)
+
+        assert subscription.status == "active"
+        session.add.assert_not_called()
+        session.commit.assert_awaited_once()
+
 
 class TestProcessEndCustomerSubscriptionStatusChanged:
     async def test_cancelamento_notifica(self, session, monkeypatch) -> None:

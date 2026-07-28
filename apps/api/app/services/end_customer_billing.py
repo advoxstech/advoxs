@@ -23,6 +23,7 @@ from app.models import (
     EndCustomerCreditPackage,
     EndCustomerCreditTransaction,
     EndCustomerSubscription,
+    EndCustomerSubscriptionPayment,
     Message,
     TenantBillingSettings,
     WhatsAppNumber,
@@ -481,12 +482,82 @@ def _extract_period_end(invoice: dict) -> datetime | None:
     return datetime.fromtimestamp(end_timestamp, UTC)
 
 
+def _extract_paid_at(invoice: dict) -> datetime:
+    """Momento real em que a Stripe processou o pagamento — mais preciso
+    que `datetime.now(UTC)` (quando NOSSO webhook processou, que pode
+    atrasar). Fallback pro momento do processamento quando o campo não
+    vem no payload.
+
+    Confirmado em `status_transitions.paid_at` (unix timestamp, nullable)
+    tanto no stub do SDK instalado (`stripe-python` 15.3.0,
+    `.venv/.../stripe/_invoice.py`, classe `StatusTransitions`) quanto na
+    doc atual da Stripe (`stripe docs api invoice`, seção
+    `status_transitions.paid_at` — "The time that the invoice was paid.").
+    Ao contrário de `Invoice.subscription`/`Invoice.period_end` (as duas
+    suposições erradas já corrigidas neste arquivo), este campo bateu com
+    a suposição original — nenhum ajuste de shape foi necessário."""
+    paid_at_ts = (invoice.get("status_transitions") or {}).get("paid_at")
+    if paid_at_ts is None:
+        return datetime.now(UTC)
+    return datetime.fromtimestamp(paid_at_ts, UTC)
+
+
+async def _record_subscription_payment(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    subscription: EndCustomerSubscription,
+    invoice: dict,
+) -> None:
+    """Grava 1 linha de histórico de faturamento por invoice pago —
+    idempotente por stripe_invoice_id (webhook duplicado não duplica
+    receita no relatório). Best-effort quanto ao valor: se o pacote da
+    assinatura foi excluído (FK nullable), não há como saber o preço —
+    loga e não grava, sem impedir a atualização de status/período que já
+    aconteceu antes desta chamada."""
+    invoice_id = invoice.get("id")
+    if not invoice_id:
+        return
+    already_recorded = await session.scalar(
+        select(EndCustomerSubscriptionPayment.id).where(
+            EndCustomerSubscriptionPayment.stripe_invoice_id == invoice_id
+        )
+    )
+    if already_recorded is not None:
+        return
+
+    if subscription.end_customer_credit_package_id is None:
+        logger.warning(
+            "Assinatura sem pacote associado, pagamento não registrado no "
+            "histórico de faturamento | tenant=%s subscription=%s",
+            tenant_id,
+            subscription.stripe_subscription_id,
+        )
+        return
+    package = await session.get(
+        EndCustomerCreditPackage, subscription.end_customer_credit_package_id
+    )
+    if package is None:
+        return
+
+    session.add(
+        EndCustomerSubscriptionPayment(
+            tenant_id=tenant_id,
+            contact_phone_number=subscription.contact_phone_number,
+            end_customer_subscription_id=subscription.id,
+            amount_brl=package.price_brl,
+            stripe_invoice_id=invoice_id,
+            paid_at=_extract_paid_at(invoice),
+        )
+    )
+
+
 async def process_end_customer_subscription_renewed(
     session: AsyncSession, tenant_id: uuid.UUID, invoice: dict
 ) -> None:
     """Renovação mensal (`invoice.payment_succeeded`) — atualiza
     status/current_period_end, sem notificar o cliente (decisão deliberada:
-    renovação silenciosa evita spam mensal)."""
+    renovação silenciosa evita spam mensal). Também registra o pagamento em
+    `end_customer_subscription_payments` (histórico de faturamento)."""
     invoice = _as_plain_dict(invoice)
     subscription_id = _extract_subscription_id(invoice)
     if not subscription_id:
@@ -510,6 +581,9 @@ async def process_end_customer_subscription_renewed(
     if period_end is not None:
         subscription.current_period_end = period_end
     subscription.updated_at = datetime.now(UTC)
+
+    await _record_subscription_payment(session, tenant_id, subscription, invoice)
+
     await session.commit()
 
 
