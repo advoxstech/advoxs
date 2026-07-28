@@ -251,7 +251,14 @@ async def _process_recompra(session: AsyncSession, session_id: str, metadata: di
         logger.error("Pacote não encontrado ao processar recompra | session=%s", session_id)
         return
 
-    tenant = await session.get(Tenant, tenant_id)
+    # FOR UPDATE trava a linha do tenant antes do incremento — sem isso, uma
+    # recompra concorrente com um débito do worker (consumo do agente) podia
+    # perder um dos dois updates (lost update, credit_balance é escrito como
+    # valor absoluto pelo ORM, não uma expressão SQL relativa). Mesmo padrão
+    # de lock já usado em app/services/end_customer_billing.py::
+    # zero_end_customer_balance e apps/worker/app/tasks/messages.py::
+    # _debitar_creditos*.
+    tenant = await session.scalar(select(Tenant).where(Tenant.id == tenant_id).with_for_update())
     if tenant is None:
         logger.error("Tenant não encontrado ao processar recompra | session=%s", session_id)
         return

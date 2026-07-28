@@ -192,11 +192,22 @@ async def process_end_customer_checkout_completed(
         logger.error("Pacote não encontrado no webhook de cliente final | session=%s", session_id)
         return
 
+    # FOR UPDATE trava a linha existente antes do incremento — sem isso, uma
+    # compra concorrente com um débito do worker (consumo do agente) podia
+    # perder um dos dois updates (lost update). Mesmo padrão de lock já usado
+    # em zero_end_customer_balance (abaixo) e em
+    # apps/worker/app/tasks/messages.py::_debitar_creditos_cliente_final. Sem
+    # lock na criação da linha nova (balance is None): nesse caso não há
+    # linha existente pra travar — colisão entre duas primeiras-compras
+    # concorrentes do mesmo contato é uma corrida diferente (INSERT
+    # duplicado na unique constraint), fora do escopo desta correção.
     balance = await session.scalar(
-        select(EndCustomerBalance).where(
+        select(EndCustomerBalance)
+        .where(
             EndCustomerBalance.tenant_id == tenant_id,
             EndCustomerBalance.contact_phone_number == contact_phone_number,
         )
+        .with_for_update()
     )
     if balance is None:
         balance = EndCustomerBalance(
