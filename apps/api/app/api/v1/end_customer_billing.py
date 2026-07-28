@@ -2,6 +2,7 @@
 pacotes de crédito que o tenant vende aos próprios clientes."""
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -23,11 +24,13 @@ from app.schemas.end_customer_billing import (
     EndCustomerCreditPackageOut,
     EndCustomerCreditPackageUpdate,
     EndCustomerSummaryOut,
+    RevenueReportOut,
     TenantBillingSettingsOut,
     TenantBillingSettingsUpdate,
 )
 from app.services.end_customer_billing import (
     EndCustomerBalanceNotFoundError,
+    get_revenue_report,
     list_customers,
     zero_end_customer_balance,
 )
@@ -182,6 +185,27 @@ async def connect_account_earnings(
         return await get_account_earnings(row.stripe_account_id)
     except ConnectApiError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.get("/revenue")
+async def revenue_report(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> RevenueReportOut:
+    if to < from_:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'to' não pode ser anterior a 'from'",
+        )
+    row = await _get_settings_row(ctx, session)
+    if row is None or row.billing_provider != "connect":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Faturamento disponível só pra tenants configurados via Stripe Connect",
+        )
+    return await get_revenue_report(session, ctx.tenant_id, from_, to)
 
 
 @router.get("/packages")

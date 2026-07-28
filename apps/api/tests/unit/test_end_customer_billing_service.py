@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -8,12 +8,14 @@ import pytest
 import stripe
 
 import app.services.end_customer_billing as service
+from app.schemas.end_customer_billing import RevenueByCustomerOut, RevenueByMonthOut
 from app.services.end_customer_billing import (
     BillingNotConfiguredError,
     EndCustomerBalanceNotFoundError,
     InvalidPackageError,
     StripeApiError,
     create_end_customer_checkout_session,
+    get_revenue_report,
     list_customers,
     process_end_customer_checkout_completed,
     process_end_customer_subscription_created,
@@ -961,3 +963,41 @@ class TestSubscriptionWebhooksComStripeObjectReal:
 
         assert subscription.status == "canceled"
         notify.assert_awaited_once()
+
+
+class TestGetRevenueReport:
+    async def test_soma_compra_avulsa_e_pagamento_de_assinatura_por_mes_e_cliente(
+        self, session
+    ) -> None:
+        purchase_rows = [
+            (datetime(2026, 7, 1, tzinfo=UTC), "5511999998888", Decimal("49.90")),
+            (datetime(2026, 7, 15, tzinfo=UTC), "5511999997777", Decimal("99.90")),
+        ]
+        subscription_rows = [
+            (datetime(2026, 7, 10, tzinfo=UTC), "5511999998888", Decimal("29.90")),
+        ]
+        purchase_result = MagicMock()
+        purchase_result.all.return_value = purchase_rows
+        subscription_result = MagicMock()
+        subscription_result.all.return_value = subscription_rows
+        session.execute = AsyncMock(side_effect=[purchase_result, subscription_result])
+
+        report = await get_revenue_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31))
+
+        assert report.by_month == [RevenueByMonthOut(month="2026-07", total_brl=179.70)]
+        assert report.by_customer[0] == RevenueByCustomerOut(
+            contact_phone_number="5511999998888", total_brl=79.80
+        )
+        assert report.by_customer[1] == RevenueByCustomerOut(
+            contact_phone_number="5511999997777", total_brl=99.90
+        )
+
+    async def test_sem_movimento_no_periodo_retorna_listas_vazias(self, session) -> None:
+        empty_result = MagicMock()
+        empty_result.all.return_value = []
+        session.execute = AsyncMock(side_effect=[empty_result, empty_result])
+
+        report = await get_revenue_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31))
+
+        assert report.by_month == []
+        assert report.by_customer == []

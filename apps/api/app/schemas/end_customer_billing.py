@@ -104,3 +104,18 @@ class ConnectEarningsOut(BaseModel):
     available_brl: float
     pending_brl: float
     recent_payouts: list[ConnectPayoutOut]
+
+
+class RevenueByMonthOut(BaseModel):
+    month: str
+    total_brl: float
+
+
+class RevenueByCustomerOut(BaseModel):
+    contact_phone_number: str
+    total_brl: float
+
+
+class RevenueReportOut(BaseModel):
+    by_month: list[RevenueByMonthOut]
+    by_customer: list[RevenueByCustomerOut]

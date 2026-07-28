@@ -8,7 +8,8 @@ nunca via stripe.api_key global (que vazaria entre tenants concorrentes).
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
+from decimal import Decimal
 
 import stripe
 from sqlalchemy import case, func, select
@@ -28,7 +29,12 @@ from app.models import (
     TenantBillingSettings,
     WhatsAppNumber,
 )
-from app.schemas.end_customer_billing import EndCustomerSummaryOut
+from app.schemas.end_customer_billing import (
+    EndCustomerSummaryOut,
+    RevenueByCustomerOut,
+    RevenueByMonthOut,
+    RevenueReportOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -732,3 +738,68 @@ async def list_customers(
         )
         for contact_phone_number, credit_balance, total_purchased, total_consumed in rows
     ]
+
+
+async def get_revenue_report(
+    session: AsyncSession, tenant_id: uuid.UUID, date_from: date, date_to: date
+) -> RevenueReportOut:
+    """Faturamento do cliente final (compra avulsa + pagamento de
+    assinatura), agregado por mês e por cliente — 100% a partir do nosso
+    próprio banco, nunca uma chamada à Stripe em tempo de leitura (ver
+    docs/superpowers/specs/2026-07-28-dashboard-financeiro-tenant-design.md).
+    Receita bruta só — sem desconto de reembolso nesta v1."""
+    upper_bound = datetime.combine(date_to, time.max, tzinfo=UTC)
+    lower_bound = datetime.combine(date_from, time.min, tzinfo=UTC)
+
+    purchases = (
+        await session.execute(
+            select(
+                func.date_trunc("month", EndCustomerCreditTransaction.created_at),
+                EndCustomerCreditTransaction.contact_phone_number,
+                EndCustomerCreditPackage.price_brl,
+            )
+            .join(
+                EndCustomerCreditPackage,
+                EndCustomerCreditPackage.id
+                == EndCustomerCreditTransaction.end_customer_credit_package_id,
+            )
+            .where(
+                EndCustomerCreditTransaction.tenant_id == tenant_id,
+                EndCustomerCreditTransaction.type == "purchase",
+                EndCustomerCreditTransaction.created_at >= lower_bound,
+                EndCustomerCreditTransaction.created_at <= upper_bound,
+            )
+        )
+    ).all()
+
+    subscription_payments = (
+        await session.execute(
+            select(
+                func.date_trunc("month", EndCustomerSubscriptionPayment.paid_at),
+                EndCustomerSubscriptionPayment.contact_phone_number,
+                EndCustomerSubscriptionPayment.amount_brl,
+            ).where(
+                EndCustomerSubscriptionPayment.tenant_id == tenant_id,
+                EndCustomerSubscriptionPayment.paid_at >= lower_bound,
+                EndCustomerSubscriptionPayment.paid_at <= upper_bound,
+            )
+        )
+    ).all()
+
+    by_month: dict[str, Decimal] = {}
+    by_customer: dict[str, Decimal] = {}
+    for month, contact, amount in [*purchases, *subscription_payments]:
+        month_key = month.strftime("%Y-%m")
+        by_month[month_key] = by_month.get(month_key, Decimal(0)) + amount
+        by_customer[contact] = by_customer.get(contact, Decimal(0)) + amount
+
+    return RevenueReportOut(
+        by_month=[
+            RevenueByMonthOut(month=month_key, total_brl=float(total))
+            for month_key, total in sorted(by_month.items())
+        ],
+        by_customer=[
+            RevenueByCustomerOut(contact_phone_number=contact, total_brl=float(total))
+            for contact, total in sorted(by_customer.items(), key=lambda item: item[1])
+        ],
+    )
