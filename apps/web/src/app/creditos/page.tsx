@@ -1,5 +1,6 @@
 import { CreditosExtrato } from "@/components/CreditosExtrato";
 import { CreditosPanel } from "@/components/CreditosPanel";
+import { SpendingChart } from "@/components/SpendingChart";
 import { TenantNav } from "@/components/TenantNav";
 import { API_URL } from "@/lib/backend";
 import type { CreditPackage } from "@/lib/types";
@@ -23,7 +24,10 @@ export default async function CreditosPage() {
       <main className="flex-1 overflow-y-auto bg-ground">
         <CreditosPanel packages={packages} />
         <div className="px-8 pb-8">
-          <CreditosExtrato />
+          <SpendingChart />
+          <div className="mt-8">
+            <CreditosExtrato />
+          </div>
         </div>
       </main>
     </div>
