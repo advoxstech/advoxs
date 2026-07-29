@@ -55,6 +55,7 @@ export interface TenantDashboard {
   conversations: { total: number; waiting_human: number };
   usage_last_30_days: { agent_messages: number; credits_consumed: number };
   knowledge_base: { ready: number; error: number };
+  end_customer_earnings: { connected: boolean; total_brl: number | null };
   recent_conversations: {
     id: string;
     contact_phone_number: string;

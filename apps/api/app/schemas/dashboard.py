@@ -24,6 +24,11 @@ class KnowledgeBaseSummaryOut(BaseModel):
     error: int
 
 
+class EndCustomerEarningsOut(BaseModel):
+    connected: bool
+    total_brl: float | None
+
+
 class RecentConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,4 +44,5 @@ class TenantDashboardOut(BaseModel):
     conversations: ConversationsSummaryOut
     usage_last_30_days: UsageSummaryOut
     knowledge_base: KnowledgeBaseSummaryOut
+    end_customer_earnings: EndCustomerEarningsOut
     recent_conversations: list[RecentConversationOut]

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
-import { formatCredits } from "@/lib/format";
+import { formatBRL, formatCredits } from "@/lib/format";
 import type { TenantDashboard } from "@/lib/types";
 
 import { StatTile } from "./StatTile";
@@ -80,6 +80,17 @@ export function DashboardPanel() {
         />
         <Link href="/base-de-conhecimento">
           <StatTile label="Arquivos na base" value={String(data.knowledge_base.ready)} />
+        </Link>
+        <Link href="/configuracoes/cobranca-clientes">
+          <StatTile
+            label="Ganho com clientes"
+            value={
+              data.end_customer_earnings.connected
+                ? `R$ ${formatBRL(data.end_customer_earnings.total_brl ?? 0)}`
+                : "Sem conta conectada"
+            }
+            tone={data.end_customer_earnings.connected ? "good" : "neutral"}
+          />
         </Link>
         {data.knowledge_base.error > 0 && (
           <Link href="/base-de-conhecimento">
