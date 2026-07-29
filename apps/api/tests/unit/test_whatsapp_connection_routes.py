@@ -112,6 +112,25 @@ class TestConnect:
         assert existing.waba_id == "WABA"
         session.add.assert_not_called()
 
+    def test_reconexao_via_meta_reseta_provider_e_limpa_campos_zapi(
+        self, client, session, graph_mocks
+    ) -> None:
+        existing = _number(status="disconnected", provider="zapi")
+        existing.zapi_instance_id = "inst-x"
+        existing.zapi_instance_token_encrypted = "cifrado-token"
+        existing.zapi_client_token_encrypted = "cifrado-client-token"
+        existing.zapi_webhook_secret = "segredo-abc"
+        session.scalar.return_value = existing
+
+        response = client.post("/api/v1/whatsapp/connect", json=CONNECT_BODY)
+
+        assert response.status_code == 200
+        assert existing.provider == "meta"
+        assert existing.zapi_instance_id is None
+        assert existing.zapi_instance_token_encrypted is None
+        assert existing.zapi_client_token_encrypted is None
+        assert existing.zapi_webhook_secret is None
+
     def test_falha_no_get_retorna_400_sem_persistir(self, client, session, graph_mocks) -> None:
         graph_mocks["fetch"].side_effect = WhatsAppApiError("token inválido")
 
