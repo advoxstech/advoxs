@@ -349,3 +349,88 @@ def test_context_exige_api_key(client, monkeypatch):
     monkeypatch.setattr(routes, "AGENTS_API_KEY", "chave-secreta")
     response = client.post("/conversations/t1:5511/context", json=CONTEXT_PAYLOAD)
     assert response.status_code == 403
+
+
+def _mock_zapi_client(monkeypatch):
+    instance = MagicMock()
+    instance.send_text_message = AsyncMock(return_value={"success": True})
+    instance.__aenter__ = AsyncMock(return_value=instance)
+    instance.__aexit__ = AsyncMock(return_value=False)
+    cls = MagicMock(return_value=instance)
+    monkeypatch.setattr(routes, "ZApiClient", cls)
+    return cls, instance
+
+
+def test_whatsapp_provider_zapi_usa_zapi_client(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(
+            ["resposta 1"],
+            {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            None,
+        )
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    zapi_cls, zapi_instance = _mock_zapi_client(monkeypatch)
+
+    payload = {
+        **PAYLOAD,
+        "phone_number_id": "",
+        "access_token": "",
+        "whatsapp_provider": "zapi",
+        "zapi_instance_id": "inst-123",
+        "zapi_token": "token-zapi",
+        "zapi_client_token": "client-token-zapi",
+    }
+    response = client.post("/messages", json=payload)
+
+    assert response.status_code == 200
+    zapi_cls.assert_called_once_with("inst-123", "token-zapi", "client-token-zapi")
+    zapi_instance.send_text_message.assert_awaited_once_with("5511999999999", "resposta 1")
+
+
+def test_whatsapp_provider_zapi_sem_client_token_passa_none(client, monkeypatch):
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["resposta 1"], {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}, None)
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    zapi_cls, _ = _mock_zapi_client(monkeypatch)
+
+    payload = {
+        **PAYLOAD,
+        "phone_number_id": "",
+        "access_token": "",
+        "whatsapp_provider": "zapi",
+        "zapi_instance_id": "inst-123",
+        "zapi_token": "token-zapi",
+    }
+    client.post("/messages", json=payload)
+
+    zapi_cls.assert_called_once_with("inst-123", "token-zapi", None)
+
+
+def test_whatsapp_provider_meta_padrao_continua_usando_whatsapp_client(client, monkeypatch):
+    """Regressão: nenhum campo novo no payload não pode mudar o comportamento
+    já existente pra chamadores antigos (worker antes do deploy, por exemplo)."""
+    debounce = AsyncMock(
+        return_value={"combined_message": "olá", "other_exec_is_running": False}
+    )
+    run_agent = AsyncMock(
+        return_value=(["resposta 1"], {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}, None)
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    wa_cls, wa_instance = _mock_whatsapp_client(monkeypatch)
+
+    response = client.post("/messages", json=PAYLOAD)
+
+    assert response.status_code == 200
+    wa_cls.assert_called_once_with("111222333", "token-do-tenant")
+    wa_instance.send_text_message.assert_awaited_once_with("5511999999999", "resposta 1")

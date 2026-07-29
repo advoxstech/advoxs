@@ -9,6 +9,7 @@ from services.call_agent import run_agent, DB_URI
 from services.summarize import summarize_conversation
 from services.update_context import add_context_messages
 from clients.whatsapp import WhatsAppClient
+from clients.zapi import ZApiClient
 from agents.registry import AGENTS_REGISTRY
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
@@ -41,14 +42,24 @@ class IncomingMessage(BaseModel):
 
     `agents`: a lista completa de agentes do tenant, resolvida pelo chamador
     (worker/api) — nunca lida pelo agents service do Postgres principal.
+
+    `whatsapp_provider`: qual cliente de canal usar no envio ("meta" default
+    | "zapi") — decide entre WhatsAppClient (Graph API) e ZApiClient. Os
+    campos `zapi_*` só são preenchidos pelo chamador quando o provedor do
+    tenant é "zapi"; `phone_number_id`/`access_token` seguem exclusivos do
+    provedor "meta".
     """
 
     tenant_id: str
     contact_phone_number: str
     message: str = ""
     attachments: list = Field(default_factory=list)
+    whatsapp_provider: str = "meta"
     phone_number_id: str = ""
     access_token: str = ""
+    zapi_instance_id: str = ""
+    zapi_token: str = ""
+    zapi_client_token: str = ""
     send_to_whatsapp: bool = True
     agents: list[dict] = Field(default_factory=list)
 
@@ -133,13 +144,19 @@ async def receive(body: IncomingMessage):
         delivery_failures: list[int] = []
         if body.send_to_whatsapp:
             logger.info(
-                "Enviando {} resposta(s) via WhatsApp | thread_id={}",
+                "Enviando {} resposta(s) via WhatsApp | thread_id={} provider={}",
                 len(response),
                 thread_id,
+                body.whatsapp_provider,
             )
-            async with WhatsAppClient(
-                body.phone_number_id, body.access_token
-            ) as client:
+            if body.whatsapp_provider == "zapi":
+                whatsapp_client_cm = ZApiClient(
+                    body.zapi_instance_id, body.zapi_token, body.zapi_client_token or None
+                )
+            else:
+                whatsapp_client_cm = WhatsAppClient(body.phone_number_id, body.access_token)
+
+            async with whatsapp_client_cm as client:
                 for i, msg in enumerate(response):
                     result = await client.send_text_message(
                         body.contact_phone_number, msg
