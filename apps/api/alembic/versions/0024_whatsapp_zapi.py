@@ -1,0 +1,62 @@
+"""Adiciona suporte a Z-API como provedor alternativo de WhatsApp — coluna
+discriminadora `provider` + campos zapi_* em whatsapp_numbers, mesmo padrão
+já usado em tenant_billing_settings.billing_provider. Ver
+docs/superpowers/specs/2026-07-29-whatsapp-zapi-design.md.
+
+Revision ID: 0024
+Revises: 0023
+Create Date: 2026-07-29
+"""
+
+import sqlalchemy as sa
+
+from alembic import op
+
+revision = "0024"
+down_revision = "0023"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        "whatsapp_numbers",
+        sa.Column("provider", sa.String(), nullable=False, server_default="meta"),
+    )
+    op.alter_column("whatsapp_numbers", "phone_number_id", nullable=True)
+    op.alter_column("whatsapp_numbers", "waba_id", nullable=True)
+    op.alter_column("whatsapp_numbers", "access_token_encrypted", nullable=True)
+
+    op.add_column("whatsapp_numbers", sa.Column("zapi_instance_id", sa.String(), nullable=True))
+    op.create_unique_constraint(
+        "uq_whatsapp_numbers_zapi_instance_id", "whatsapp_numbers", ["zapi_instance_id"]
+    )
+    op.add_column(
+        "whatsapp_numbers", sa.Column("zapi_instance_token_encrypted", sa.Text(), nullable=True)
+    )
+    op.add_column(
+        "whatsapp_numbers", sa.Column("zapi_client_token_encrypted", sa.Text(), nullable=True)
+    )
+    op.add_column("whatsapp_numbers", sa.Column("zapi_webhook_secret", sa.String(), nullable=True))
+
+    op.create_check_constraint(
+        "ck_whatsapp_numbers_provider_fields",
+        "whatsapp_numbers",
+        "(provider = 'meta' AND phone_number_id IS NOT NULL AND waba_id IS NOT NULL "
+        "AND access_token_encrypted IS NOT NULL) "
+        "OR (provider = 'zapi' AND zapi_instance_id IS NOT NULL "
+        "AND zapi_instance_token_encrypted IS NOT NULL AND zapi_webhook_secret IS NOT NULL)",
+    )
+
+
+def downgrade() -> None:
+    op.drop_constraint("ck_whatsapp_numbers_provider_fields", "whatsapp_numbers", type_="check")
+    op.drop_column("whatsapp_numbers", "zapi_webhook_secret")
+    op.drop_column("whatsapp_numbers", "zapi_client_token_encrypted")
+    op.drop_column("whatsapp_numbers", "zapi_instance_token_encrypted")
+    op.drop_constraint("uq_whatsapp_numbers_zapi_instance_id", "whatsapp_numbers", type_="unique")
+    op.drop_column("whatsapp_numbers", "zapi_instance_id")
+    op.alter_column("whatsapp_numbers", "access_token_encrypted", nullable=False)
+    op.alter_column("whatsapp_numbers", "waba_id", nullable=False)
+    op.alter_column("whatsapp_numbers", "phone_number_id", nullable=False)
+    op.drop_column("whatsapp_numbers", "provider")
