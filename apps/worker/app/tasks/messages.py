@@ -186,7 +186,26 @@ async def process_inbound_message(
         await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
         return
 
-    access_token = decrypt_access_token(inbound.access_token_encrypted)
+    if inbound.whatsapp_provider == "zapi":
+        zapi_token = decrypt_access_token(inbound.zapi_instance_token_encrypted)
+        zapi_client_token = (
+            decrypt_access_token(inbound.zapi_client_token_encrypted)
+            if inbound.zapi_client_token_encrypted
+            else ""
+        )
+        agents_kwargs = {
+            "whatsapp_provider": "zapi",
+            "zapi_instance_id": inbound.zapi_instance_id,
+            "zapi_token": zapi_token,
+            "zapi_client_token": zapi_client_token,
+        }
+    else:
+        access_token = decrypt_access_token(inbound.access_token_encrypted)
+        agents_kwargs = {
+            "whatsapp_provider": "meta",
+            "phone_number_id": inbound.phone_number_id,
+            "access_token": access_token,
+        }
 
     try:
         result = await send_message_to_agents(
@@ -194,9 +213,8 @@ async def process_inbound_message(
             tenant_id=tenant_id,
             contact_phone_number=inbound.contact_phone_number,
             message=inbound.message_content,
-            phone_number_id=inbound.phone_number_id,
-            access_token=access_token,
             agents=inbound.agents,
+            **agents_kwargs,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -346,8 +364,12 @@ async def _load_context(
     number = (
         await session.execute(
             select(
+                tables.whatsapp_numbers.c.provider,
                 tables.whatsapp_numbers.c.phone_number_id,
                 tables.whatsapp_numbers.c.access_token_encrypted,
+                tables.whatsapp_numbers.c.zapi_instance_id,
+                tables.whatsapp_numbers.c.zapi_instance_token_encrypted,
+                tables.whatsapp_numbers.c.zapi_client_token_encrypted,
             ).where(
                 tables.whatsapp_numbers.c.tenant_id == uuid.UUID(tenant_id),
                 tables.whatsapp_numbers.c.status == "connected",
@@ -436,8 +458,12 @@ async def _load_context(
         conversation_state=conversation.state,
         contact_phone_number=conversation.contact_phone_number,
         message_content=content,
+        whatsapp_provider=number.provider,
         phone_number_id=number.phone_number_id,
         access_token_encrypted=number.access_token_encrypted,
+        zapi_instance_id=number.zapi_instance_id,
+        zapi_instance_token_encrypted=number.zapi_instance_token_encrypted,
+        zapi_client_token_encrypted=number.zapi_client_token_encrypted,
         credit_balance=credit_balance,
         end_customer_billing_enabled=end_customer_billing_enabled,
         end_customer_balance=end_customer_balance,

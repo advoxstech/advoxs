@@ -87,8 +87,12 @@ whatsapp_numbers = Table(
     metadata,
     Column("id", Uuid, primary_key=True),
     Column("tenant_id", Uuid),
+    Column("provider", String),
     Column("phone_number_id", String),
     Column("access_token_encrypted", Text),
+    Column("zapi_instance_id", String),
+    Column("zapi_instance_token_encrypted", Text),
+    Column("zapi_client_token_encrypted", Text),
     Column("status", String),
 )
 

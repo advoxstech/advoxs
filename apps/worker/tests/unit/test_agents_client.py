@@ -120,3 +120,43 @@ async def test_sem_agents_manda_lista_vazia() -> None:
 
     body = http.post.await_args.kwargs["json"]
     assert body["agents"] == []
+
+
+async def test_default_whatsapp_provider_e_meta() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+
+    await send_message_to_agents(http, **KWARGS)
+
+    body = http.post.await_args.kwargs["json"]
+    assert body["whatsapp_provider"] == "meta"
+    assert body["zapi_instance_id"] == ""
+    assert body["zapi_token"] == ""
+    assert body["zapi_client_token"] == ""
+
+
+async def test_inclui_credenciais_zapi_quando_informado() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+    kwargs = {
+        "tenant_id": "t-1",
+        "contact_phone_number": "5511888888888",
+        "message": "Olá",
+        "whatsapp_provider": "zapi",
+        "zapi_instance_id": "inst-123",
+        "zapi_token": "token-claro",
+        "zapi_client_token": "client-token-claro",
+    }
+
+    await send_message_to_agents(http, **kwargs)
+
+    body = http.post.await_args.kwargs["json"]
+    assert body["whatsapp_provider"] == "zapi"
+    assert body["zapi_instance_id"] == "inst-123"
+    assert body["zapi_token"] == "token-claro"
+    assert body["zapi_client_token"] == "client-token-claro"
+    # Sem credenciais Meta nesta chamada — ficam vazias, nunca None.
+    assert body["phone_number_id"] == ""
+    assert body["access_token"] == ""

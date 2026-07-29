@@ -15,8 +15,12 @@ class InboundContext:
     conversation_state: str
     contact_phone_number: str
     message_content: str
-    phone_number_id: str
-    access_token_encrypted: str
+    whatsapp_provider: str
+    phone_number_id: str | None
+    access_token_encrypted: str | None
+    zapi_instance_id: str | None
+    zapi_instance_token_encrypted: str | None
+    zapi_client_token_encrypted: str | None
     credit_balance: Decimal
     end_customer_billing_enabled: bool
     end_customer_balance: Decimal

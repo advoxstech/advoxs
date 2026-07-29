@@ -9,8 +9,12 @@ async def send_message_to_agents(
     tenant_id: str,
     contact_phone_number: str,
     message: str,
-    phone_number_id: str,
-    access_token: str,
+    whatsapp_provider: str = "meta",
+    phone_number_id: str = "",
+    access_token: str = "",
+    zapi_instance_id: str = "",
+    zapi_token: str = "",
+    zapi_client_token: str = "",
     agents: list[dict] | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
@@ -26,6 +30,10 @@ async def send_message_to_agents(
     is_entry_point, knowledge_base_file_ids) — resolvida aqui a partir do
     Postgres do monorepo antes da chamada; o agents service nunca acessa
     esse banco diretamente.
+
+    `whatsapp_provider`: "meta" (default, usa phone_number_id/access_token)
+    ou "zapi" (usa zapi_instance_id/zapi_token/zapi_client_token) — o agents
+    service decide qual client de envio usar a partir deste campo.
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
     payload = {
@@ -33,8 +41,12 @@ async def send_message_to_agents(
         "contact_phone_number": contact_phone_number,
         "message": message,
         "attachments": [],
+        "whatsapp_provider": whatsapp_provider,
         "phone_number_id": phone_number_id,
         "access_token": access_token,
+        "zapi_instance_id": zapi_instance_id,
+        "zapi_token": zapi_token,
+        "zapi_client_token": zapi_client_token,
         "agents": agents or [],
     }
 

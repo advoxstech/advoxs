@@ -65,8 +65,18 @@ def _conversation(**overrides):
     return row
 
 
-def _number():
-    return SimpleNamespace(phone_number_id="PNID", access_token_encrypted="cifrado")
+def _number(provider="meta", **overrides):
+    row = SimpleNamespace(
+        provider=provider,
+        phone_number_id="PNID",
+        access_token_encrypted="cifrado",
+        zapi_instance_id=None,
+        zapi_instance_token_encrypted=None,
+        zapi_client_token_encrypted=None,
+    )
+    for key, value in overrides.items():
+        setattr(row, key, value)
+    return row
 
 
 async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
@@ -341,3 +351,49 @@ async def test_billing_habilitado_sem_assinatura_marca_false() -> None:
     inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert inbound.end_customer_has_active_subscription is False
+
+
+async def test_load_context_carrega_credenciais_zapi_quando_provider_e_zapi() -> None:
+    numero_zapi = _number(
+        provider="zapi",
+        phone_number_id=None,
+        access_token_encrypted=None,
+        zapi_instance_id="inst-123",
+        zapi_instance_token_encrypted="cifrado-token",
+        zapi_client_token_encrypted="cifrado-client-token",
+    )
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=numero_zapi,
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.whatsapp_provider == "zapi"
+    assert context.zapi_instance_id == "inst-123"
+    assert context.zapi_instance_token_encrypted == "cifrado-token"
+    assert context.zapi_client_token_encrypted == "cifrado-client-token"
+    assert context.phone_number_id is None
+    assert context.access_token_encrypted is None
+
+
+async def test_load_context_provider_meta_por_padrao() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.whatsapp_provider == "meta"
+    assert context.zapi_instance_id is None
