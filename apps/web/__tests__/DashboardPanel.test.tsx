@@ -17,6 +17,7 @@ const DASHBOARD: TenantDashboard = {
   conversations: { total: 12, waiting_human: 3 },
   usage_last_30_days: { agent_messages: 87, credits_consumed: 240 },
   knowledge_base: { ready: 5, error: 1 },
+  end_customer_earnings: { connected: true, total_brl: 200 },
   recent_conversations: [
     {
       id: "c1",
@@ -49,6 +50,7 @@ describe("DashboardPanel", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("87")).toBeInTheDocument();
     expect(screen.getByText("240")).toBeInTheDocument();
+    expect(screen.getByText("R$ 200,00")).toBeInTheDocument();
   });
 
   it("renderiza as conversas recentes com estado traduzido", async () => {
@@ -84,6 +86,20 @@ describe("DashboardPanel", () => {
     render(<DashboardPanel />);
 
     await waitFor(() => expect(screen.getByText("Nenhuma conversa ainda.")).toBeInTheDocument());
+  });
+
+  it("mostra 'Sem conta conectada' quando o tenant não tem Stripe Connect ativo", async () => {
+    mockedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...DASHBOARD,
+        end_customer_earnings: { connected: false, total_brl: null },
+      }),
+    });
+
+    render(<DashboardPanel />);
+
+    await waitFor(() => expect(screen.getByText("Sem conta conectada")).toBeInTheDocument());
   });
 
   it("mostra erro quando o dashboard falha ao carregar", async () => {

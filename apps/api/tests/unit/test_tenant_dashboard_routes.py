@@ -8,6 +8,7 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.main import app
 from app.schemas.dashboard import (
     ConversationsSummaryOut,
+    EndCustomerEarningsOut,
     KnowledgeBaseSummaryOut,
     TenantDashboardOut,
     UsageSummaryOut,
@@ -24,6 +25,7 @@ def _dummy_dashboard() -> TenantDashboardOut:
         conversations=ConversationsSummaryOut(total=2, waiting_human=1),
         usage_last_30_days=UsageSummaryOut(agent_messages=10, credits_consumed=5),
         knowledge_base=KnowledgeBaseSummaryOut(ready=3, error=0),
+        end_customer_earnings=EndCustomerEarningsOut(connected=False, total_brl=None),
         recent_conversations=[],
     )
 
