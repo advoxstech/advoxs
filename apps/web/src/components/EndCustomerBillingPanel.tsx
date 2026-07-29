@@ -244,12 +244,18 @@ export function EndCustomerBillingPanel() {
               Preencha os dados abaixo pra receber os pagamentos dos seus clientes direto na
               sua conta — sem sair desta tela.
             </p>
-            {settings.stripe_account_status !== "active" && (
+            {settings.stripe_account_status === "active" ? (
+              <>
+                <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-accent">
+                  Sua conta Stripe já está configurada
+                </p>
+                <ConnectEarnings />
+              </>
+            ) : (
               <div className="mt-4">
                 <ConnectAccountOnboarding />
               </div>
             )}
-            {settings.stripe_account_status === "active" && <ConnectEarnings />}
             <form onSubmit={handleConnectEnabledSubmit} className="mt-6 flex flex-col gap-3">
               <label className="flex items-center gap-2 text-sm text-ink">
                 <input

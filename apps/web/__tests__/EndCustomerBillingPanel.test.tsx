@@ -373,6 +373,43 @@ describe("EndCustomerBillingPanel", () => {
     expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
   });
 
+  it("mostra a mensagem de conta configurada quando a conta já está ativa", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "active",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/sua conta stripe já está configurada/i)).toBeInTheDocument(),
+    );
+  });
+
+  it("não mostra a mensagem de conta configurada durante o onboarding", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "onboarding",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByText("onboarding-connect-mock")).toBeInTheDocument());
+    expect(screen.queryByText(/sua conta stripe já está configurada/i)).not.toBeInTheDocument();
+  });
+
   it("persiste o toggle de cobrança no onboarding Connect via PATCH", async () => {
     mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === "end-customer-billing/settings" && init?.method === "PATCH") {
