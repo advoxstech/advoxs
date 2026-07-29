@@ -353,6 +353,26 @@ describe("EndCustomerBillingPanel", () => {
     expect(screen.queryByLabelText(/secret key/i)).not.toBeInTheDocument();
   });
 
+  it("esconde o onboarding Connect quando a conta já está ativa", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "active",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/cobrar meus clientes/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
+  });
+
   it("persiste o toggle de cobrança no onboarding Connect via PATCH", async () => {
     mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === "end-customer-billing/settings" && init?.method === "PATCH") {

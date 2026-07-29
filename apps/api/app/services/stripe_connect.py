@@ -99,6 +99,47 @@ async def _request_pix_capability(stripe_account_id: str) -> None:
     )
 
 
+async def resolve_account_status(account_payload) -> str:
+    """Deriva "onboarding"/"active" a partir da capability card_payments do
+    payload de uma conta (shape v1: `capabilities.card_payments` é uma
+    string "active"/"inactive"/"pending", não um dict aninhado). Usada tanto
+    pelo webhook `account.updated`
+    (`app/api/v1/webhooks/stripe_connect.py`, que importa esta função —
+    mesma lógica, um único lugar) quanto pelo self-heal de
+    `create_or_refresh_connect_account` abaixo.
+
+    `account_payload` (e `capabilities` dentro dele) pode ser um StripeObject
+    real (não um dict): não implementa `.get()`, só `[]`/`in` — `.to_dict()`
+    normaliza pra dict puro antes de qualquer `.get()` (mesmo padrão de
+    `process_checkout_completed` em `app/services/billing.py`)."""
+    payload = (
+        account_payload.to_dict() if hasattr(account_payload, "to_dict") else dict(account_payload)
+    )
+    capabilities = payload.get("capabilities", {})
+    capabilities = (
+        capabilities.to_dict() if hasattr(capabilities, "to_dict") else dict(capabilities)
+    )
+    if capabilities.get("card_payments") == "active":
+        return "active"
+    return "onboarding"
+
+
+async def _fetch_live_account_status(stripe_account_id: str) -> str:
+    """Consulta o status real da conta na Stripe (v1 Account.retrieve,
+    mesma chamada já usada por get_account_earnings/onboarding — a RAK
+    connect já tem essa permissão confirmada) — não depende só do webhook
+    `account.updated` pra manter `stripe_account_status` correto. Motivação:
+    o webhook pode nunca chegar (endpoint mal configurado do lado da Stripe,
+    evento não assinado, etc.) e o painel (`EndCustomerBillingPanel.tsx`)
+    usa esse campo pra decidir se ainda mostra o onboarding embutido — sem
+    esse self-heal, uma conta já totalmente ativa na Stripe ficaria presa
+    mostrando o formulário de onboarding pra sempre."""
+    account = await asyncio.to_thread(
+        stripe.Account.retrieve, stripe_account_id, api_key=settings.stripe_connect_secret_key
+    )
+    return await resolve_account_status(account)
+
+
 async def _create_account_session(stripe_account_id: str) -> "stripe.AccountSession":
     return await asyncio.to_thread(
         stripe.AccountSession.create,
@@ -150,6 +191,21 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
             )
 
         await session.commit()
+
+    try:
+        live_status = await _fetch_live_account_status(row.stripe_account_id)
+    except stripe.error.StripeError as exc:
+        logger.warning(
+            "Falha ao revalidar status da conta (best-effort, mantém o valor já salvo) | "
+            "tenant=%s conta=%s erro=%s",
+            tenant_id,
+            row.stripe_account_id,
+            exc,
+        )
+    else:
+        if live_status != row.stripe_account_status:
+            row.stripe_account_status = live_status
+            await session.commit()
 
     try:
         account_session = await _create_account_session(row.stripe_account_id)

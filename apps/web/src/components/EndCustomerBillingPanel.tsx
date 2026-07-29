@@ -244,9 +244,11 @@ export function EndCustomerBillingPanel() {
               Preencha os dados abaixo pra receber os pagamentos dos seus clientes direto na
               sua conta — sem sair desta tela.
             </p>
-            <div className="mt-4">
-              <ConnectAccountOnboarding />
-            </div>
+            {settings.stripe_account_status !== "active" && (
+              <div className="mt-4">
+                <ConnectAccountOnboarding />
+              </div>
+            )}
             {settings.stripe_account_status === "active" && <ConnectEarnings />}
             <form onSubmit={handleConnectEnabledSubmit} className="mt-6 flex flex-col gap-3">
               <label className="flex items-center gap-2 text-sm text-ink">

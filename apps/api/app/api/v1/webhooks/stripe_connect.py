@@ -38,6 +38,7 @@ from app.services.end_customer_billing import (
     process_end_customer_subscription_renewed,
     process_end_customer_subscription_status_changed,
 )
+from app.services.stripe_connect import resolve_account_status as _resolve_account_status
 
 logger = logging.getLogger(__name__)
 
@@ -49,29 +50,6 @@ _STATUS_EVENT_TYPE = "account.updated"
 _ASSINATURA_INVALIDA = HTTPException(
     status_code=status.HTTP_400_BAD_REQUEST, detail="Assinatura inválida"
 )
-
-
-async def _resolve_account_status(account_payload: dict) -> str:
-    """Deriva "onboarding"/"active" a partir da capability card_payments no
-    payload do evento account.updated (shape v1: `capabilities.card_payments`
-    é uma string "active"/"inactive"/"pending", não um dict aninhado — ver
-    docstring do módulo) — ativo é o que libera o billing gate determinístico
-    a considerar esse tenant configurado.
-
-    `account_payload` (e `capabilities` dentro dele) pode ser um StripeObject
-    real (não um dict): não implementa `.get()`, só `[]`/`in` — `.to_dict()`
-    normaliza pra dict puro antes de qualquer `.get()` (mesmo padrão de
-    `process_checkout_completed` em `app/services/billing.py`)."""
-    payload = (
-        account_payload.to_dict() if hasattr(account_payload, "to_dict") else dict(account_payload)
-    )
-    capabilities = payload.get("capabilities", {})
-    capabilities = (
-        capabilities.to_dict() if hasattr(capabilities, "to_dict") else dict(capabilities)
-    )
-    if capabilities.get("card_payments") == "active":
-        return "active"
-    return "onboarding"
 
 
 @router.post("")
