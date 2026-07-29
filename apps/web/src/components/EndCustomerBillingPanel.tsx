@@ -251,6 +251,14 @@ export function EndCustomerBillingPanel() {
                 </p>
                 <ConnectEarnings />
               </>
+            ) : settings.stripe_account_status === "in_review" ? (
+              <div className="mt-4">
+                <p className="text-sm text-muted">
+                  Sua conta está em análise pela Stripe. Isso pode levar alguns minutos — não é
+                  necessário preencher os dados de novo.
+                </p>
+                <ConnectAccountOnboarding visible={false} />
+              </div>
             ) : (
               <div className="mt-4">
                 <ConnectAccountOnboarding />

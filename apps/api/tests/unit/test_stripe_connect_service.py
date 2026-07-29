@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import app.services.stripe_connect as stripe_connect_module
-from app.services.stripe_connect import ConnectApiError, create_or_refresh_connect_account
+from app.services.stripe_connect import (
+    ConnectApiError,
+    create_or_refresh_connect_account,
+    resolve_account_status,
+)
 
 TENANT_ID = uuid.uuid4()
 
@@ -47,6 +51,41 @@ async def test_cria_conta_quando_tenant_nao_tem_stripe_account_id(session, monke
     assert row.stripe_account_id == "acct_novo"
     assert row.stripe_account_status == "onboarding"
     session.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolve_account_status_dados_enviados_mas_ainda_nao_ativa_e_in_review():
+    assert (
+        await resolve_account_status(
+            {"capabilities": {"card_payments": "pending"}, "details_submitted": True}
+        )
+        == "in_review"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_account_status_sem_enviar_dados_ainda_e_onboarding():
+    assert (
+        await resolve_account_status(
+            {"capabilities": {"card_payments": "pending"}, "details_submitted": False}
+        )
+        == "onboarding"
+    )
+    assert (
+        await resolve_account_status({"capabilities": {}, "details_submitted": False})
+        == "onboarding"
+    )
+    assert await resolve_account_status({}) == "onboarding"
+
+
+@pytest.mark.asyncio
+async def test_resolve_account_status_ativa_mesmo_com_details_submitted():
+    assert (
+        await resolve_account_status(
+            {"capabilities": {"card_payments": "active"}, "details_submitted": True}
+        )
+        == "active"
+    )
 
 
 @pytest.mark.asyncio

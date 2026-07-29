@@ -13,7 +13,7 @@ function extractErrorDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export function ConnectAccountOnboarding() {
+export function ConnectAccountOnboarding({ visible = true }: { visible?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +43,12 @@ export function ConnectAccountOnboarding() {
       try {
         // Busca (e valida) o client_secret antes de inicializar o Connect.js
         // — assim um erro do backend aparece na tela em vez de ficar preso
-        // dentro da inicialização assíncrona da lib.
+        // dentro da inicialização assíncrona da lib. Isso também é o que
+        // aciona o self-heal de stripe_account_status no backend
+        // (create_or_refresh_connect_account) — por isso ainda buscamos o
+        // client_secret mesmo com visible=false, só não montamos o widget.
         await fetchClientSecret();
+        if (!visible) return;
         const connectInstance = await loadConnectAndInitialize({
           publishableKey: process.env.NEXT_PUBLIC_STRIPE_CONNECT_PUBLISHABLE_KEY ?? "",
           fetchClientSecret,
@@ -62,7 +66,7 @@ export function ConnectAccountOnboarding() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [visible]);
 
   return (
     <div className="max-w-xl">

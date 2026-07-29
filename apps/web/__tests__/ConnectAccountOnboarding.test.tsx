@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConnectAccountOnboarding } from "@/components/ConnectAccountOnboarding";
 import { backendFetch } from "@/lib/client-api";
+import { loadConnectAndInitialize } from "@stripe/connect-js";
 
 vi.mock("@/lib/client-api", () => ({
   backendFetch: vi.fn(),
@@ -15,9 +16,11 @@ vi.mock("@stripe/connect-js", () => ({
 }));
 
 const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
+const mockedLoadConnect = loadConnectAndInitialize as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   mockedFetch.mockReset();
+  mockedLoadConnect.mockClear();
 });
 
 describe("ConnectAccountOnboarding", () => {
@@ -48,5 +51,22 @@ describe("ConnectAccountOnboarding", () => {
     await waitFor(() =>
       expect(screen.getByText(/falha ao iniciar a configuração/i)).toBeInTheDocument(),
     );
+  });
+
+  it("com visible=false, busca o client_secret mas não monta o widget da Stripe", async () => {
+    mockedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ client_secret: "secret_abc" }),
+    });
+
+    render(<ConnectAccountOnboarding visible={false} />);
+
+    await waitFor(() =>
+      expect(mockedFetch).toHaveBeenCalledWith(
+        "end-customer-billing/connect-account",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(mockedLoadConnect).not.toHaveBeenCalled();
   });
 });

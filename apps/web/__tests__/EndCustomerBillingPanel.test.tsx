@@ -9,7 +9,8 @@ vi.mock("@/lib/client-api", () => ({
 }));
 
 vi.mock("@/components/ConnectAccountOnboarding", () => ({
-  ConnectAccountOnboarding: () => <div>onboarding-connect-mock</div>,
+  ConnectAccountOnboarding: ({ visible = true }: { visible?: boolean }) =>
+    visible ? <div>onboarding-connect-mock</div> : null,
 }));
 
 const mockedFetch = backendFetch as ReturnType<typeof vi.fn>;
@@ -408,6 +409,27 @@ describe("EndCustomerBillingPanel", () => {
 
     await waitFor(() => expect(screen.getByText("onboarding-connect-mock")).toBeInTheDocument());
     expect(screen.queryByText(/sua conta stripe já está configurada/i)).not.toBeInTheDocument();
+  });
+
+  it("mostra aviso de conta em análise em vez do formulário de onboarding", async () => {
+    mockLoad({
+      enabled: false,
+      billing_mode: "credits",
+      billing_provider: "connect",
+      stripe_account_id: "acct_123",
+      stripe_account_status: "in_review",
+      stripe_secret_key_configured: false,
+      stripe_webhook_secret_configured: false,
+      end_customer_tokens_per_credit: null,
+    });
+
+    render(<EndCustomerBillingPanel />);
+
+    await waitFor(() => expect(screen.getByText(/em análise pela stripe/i)).toBeInTheDocument());
+    expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/sua conta stripe já está configurada/i),
+    ).not.toBeInTheDocument();
   });
 
   it("persiste o toggle de cobrança no onboarding Connect via PATCH", async () => {

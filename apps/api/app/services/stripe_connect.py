@@ -100,13 +100,21 @@ async def _request_pix_capability(stripe_account_id: str) -> None:
 
 
 async def resolve_account_status(account_payload) -> str:
-    """Deriva "onboarding"/"active" a partir da capability card_payments do
-    payload de uma conta (shape v1: `capabilities.card_payments` é uma
-    string "active"/"inactive"/"pending", não um dict aninhado). Usada tanto
-    pelo webhook `account.updated`
+    """Deriva "onboarding"/"in_review"/"active" a partir da capability
+    card_payments e de details_submitted no payload de uma conta (shape v1:
+    `capabilities.card_payments` é uma string "active"/"inactive"/"pending",
+    não um dict aninhado). Usada tanto pelo webhook `account.updated`
     (`app/api/v1/webhooks/stripe_connect.py`, que importa esta função —
     mesma lógica, um único lugar) quanto pelo self-heal de
     `create_or_refresh_connect_account` abaixo.
+
+    "in_review": o tenant já enviou os dados (details_submitted=true) mas a
+    Stripe ainda não terminou de processar a revisão — capabilities.
+    card_payments ainda não virou "active" (pode levar de segundos a
+    minutos). Distinguir esse caso de "onboarding" (nunca enviou nada ainda)
+    evita reapresentar o formulário de preenchimento — que faria o usuário
+    achar que o envio anterior falhou — enquanto é só questão de esperar a
+    Stripe terminar (ver EndCustomerBillingPanel.tsx).
 
     `account_payload` (e `capabilities` dentro dele) pode ser um StripeObject
     real (não um dict): não implementa `.get()`, só `[]`/`in` — `.to_dict()`
@@ -121,6 +129,8 @@ async def resolve_account_status(account_payload) -> str:
     )
     if capabilities.get("card_payments") == "active":
         return "active"
+    if payload.get("details_submitted"):
+        return "in_review"
     return "onboarding"
 
 
