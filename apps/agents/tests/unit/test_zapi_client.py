@@ -5,7 +5,21 @@ import httpx
 import pytest
 
 import clients.zapi as zapi_module
-from clients.zapi import ZApiClient
+from clients.zapi import ZApiClient, _infer_extension
+
+
+class TestInferExtension:
+    def test_link_sem_path_apos_dominio_nao_extrai_do_dominio(self) -> None:
+        """Regressão pontual (achado do revisor): `urlsplit` isola o path do
+        domínio, então "https://exemplo.com" (sem nenhum "/algo" depois)
+        nunca deve virar extensão "com"."""
+        assert _infer_extension(None, "https://exemplo.com") == "pdf"
+
+    def test_link_com_path_extrai_extensao(self) -> None:
+        assert _infer_extension(None, "https://exemplo.com/doc.pdf") == "pdf"
+
+    def test_filename_tem_prioridade_sobre_link(self) -> None:
+        assert _infer_extension("contrato.docx", "https://exemplo.com/doc.pdf") == "docx"
 
 
 @pytest.fixture
@@ -198,6 +212,21 @@ class TestSendDocumentMessage:
         monkeypatch.setattr(httpx.AsyncClient, "request", request_mock)
 
         await client.send_document_message("5511999998888", "https://exemplo.com/sem-extensao")
+
+        url = request_mock.await_args.args[1]
+        assert url.endswith("/send-document/pdf")
+
+    async def test_link_sem_path_apos_dominio_cai_no_default_pdf(self, client, monkeypatch) -> None:
+        """Regressão: um link sem nenhum segmento de path após o domínio
+        (ex: "https://exemplo.com", sem "/documento" depois) não pode fazer
+        a extensão ser extraída do próprio domínio (bug anterior: o "."
+        de "exemplo.com" virava a extensão "com" em vez de cair no
+        fallback "pdf")."""
+        response = httpx.Response(200, json={"id": "m3"})
+        request_mock = AsyncMock(return_value=response)
+        monkeypatch.setattr(httpx.AsyncClient, "request", request_mock)
+
+        await client.send_document_message("5511999998888", "https://exemplo.com")
 
         url = request_mock.await_args.args[1]
         assert url.endswith("/send-document/pdf")

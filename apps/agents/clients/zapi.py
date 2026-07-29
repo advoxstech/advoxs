@@ -7,6 +7,7 @@ documentado no projeto pra clientes de canal)."""
 
 import asyncio
 import time
+from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
@@ -25,12 +26,18 @@ def _infer_extension(filename: str | None, link: str) -> str:
     confirmado em developer.z-api.io/message/send-message-document, não é
     um literal fixo "pdf" como um esboço anterior desta task assumia).
     Deriva do `filename` (prioridade) ou do próprio link; sem extensão
-    identificável, cai em "pdf" (caso mais comum de documento gerado)."""
+    identificável, cai em "pdf" (caso mais comum de documento gerado).
+
+    Usa `urlsplit(source).path` (não uma string inteira) pra isolar só o
+    path de fato — evita capturar por engano um "." do domínio (ex:
+    "exemplo.com") ou da query string. Um link sem nenhum path após o
+    domínio (ex: "https://exemplo.com") tem `.path == ""`, cai direto no
+    fallback. `urlsplit` também funciona para `filename` puro (sem
+    protocolo/domínio) — o texto inteiro vira o `.path`, comportamento
+    idêntico ao de antes pra esse caso."""
     source = filename or link
     if source:
-        # Só o último segmento de path importa (evita capturar o "." de um
-        # domínio como "exemplo.com" quando `link` é usado sem `filename`).
-        last_segment = source.split("?", 1)[0].rsplit("/", 1)[-1]
+        last_segment = urlsplit(source).path.rsplit("/", 1)[-1]
         candidate = last_segment.rsplit(".", 1)
         if len(candidate) == 2 and candidate[1]:
             return candidate[1].lower()
