@@ -11,7 +11,14 @@ class ConnectWhatsAppRequest(BaseModel):
     pin: str = Field(pattern=r"^\d{6}$")
 
 
+class ConnectZApiRequest(BaseModel):
+    instance_id: str = Field(min_length=1)
+    instance_token: str = Field(min_length=1)
+    client_token: str | None = None
+
+
 class WhatsAppConnectionOut(BaseModel):
+    provider: Literal["meta", "zapi"]
     display_phone_number: str
     status: Literal["connected", "disconnected"]
     connected_at: datetime
