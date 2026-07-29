@@ -27,6 +27,7 @@ from app.clients.zapi import (
     ZApiNetworkError,
     check_zapi_status,
     configure_zapi_webhook,
+    disconnect_zapi_instance,
     fetch_zapi_connected_phone,
     fetch_zapi_qrcode,
 )
@@ -102,16 +103,24 @@ async def connect(
     now = datetime.now(UTC)
 
     if existing is not None:
+        existing.provider = "meta"
         existing.phone_number_id = body.phone_number_id
         existing.waba_id = body.waba_id
         existing.display_phone_number = display_phone_number
         existing.access_token_encrypted = encrypted
+        # Limpa credenciais Z-API remanescentes — evita uma linha inconsistente
+        # que ainda carrega instância Z-API depois do tenant migrar pra Meta.
+        existing.zapi_instance_id = None
+        existing.zapi_instance_token_encrypted = None
+        existing.zapi_client_token_encrypted = None
+        existing.zapi_webhook_secret = None
         existing.status = "connected"
         existing.connected_at = now
         number = existing
     else:
         number = WhatsAppNumber(
             tenant_id=ctx.tenant_id,
+            provider="meta",
             phone_number_id=body.phone_number_id,
             waba_id=body.waba_id,
             display_phone_number=display_phone_number,
@@ -319,6 +328,22 @@ async def disconnect(
     )
     if number is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nenhum número conectado")
+
+    if number.provider == "zapi":
+        # Falha ao avisar a Z-API não deve travar o tenant desconectando
+        # localmente — best-effort, mesmo espírito de outras integrações
+        # externas neste código-base (ex: falha ao mandar confirmação de
+        # pagamento não desfaz o crédito já commitado).
+        token = decrypt_access_token(number.zapi_instance_token_encrypted)
+        client_token = (
+            decrypt_access_token(number.zapi_client_token_encrypted)
+            if number.zapi_client_token_encrypted
+            else None
+        )
+        try:
+            await disconnect_zapi_instance(number.zapi_instance_id, token, client_token)
+        except (ZApiNetworkError, ZApiApiError) as exc:
+            logger.warning("Falha ao desconectar na Z-API (best-effort) | erro=%s", exc)
 
     number.status = "disconnected"
     await session.commit()

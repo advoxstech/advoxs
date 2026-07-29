@@ -22,11 +22,15 @@ CONNECT_BODY = {
 }
 
 
-def _number(status: str = "connected") -> SimpleNamespace:
+def _number(status: str = "connected", provider: str = "meta") -> SimpleNamespace:
     return SimpleNamespace(
         tenant_id=TENANT_ID,
+        provider=provider,
         phone_number_id="PNID-antigo",
         waba_id="WABA-antigo",
+        zapi_instance_id=None,
+        zapi_instance_token_encrypted=None,
+        zapi_client_token_encrypted=None,
         display_phone_number="+5511987654321",
         access_token_encrypted="cifrado",
         status=status,
@@ -209,6 +213,46 @@ class TestDisconnect:
         response = client.post("/api/v1/whatsapp/disconnect")
 
         assert response.status_code == 404
+
+    def test_desconecta_instancia_zapi_chama_a_z_api(self, client, session, monkeypatch) -> None:
+        existing = _number(status="connected", provider="zapi")
+        existing.zapi_instance_id = "inst-123"
+        existing.zapi_instance_token_encrypted = "cifrado-token"
+        session.scalar.return_value = existing
+        disconnect_mock = AsyncMock(return_value=None)
+        monkeypatch.setattr(whatsapp_module, "disconnect_zapi_instance", disconnect_mock)
+        monkeypatch.setattr(
+            whatsapp_module, "decrypt_access_token", MagicMock(return_value="token-claro")
+        )
+
+        response = client.post("/api/v1/whatsapp/disconnect")
+
+        assert response.status_code == 200
+        assert existing.status == "disconnected"
+        disconnect_mock.assert_awaited_once_with("inst-123", "token-claro", None)
+
+    def test_falha_ao_desconectar_na_z_api_ainda_desconecta_localmente(
+        self, client, session, monkeypatch
+    ) -> None:
+        from app.clients.zapi import ZApiApiError
+
+        existing = _number(status="connected", provider="zapi")
+        existing.zapi_instance_id = "inst-123"
+        existing.zapi_instance_token_encrypted = "cifrado-token"
+        session.scalar.return_value = existing
+        monkeypatch.setattr(
+            whatsapp_module,
+            "disconnect_zapi_instance",
+            AsyncMock(side_effect=ZApiApiError("já desconectado")),
+        )
+        monkeypatch.setattr(
+            whatsapp_module, "decrypt_access_token", MagicMock(return_value="token-claro")
+        )
+
+        response = client.post("/api/v1/whatsapp/disconnect")
+
+        assert response.status_code == 200
+        assert existing.status == "disconnected"
 
 
 class TestWebhookConfig:
