@@ -45,6 +45,9 @@ class TestBuildTenantDashboard:
                 -240,  # credits_consumed (negativo no ledger)
                 5,  # kb_ready
                 1,  # kb_error
+                False,  # billing_enabled
+                "standalone",  # billing_provider
+                None,  # stripe_account_id
             ]
         )
         session.execute = AsyncMock(return_value=_execute_result(_recent(2)))
@@ -60,10 +63,14 @@ class TestBuildTenantDashboard:
         assert result.usage_last_30_days.credits_consumed == 240  # abs()
         assert result.knowledge_base.ready == 5
         assert result.knowledge_base.error == 1
+        assert result.end_customer_earnings.connected is False
+        assert result.end_customer_earnings.total_brl is None
         assert len(result.recent_conversations) == 2
 
     async def test_sem_whatsapp_conectado_retorna_disconnected(self, session) -> None:
-        session.scalar = AsyncMock(side_effect=[0, None, 0, 0, 0, 0, 0, 0])
+        session.scalar = AsyncMock(
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "standalone", None]
+        )
         session.execute = AsyncMock(return_value=_execute_result([]))
 
         result = await build_tenant_dashboard(session, TENANT_ID)
@@ -75,7 +82,9 @@ class TestBuildTenantDashboard:
     async def test_todas_as_queries_filtram_por_tenant(self, session) -> None:
         """Isolamento: nenhuma query do dashboard pode esquecer o filtro de
         tenant — mesma classe de bug do vazamento corrigido em billing/status."""
-        session.scalar = AsyncMock(side_effect=[0, None, 0, 0, 0, 0, 0, 0])
+        session.scalar = AsyncMock(
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "standalone", None]
+        )
         session.execute = AsyncMock(return_value=_execute_result([]))
 
         await build_tenant_dashboard(session, TENANT_ID)
@@ -88,3 +97,46 @@ class TestBuildTenantDashboard:
             assert "tenant_id" in sql
         execute_sql = str(session.execute.await_args_list[0].args[0])
         assert "WHERE conversations.tenant_id" in execute_sql
+
+    async def test_end_customer_earnings_soma_compra_avulsa_e_assinatura_quando_conectado(
+        self, session
+    ) -> None:
+        session.scalar = AsyncMock(
+            side_effect=[
+                0,  # credit_balance
+                None,  # display_phone_number
+                0,  # conversations_total
+                0,  # waiting_human
+                0,  # agent_messages (30d)
+                0,  # credits_consumed
+                0,  # kb_ready
+                0,  # kb_error
+                True,  # billing_enabled
+                "connect",  # billing_provider
+                "acct_123",  # stripe_account_id
+                150,  # purchases_total (soma de price_brl)
+                50,  # subscription_total (soma de amount_brl)
+            ]
+        )
+        session.execute = AsyncMock(return_value=_execute_result([]))
+
+        result = await build_tenant_dashboard(session, TENANT_ID)
+
+        assert result.end_customer_earnings.connected is True
+        assert result.end_customer_earnings.total_brl == 200
+
+    async def test_end_customer_earnings_desconectado_quando_billing_desabilitado(
+        self, session
+    ) -> None:
+        """billing_provider="connect" com conta configurada mas billing
+        desabilitado ainda mostra "sem conta conectada" — evita a tile levar
+        pra um /configuracoes/cobranca-clientes sem a aba Faturamento visível."""
+        session.scalar = AsyncMock(
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "connect", "acct_123"]
+        )
+        session.execute = AsyncMock(return_value=_execute_result([]))
+
+        result = await build_tenant_dashboard(session, TENANT_ID)
+
+        assert result.end_customer_earnings.connected is False
+        assert result.end_customer_earnings.total_brl is None
