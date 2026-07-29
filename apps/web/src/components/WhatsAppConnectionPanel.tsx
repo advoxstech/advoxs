@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { backendFetch } from "@/lib/client-api";
 
+type Provider = "meta" | "zapi";
+
 type Connection = {
+  provider: Provider;
   display_phone_number: string;
   status: "connected" | "disconnected";
   connected_at: string;
@@ -19,6 +22,10 @@ type FormState = {
 };
 
 const EMPTY_FORM: FormState = { phone_number_id: "", waba_id: "", access_token: "", pin: "" };
+
+type ZApiFormState = { instance_id: string; instance_token: string; client_token: string };
+
+const EMPTY_ZAPI_FORM: ZApiFormState = { instance_id: "", instance_token: "", client_token: "" };
 
 type WebhookConfig = { callback_url: string; verify_token: string };
 
@@ -40,15 +47,24 @@ const STATUS_CLASS: Record<Connection["status"], string> = {
   disconnected: "bg-brass-soft text-brass",
 };
 
+const PROVIDER_LABEL: Record<Provider, string> = {
+  meta: "WhatsApp Business oficial",
+  zapi: "Z-API",
+};
+
 export function WhatsAppConnectionPanel() {
   const [connection, setConnection] = useState<Connection | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [providerChoice, setProviderChoice] = useState<Provider | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [zapiForm, setZapiForm] = useState<ZApiFormState>(EMPTY_ZAPI_FORM);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [qrcode, setQrcode] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load() {
     try {
@@ -70,7 +86,45 @@ export function WhatsAppConnectionPanel() {
 
   useEffect(() => {
     void load();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, []);
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  function startZApiPolling() {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      const response = await backendFetch("whatsapp/zapi-status");
+      if (!response.ok) return;
+      const body = await response.json().catch(() => null);
+      if (body?.status === "connected") {
+        setConnection(body);
+        setQrcode(null);
+        setShowForm(false);
+        setProviderChoice(null);
+        stopPolling();
+      }
+    }, 3000);
+  }
+
+  function backToPicker() {
+    setProviderChoice(null);
+    setQrcode(null);
+    stopPolling();
+    setFeedback(null);
+  }
+
+  function startReconnect() {
+    setShowForm(true);
+    backToPicker();
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,7 +142,51 @@ export function WhatsAppConnectionPanel() {
       }
       setConnection(body);
       setShowForm(false);
+      setProviderChoice(null);
       setForm(EMPTY_FORM);
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleZApiSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedback(null);
+    setSubmitting(true);
+    try {
+      // Precisa ficar explícito aqui (não só herdado do fluxo "sem conexão")
+      // porque, assim que connect-zapi tiver sucesso, `connection` deixa de
+      // ser null — sem showForm=true, `inConnectFlow` cairia pra false e a
+      // tela pularia direto pro card de resumo, escondendo o QR code.
+      setShowForm(true);
+      const response = await backendFetch("whatsapp/connect-zapi", {
+        method: "POST",
+        body: JSON.stringify({
+          instance_id: zapiForm.instance_id,
+          instance_token: zapiForm.instance_token,
+          client_token: zapiForm.client_token || null,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFeedback(extractErrorDetail(body, "Falha ao conectar — tente novamente."));
+        return;
+      }
+      // Continua em showForm=true / providerChoice="zapi" — a próxima tela
+      // (QR code) ainda faz parte do fluxo de conexão, não da conexão pronta.
+      setConnection(body);
+      setZapiForm(EMPTY_ZAPI_FORM);
+
+      const qrResponse = await backendFetch("whatsapp/zapi-qrcode");
+      if (qrResponse.ok) {
+        const qrBody = await qrResponse.json().catch(() => null);
+        if (qrBody?.qrcode_base64) {
+          setQrcode(qrBody.qrcode_base64);
+          startZApiPolling();
+        }
+      }
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
@@ -107,6 +205,8 @@ export function WhatsAppConnectionPanel() {
         return;
       }
       setConnection(body);
+      setQrcode(null);
+      stopPolling();
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
     }
@@ -130,13 +230,17 @@ export function WhatsAppConnectionPanel() {
     );
   }
 
+  const inConnectFlow = !connection || showForm;
+  const activeProvider = providerChoice ?? connection?.provider ?? null;
+  const showMetaInstructions = webhookConfig && activeProvider !== "zapi";
+
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">WhatsApp Business</h1>
         <p className="text-sm text-muted">
-          Conecte o número de WhatsApp Business do escritório para os agentes atenderem pelo
-          canal.
+          Conecte o número de WhatsApp do escritório para os agentes atenderem pelo canal — pela
+          via oficial da Meta ou pela Z-API.
         </p>
       </header>
 
@@ -147,7 +251,7 @@ export function WhatsAppConnectionPanel() {
       )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        {connection && !showForm ? (
+        {!inConnectFlow && connection ? (
           <div className="max-w-md rounded border border-line bg-surface p-6">
             <div className="flex items-center justify-between">
               <p className="font-medium text-ink">{connection.display_phone_number}</p>
@@ -158,7 +262,8 @@ export function WhatsAppConnectionPanel() {
               </span>
             </div>
             <p className="mt-1 text-xs text-muted">
-              Vinculado em {new Date(connection.connected_at).toLocaleDateString("pt-BR")}
+              Conectado via {PROVIDER_LABEL[connection.provider]} · Vinculado em{" "}
+              {new Date(connection.connected_at).toLocaleDateString("pt-BR")}
             </p>
             <div className="mt-4 flex gap-4">
               {connection.status === "connected" && (
@@ -172,15 +277,55 @@ export function WhatsAppConnectionPanel() {
               )}
               <button
                 type="button"
-                onClick={() => setShowForm(true)}
+                onClick={startReconnect}
                 className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
               >
                 {connection.status === "connected" ? "Trocar número" : "Reconectar"}
               </button>
             </div>
           </div>
-        ) : (
+        ) : providerChoice === null ? (
+          <div className="flex max-w-md flex-col gap-3">
+            <p className="text-sm text-ink">Como você quer conectar o WhatsApp?</p>
+            <button
+              type="button"
+              onClick={() => setProviderChoice("meta")}
+              className="rounded border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition-colors hover:border-accent"
+            >
+              WhatsApp Business oficial
+              <span className="mt-0.5 block text-xs text-muted">
+                Via oficial da Meta — exige aprovação de negócio, mais burocrático.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setProviderChoice("zapi")}
+              className="rounded border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition-colors hover:border-accent"
+            >
+              Z-API
+              <span className="mt-0.5 block text-xs text-muted">
+                Conexão por QR code, sem aprovação de negócio — mais simples de configurar.
+              </span>
+            </button>
+            {connection && (
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="mt-1 w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
+        ) : providerChoice === "meta" ? (
           <form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-4">
+            <button
+              type="button"
+              onClick={backToPicker}
+              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+            >
+              ← Escolher outro provedor
+            </button>
             <label className="flex flex-col gap-1 text-sm text-ink">
               Phone Number ID
               <input
@@ -243,9 +388,91 @@ export function WhatsAppConnectionPanel() {
               )}
             </div>
           </form>
+        ) : qrcode ? (
+          <div className="flex max-w-md flex-col gap-4">
+            <p className="text-sm text-ink">
+              Abra o WhatsApp do número que vai atender, vá em Aparelhos conectados e escaneie o
+              QR code abaixo.
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={qrcode} alt="QR code de pareamento da Z-API" className="max-w-xs" />
+            <p className="text-xs text-muted">Aguardando pareamento...</p>
+            <button
+              type="button"
+              onClick={backToPicker}
+              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleZApiSubmit} className="flex max-w-md flex-col gap-4">
+            <button
+              type="button"
+              onClick={backToPicker}
+              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+            >
+              ← Escolher outro provedor
+            </button>
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              Instance ID
+              <input
+                required
+                value={zapiForm.instance_id}
+                onChange={(event) =>
+                  setZapiForm({ ...zapiForm, instance_id: event.target.value })
+                }
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              Token
+              <input
+                required
+                type="password"
+                value={zapiForm.instance_token}
+                onChange={(event) =>
+                  setZapiForm({ ...zapiForm, instance_token: event.target.value })
+                }
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              Client-Token (opcional)
+              <input
+                type="password"
+                value={zapiForm.client_token}
+                onChange={(event) =>
+                  setZapiForm({ ...zapiForm, client_token: event.target.value })
+                }
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <div className="flex gap-4">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
+              >
+                {submitting ? "Conectando..." : "Conectar"}
+              </button>
+              {connection && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setZapiForm(EMPTY_ZAPI_FORM);
+                  }}
+                  className="font-mono text-xs uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </form>
         )}
 
-        {webhookConfig && (
+        {showMetaInstructions && (
           <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
             <h2 className="font-display text-base font-semibold text-ink">
               Conectar o WhatsApp Business
@@ -336,13 +563,13 @@ export function WhatsAppConnectionPanel() {
                     <input
                       readOnly
                       aria-label="Callback URL"
-                      value={webhookConfig.callback_url}
+                      value={webhookConfig!.callback_url}
                       className="flex-1 rounded border border-line bg-ground px-3 py-2 font-mono text-xs text-ink"
                     />
                     <button
                       type="button"
                       aria-label="Copiar Callback URL"
-                      onClick={() => void handleCopy("url", webhookConfig.callback_url)}
+                      onClick={() => void handleCopy("url", webhookConfig!.callback_url)}
                       className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
                     >
                       {copied === "url" ? "Copiado!" : "Copiar"}
@@ -352,13 +579,13 @@ export function WhatsAppConnectionPanel() {
                     <input
                       readOnly
                       aria-label="Verify token"
-                      value={webhookConfig.verify_token}
+                      value={webhookConfig!.verify_token}
                       className="flex-1 rounded border border-line bg-ground px-3 py-2 font-mono text-xs text-ink"
                     />
                     <button
                       type="button"
                       aria-label="Copiar Verify token"
-                      onClick={() => void handleCopy("token", webhookConfig.verify_token)}
+                      onClick={() => void handleCopy("token", webhookConfig!.verify_token)}
                       className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
                     >
                       {copied === "token" ? "Copiado!" : "Copiar"}
