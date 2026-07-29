@@ -1,4 +1,4 @@
-from app.schemas.whatsapp import extract_inbound_messages
+from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
 
 
 def _payload(value: dict) -> dict:
@@ -109,3 +109,46 @@ def test_non_message_field_is_ignored() -> None:
 
 def test_empty_payload() -> None:
     assert extract_inbound_messages({}) == []
+
+
+def _zapi_payload(**overrides: object) -> dict:
+    base = {
+        "instanceId": "inst-123",
+        "phone": "5511888888888",
+        "messageId": "msg-abc",
+        "fromMe": False,
+        "text": {"message": "Olá, preciso de ajuda"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_extract_zapi_text_message() -> None:
+    result = extract_inbound_zapi_message(_zapi_payload())
+
+    assert result is not None
+    assert result.zapi_instance_id == "inst-123"
+    assert result.wa_message_id == "msg-abc"
+    assert result.contact_phone_number == "5511888888888"
+    assert result.content == "Olá, preciso de ajuda"
+
+
+def test_extract_zapi_ignora_mensagem_from_me() -> None:
+    result = extract_inbound_zapi_message(_zapi_payload(fromMe=True))
+
+    assert result is None
+
+
+def test_extract_zapi_ignora_sem_texto() -> None:
+    result = extract_inbound_zapi_message(_zapi_payload(text=None))
+
+    assert result is None
+
+
+def test_extract_zapi_ignora_payload_sem_instance_id() -> None:
+    payload = _zapi_payload()
+    del payload["instanceId"]
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is None

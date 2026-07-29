@@ -1,8 +1,8 @@
-"""Processamento de mensagens entrantes do webhook do WhatsApp.
-
-Fluxo: resolve o tenant pelo phone_number_id -> upsert da conversa ->
-persiste a mensagem (dedup por wamid) -> enfileira o job no Arq. O worker
-decide entre agente e humano (estado da conversa) e chama o agents service.
+"""Processamento de mensagens entrantes dos webhooks de WhatsApp (Meta e
+Z-API). Fluxo: resolve o tenant (por phone_number_id ou zapi_instance_id,
+conforme o provedor) -> upsert da conversa -> persiste a mensagem (dedup
+por wa_message_id) -> enfileira o job no Arq. O worker decide entre agente
+e humano (estado da conversa) e chama o agents service.
 """
 
 import logging
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, Message, WhatsAppNumber
-from app.schemas.whatsapp import InboundWhatsAppMessage, extract_inbound_messages
+from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,23 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
     persisted: list[tuple[str, str, str]] = []  # (tenant_id, conversation_id, message_id)
 
     for inbound in extract_inbound_messages(payload):
-        result = await _persist_inbound_message(inbound, session)
+        number = await session.scalar(
+            select(WhatsAppNumber).where(WhatsAppNumber.phone_number_id == inbound.phone_number_id)
+        )
+        if number is None:
+            logger.warning(
+                "Webhook Meta para phone_number_id desconhecido: %s", inbound.phone_number_id
+            )
+            continue
+        result = await _persist_inbound_message(
+            number,
+            contact_phone_number=inbound.contact_phone_number,
+            wa_message_id=inbound.wa_message_id,
+            content=inbound.content,
+            media_id=inbound.media_id,
+            media_type=inbound.media_type,
+            session=session,
+        )
         if result is not None:
             persisted.append(result)
 
@@ -46,34 +62,80 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
     return {"received": len(persisted)}
 
 
-async def _persist_inbound_message(
-    inbound: InboundWhatsAppMessage, session: AsyncSession
-) -> tuple[str, str, str] | None:
-    number = await session.scalar(
-        select(WhatsAppNumber).where(WhatsAppNumber.phone_number_id == inbound.phone_number_id)
-    )
-    if number is None:
-        logger.warning("Webhook para phone_number_id desconhecido: %s", inbound.phone_number_id)
-        return None
+async def handle_zapi_webhook(
+    payload: dict, webhook_secret: str, session: AsyncSession, arq: ArqRedis
+) -> dict:
+    """Mesma forma de `handle_meta_webhook`, mas resolve o tenant por
+    zapi_instance_id + confere o segredo do path (única autenticação do
+    endpoint, já que a Z-API não assina o payload)."""
+    inbound = extract_inbound_zapi_message(payload)
+    if inbound is None:
+        return {"received": 0}
 
-    # Dedup: a Meta reenvia webhooks não confirmados.
+    number = await session.scalar(
+        select(WhatsAppNumber).where(
+            WhatsAppNumber.provider == "zapi",
+            WhatsAppNumber.zapi_instance_id == inbound.zapi_instance_id,
+        )
+    )
+    if number is None or number.zapi_webhook_secret != webhook_secret:
+        logger.warning(
+            "Webhook Z-API com segredo ou instância inválidos | instance=%s",
+            inbound.zapi_instance_id,
+        )
+        return {"received": 0}
+
+    result = await _persist_inbound_message(
+        number,
+        contact_phone_number=inbound.contact_phone_number,
+        wa_message_id=inbound.wa_message_id,
+        content=inbound.content,
+        media_id=None,
+        media_type=None,
+        session=session,
+    )
+    if result is None:
+        return {"received": 0}
+
+    await session.commit()
+    tenant_id, conversation_id, message_id = result
+    await arq.enqueue_job(
+        "process_inbound_message",
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
+    )
+    return {"received": 1}
+
+
+async def _persist_inbound_message(
+    number: WhatsAppNumber,
+    *,
+    contact_phone_number: str,
+    wa_message_id: str,
+    content: str,
+    media_id: str | None,
+    media_type: str | None,
+    session: AsyncSession,
+) -> tuple[str, str, str] | None:
+    # Dedup: ambos os provedores podem reentregar webhook não confirmado.
     duplicate = await session.scalar(
-        select(Message.id).where(Message.wa_message_id == inbound.wa_message_id)
+        select(Message.id).where(Message.wa_message_id == wa_message_id)
     )
     if duplicate is not None:
-        logger.info("Webhook duplicado ignorado (wamid=%s)", inbound.wa_message_id)
+        logger.info("Webhook duplicado ignorado (wamid=%s)", wa_message_id)
         return None
 
     conversation = await session.scalar(
         select(Conversation).where(
             Conversation.tenant_id == number.tenant_id,
-            Conversation.contact_phone_number == inbound.contact_phone_number,
+            Conversation.contact_phone_number == contact_phone_number,
         )
     )
     if conversation is None:
         conversation = Conversation(
             tenant_id=number.tenant_id,
-            contact_phone_number=inbound.contact_phone_number,
+            contact_phone_number=contact_phone_number,
         )
         session.add(conversation)
         await session.flush()
@@ -84,10 +146,10 @@ async def _persist_inbound_message(
         conversation_id=conversation.id,
         tenant_id=number.tenant_id,
         sender_type="contact",
-        content=inbound.content,
-        media_url=inbound.media_id,  # ID de mídia da Meta; download fica para o worker
-        media_type=inbound.media_type,
-        wa_message_id=inbound.wa_message_id,
+        content=content,
+        media_url=media_id,  # ID de mídia da Meta; download fica para o worker
+        media_type=media_type,
+        wa_message_id=wa_message_id,
     )
     session.add(message)
     await session.flush()

@@ -21,6 +21,7 @@ from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.stripe_connect import router as stripe_connect_webhook_router
 from app.api.v1.webhooks.stripe_tenant import router as stripe_tenant_webhook_router
 from app.api.v1.webhooks.whatsapp import router as whatsapp_webhook_router
+from app.api.v1.webhooks.zapi import router as zapi_webhook_router
 from app.api.v1.whatsapp import router as whatsapp_router
 
 api_router = APIRouter(prefix="/api/v1")
@@ -46,6 +47,7 @@ api_router.include_router(stripe_webhook_router)
 api_router.include_router(stripe_connect_webhook_router)
 api_router.include_router(stripe_tenant_webhook_router)
 api_router.include_router(whatsapp_webhook_router)
+api_router.include_router(zapi_webhook_router)
 api_router.include_router(whatsapp_router)
 
 

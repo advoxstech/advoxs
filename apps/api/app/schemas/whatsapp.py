@@ -81,3 +81,37 @@ def extract_inbound_messages(payload: dict) -> list[InboundWhatsAppMessage]:
                 )
 
     return inbound
+
+
+class InboundZApiMessage(BaseModel):
+    """Uma mensagem de contato extraída do webhook da Z-API, já normalizada."""
+
+    zapi_instance_id: str
+    wa_message_id: str
+    contact_phone_number: str
+    content: str
+
+
+def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
+    """Extrai a mensagem de um payload de webhook da Z-API — diferente da
+    Meta, cada POST já é 1 mensagem só, sem lote. Ignora eco de mensagem
+    enviada pelo próprio WhatsApp Web conectado (fromMe=true) e mensagens
+    sem texto (mídia recebida via Z-API não é processada nesta v1)."""
+    if payload.get("fromMe"):
+        return None
+
+    instance_id = payload.get("instanceId")
+    message_id = payload.get("messageId")
+    sender = payload.get("phone")
+    text = payload.get("text") or {}
+    content = text.get("message") if isinstance(text, dict) else None
+
+    if not instance_id or not message_id or not sender or not content:
+        return None
+
+    return InboundZApiMessage(
+        zapi_instance_id=instance_id,
+        wa_message_id=message_id,
+        contact_phone_number=sender,
+        content=content,
+    )
