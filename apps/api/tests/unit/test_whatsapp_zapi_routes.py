@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -101,3 +103,47 @@ class TestConnectZApi:
     def test_sem_token_retorna_401(self) -> None:
         response = TestClient(app).post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
         assert response.status_code == 401
+
+
+def _zapi_number(status: str = "disconnected") -> SimpleNamespace:
+    return SimpleNamespace(
+        tenant_id=TENANT_ID,
+        provider="zapi",
+        zapi_instance_id="inst-123",
+        zapi_instance_token_encrypted="cifrado:token-claro",
+        zapi_client_token_encrypted="cifrado:client-token-claro",
+        display_phone_number="Aguardando pareamento",
+        status=status,
+        connected_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+    )
+
+
+class TestZApiStatus:
+    def test_falha_ao_buscar_telefone_degrada_para_estado_salvo(
+        self, client, session, monkeypatch
+    ) -> None:
+        """Regressão: fetch_zapi_connected_phone (parte do self-heal) também
+        precisa degradar pro estado já salvo em caso de falha — só envolver
+        check_zapi_status no try/except não bastava, já que o /device pode
+        falhar mesmo com o /status funcionando."""
+        number = _zapi_number(status="disconnected")
+        session.scalar.return_value = number
+
+        monkeypatch.setattr(
+            whatsapp_module, "decrypt_access_token", lambda v: v.replace("cifrado:", "")
+        )
+        monkeypatch.setattr(
+            whatsapp_module, "check_zapi_status", AsyncMock(return_value={"connected": True})
+        )
+        monkeypatch.setattr(
+            whatsapp_module,
+            "fetch_zapi_connected_phone",
+            AsyncMock(side_effect=ZApiApiError("dispositivo instável")),
+        )
+
+        response = client.get("/api/v1/whatsapp/zapi-status")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "disconnected"
+        session.commit.assert_not_awaited()

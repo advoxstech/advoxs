@@ -265,17 +265,17 @@ async def get_zapi_status(
     )
     try:
         live_status = await check_zapi_status(number.zapi_instance_id, token, client_token)
+
+        if live_status.get("connected") and number.status != "connected":
+            phone = await fetch_zapi_connected_phone(number.zapi_instance_id, token, client_token)
+            if phone:
+                number.display_phone_number = phone
+            number.status = "connected"
+            await session.commit()
+            await session.refresh(number)
     except (ZApiNetworkError, ZApiApiError) as exc:
         logger.warning("Falha ao revalidar status Z-API (best-effort) | erro=%s", exc)
         return _to_out(number)
-
-    if live_status.get("connected") and number.status != "connected":
-        phone = await fetch_zapi_connected_phone(number.zapi_instance_id, token, client_token)
-        if phone:
-            number.display_phone_number = phone
-        number.status = "connected"
-        await session.commit()
-        await session.refresh(number)
 
     return _to_out(number)
 
