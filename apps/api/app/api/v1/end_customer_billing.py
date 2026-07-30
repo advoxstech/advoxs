@@ -16,7 +16,6 @@ from app.models import (
     EndCustomerCreditTransaction,
     EndCustomerSubscription,
     TenantBillingSettings,
-    WhatsAppNumber,
 )
 from app.schemas.end_customer_billing import (
     ConnectAccountSessionOut,
@@ -153,17 +152,6 @@ async def update_settings(
             ),
         )
     if body.enabled is True:
-        whatsapp_provider = await session.scalar(
-            select(WhatsAppNumber.provider).where(WhatsAppNumber.tenant_id == ctx.tenant_id)
-        )
-        if whatsapp_provider == "zapi":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Cobrança do cliente final ainda não está disponível pra "
-                    "escritórios conectados via Z-API"
-                ),
-            )
         has_active_package = await session.scalar(
             select(EndCustomerCreditPackage.id).where(
                 EndCustomerCreditPackage.tenant_id == ctx.tenant_id,

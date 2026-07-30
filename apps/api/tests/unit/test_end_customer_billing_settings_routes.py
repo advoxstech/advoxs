@@ -151,7 +151,6 @@ def test_patch_habilitar_com_tudo_configurado_funciona(client, session) -> None:
 def test_patch_habilitar_sem_pacote_ativo_retorna_400(client, session) -> None:
     session.scalar.side_effect = [
         _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
-        "meta",  # provider do WhatsApp do tenant
         None,  # checagem de pacote ativo — nenhum cadastrado
     ]
 
@@ -164,7 +163,6 @@ def test_patch_habilitar_sem_pacote_ativo_retorna_400(client, session) -> None:
 def test_patch_habilitar_com_pacote_ativo_funciona(client, session) -> None:
     session.scalar.side_effect = [
         _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
-        "meta",  # provider do WhatsApp do tenant
         uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
     ]
 
@@ -172,46 +170,6 @@ def test_patch_habilitar_com_pacote_ativo_funciona(client, session) -> None:
 
     assert response.status_code == 200
     assert response.json()["enabled"] is True
-
-
-def test_patch_habilitar_com_whatsapp_zapi_retorna_400(client, session) -> None:
-    session.scalar.side_effect = [
-        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
-        "zapi",  # provider do WhatsApp do tenant
-    ]
-
-    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
-
-    assert response.status_code == 400
-    assert "z-api" in response.json()["detail"].lower()
-
-
-def test_patch_habilitar_com_whatsapp_meta_e_pacote_ativo_funciona(client, session) -> None:
-    session.scalar.side_effect = [
-        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
-        "meta",  # provider do WhatsApp do tenant
-        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
-    ]
-
-    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
-
-    assert response.status_code == 200
-    assert response.json()["enabled"] is True
-
-
-def test_patch_habilitar_sem_whatsapp_conectado_funciona(client, session) -> None:
-    """Tenant que ainda não conectou nenhum WhatsApp (provider=None, sem
-    linha em whatsapp_numbers) não deve ser bloqueado por essa guarda —
-    ela existe pra impedir Z-API especificamente, não pra exigir Meta."""
-    session.scalar.side_effect = [
-        _settings_row(stripe_secret_key_encrypted="cifrado"),  # _get_settings_row
-        None,  # nenhum whatsapp_numbers pra esse tenant
-        uuid.uuid4(),  # checagem de pacote ativo — existe pelo menos 1
-    ]
-
-    response = client.patch("/api/v1/end-customer-billing/settings", json={"enabled": True})
-
-    assert response.status_code == 200
 
 
 def test_patch_habilitar_com_connect_sem_secret_key_funciona(client, session) -> None:
