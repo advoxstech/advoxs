@@ -23,7 +23,7 @@ function passwordStrength(password: string): { pct: number; label: string } {
 
 const STRENGTH_BAR_CLASS: Record<string, string> = {
   Fraca: "bg-danger",
-  Média: "bg-accent",
+  Média: "bg-signup-accent",
   Forte: "bg-ink",
 };
 
@@ -46,7 +46,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
           </span>
           <span className="text-[13px] text-muted">
             Já tem conta?{" "}
-            <a href="/login" className="font-semibold text-accent hover:underline">
+            <a href="/login" className="font-semibold text-signup-accent hover:underline">
               Entrar
             </a>
           </span>
@@ -71,7 +71,9 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
               <label
                 key={pkg.id}
                 className={`relative flex cursor-pointer items-center gap-3.5 rounded-2xl border bg-surface px-4 py-4 transition-colors ${
-                  active ? "border-accent ring-4 ring-accent/15" : "border-line hover:border-muted"
+                  active
+                    ? "border-signup-accent ring-4 ring-signup-accent/15"
+                    : "border-line hover:border-muted"
                 }`}
               >
                 <input
@@ -84,12 +86,12 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
                   className="peer sr-only"
                 />
                 <span
-                  className={`grid h-5 w-5 flex-none place-items-center rounded-full border peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 ${
-                    active ? "border-accent" : "border-line"
+                  className={`grid h-5 w-5 flex-none place-items-center rounded-full border peer-focus-visible:ring-2 peer-focus-visible:ring-signup-accent peer-focus-visible:ring-offset-2 ${
+                    active ? "border-signup-accent" : "border-line"
                   }`}
                 >
                   <span
-                    className={`h-2.5 w-2.5 rounded-full bg-accent transition-transform ${
+                    className={`h-2.5 w-2.5 rounded-full bg-signup-accent transition-transform ${
                       active ? "scale-100" : "scale-0"
                     }`}
                   />
@@ -161,7 +163,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
             <button
               type="button"
               onClick={() => setShowPassword((value) => !value)}
-              className="absolute right-2 top-2 h-[34px] rounded-lg bg-accent-soft px-3 font-mono text-[12px] font-bold uppercase tracking-[0.04em] text-accent transition-colors hover:bg-accent/20"
+              className="absolute right-2 top-2 h-[34px] rounded-lg bg-signup-accent-soft px-3 font-mono text-[12px] font-bold uppercase tracking-[0.04em] text-signup-accent transition-colors hover:bg-signup-accent/20"
             >
               {showPassword ? "Ocultar" : "Mostrar"}
             </button>
@@ -208,7 +210,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
         <button
           type="submit"
           disabled={pending}
-          className="h-[58px] rounded-2xl bg-gradient-to-b from-accent to-ink text-base font-bold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
+          className="h-[58px] rounded-2xl bg-gradient-to-b from-signup-accent to-ink text-base font-bold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
         >
           {pending ? "Preparando pagamento…" : `Comprar por ${selectedPrice ?? ""}`}
         </button>
