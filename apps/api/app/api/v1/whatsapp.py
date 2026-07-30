@@ -1,8 +1,15 @@
-"""Conexão manual do número de WhatsApp Business do escritório (1:1 com tenant).
+"""Conexão do número de WhatsApp Business do escritório (1:1 com tenant), por
+um de dois provedores: **Meta** (Cloud API oficial) ou **Z-API** (não-oficial,
+conexão por QR code).
 
-O escritório faz o setup do lado da Meta (app, System User, token permanente,
-verificação do número) e cola as credenciais aqui. Antes de persistir, valida
-o token e registra o número na Cloud API — nada é salvo se a Meta rejeitar.
+Meta: o escritório faz o setup do lado da Meta (app, System User, token
+permanente, verificação do número) e cola as credenciais aqui. Antes de
+persistir, valida o token e registra o número na Cloud API — nada é salvo se
+a Meta rejeitar.
+
+Z-API: o escritório cola instance_id/token (gerados no painel da Z-API) e
+escaneia um QR code — sem aprovação de negócio. Ver `connect_zapi`,
+`get_zapi_qrcode` e `get_zapi_status` abaixo.
 """
 
 import logging
@@ -180,6 +187,7 @@ async def connect_zapi(
     )
     encrypted_token = encrypt_access_token(body.instance_token)
     encrypted_client_token = encrypt_access_token(body.client_token) if body.client_token else None
+    now = datetime.now(UTC)
 
     if existing is not None:
         existing.provider = "zapi"
@@ -192,6 +200,9 @@ async def connect_zapi(
         existing.access_token_encrypted = None
         existing.display_phone_number = "Aguardando pareamento"
         existing.status = "disconnected"
+        # Simétrico ao branch Meta de connect() acima — reconectar (mesmo
+        # trocando de provedor) sempre reseta connected_at pro instante atual.
+        existing.connected_at = now
         number = existing
     else:
         number = WhatsAppNumber(
@@ -203,7 +214,7 @@ async def connect_zapi(
             zapi_webhook_secret=webhook_secret,
             display_phone_number="Aguardando pareamento",
             status="disconnected",
-            connected_at=datetime.now(UTC),
+            connected_at=now,
         )
         session.add(number)
 
@@ -253,6 +264,49 @@ async def get_zapi_qrcode(
     return {"qrcode_base64": qrcode_base64}
 
 
+async def _self_heal_zapi_status(number: WhatsAppNumber, session: AsyncSession) -> WhatsAppNumber:
+    """Revalida o status Z-API ao vivo e promove `status`/`display_phone_number`
+    no banco quando a Z-API já confirma o pareamento — best-effort (uma falha
+    aqui nunca deve quebrar a tela, só devolve o último estado conhecido).
+
+    Reaproveitada tanto pelo polling dedicado (`GET /zapi-status`, chamado
+    a cada 3s enquanto a tela do QR code está aberta) quanto pelo carregamento
+    normal da tela (`GET /connection`, chamado toda vez que a página abre) —
+    sem essa segunda chamada, um tenant que fechasse a aba antes do polling
+    detectar a conexão ficaria com `status="disconnected"` pra sempre, mesmo
+    já pareado, e o worker descartaria toda mensagem recebida em silêncio
+    (`_load_context` filtra `status == "connected"`).
+
+    Também tenta de novo buscar o telefone quando `display_phone_number`
+    ainda é o placeholder `"Aguardando pareamento"` mesmo com `status`
+    já `"connected"` — cobre o caso em que a primeira promoção aconteceu
+    num momento em que `fetch_zapi_connected_phone` não tinha o campo ainda
+    disponível (pareamento incompleto)."""
+    token = decrypt_access_token(number.zapi_instance_token_encrypted)
+    client_token = (
+        decrypt_access_token(number.zapi_client_token_encrypted)
+        if number.zapi_client_token_encrypted
+        else None
+    )
+    try:
+        live_status = await check_zapi_status(number.zapi_instance_id, token, client_token)
+
+        needs_phone_refresh = (
+            number.status != "connected" or number.display_phone_number == "Aguardando pareamento"
+        )
+        if live_status.get("connected") and needs_phone_refresh:
+            phone = await fetch_zapi_connected_phone(number.zapi_instance_id, token, client_token)
+            if phone:
+                number.display_phone_number = phone
+            number.status = "connected"
+            await session.commit()
+            await session.refresh(number)
+    except (ZApiNetworkError, ZApiApiError) as exc:
+        logger.warning("Falha ao revalidar status Z-API (best-effort) | erro=%s", exc)
+
+    return number
+
+
 @router.get("/zapi-status")
 async def get_zapi_status(
     ctx: TenantContext = Depends(get_current_tenant),
@@ -266,26 +320,7 @@ async def get_zapi_status(
     if number is None:
         return None
 
-    token = decrypt_access_token(number.zapi_instance_token_encrypted)
-    client_token = (
-        decrypt_access_token(number.zapi_client_token_encrypted)
-        if number.zapi_client_token_encrypted
-        else None
-    )
-    try:
-        live_status = await check_zapi_status(number.zapi_instance_id, token, client_token)
-
-        if live_status.get("connected") and number.status != "connected":
-            phone = await fetch_zapi_connected_phone(number.zapi_instance_id, token, client_token)
-            if phone:
-                number.display_phone_number = phone
-            number.status = "connected"
-            await session.commit()
-            await session.refresh(number)
-    except (ZApiNetworkError, ZApiApiError) as exc:
-        logger.warning("Falha ao revalidar status Z-API (best-effort) | erro=%s", exc)
-        return _to_out(number)
-
+    number = await _self_heal_zapi_status(number, session)
     return _to_out(number)
 
 
@@ -299,6 +334,10 @@ async def get_connection(
     )
     if number is None:
         return None
+    if number.provider == "zapi":
+        # Mesmo self-heal do polling dedicado (ver docstring) — sem isso, o
+        # status só se corrige enquanto a tela do QR code está aberta.
+        number = await _self_heal_zapi_status(number, session)
     return _to_out(number)
 
 

@@ -24,7 +24,21 @@ async def maybe_enter_gate(
     """Transiciona a conversa pra billing_gate se o tenant estiver migrado e
     o contato sem saldo. Retorna True se a conversa está (ou acabou de
     entrar) em billing_gate — nesse caso, process_inbound_message não deve
-    seguir pro fluxo normal de chamar o agents."""
+    seguir pro fluxo normal de chamar o agents.
+
+    Bloqueado pra qualquer provedor diferente de "meta": o gate usa mensagens
+    interativas (`interactive`/`list`) nativas da Cloud API da Meta, sem
+    equivalente testado na Z-API nesta v1 — ver `PATCH
+    /end-customer-billing/settings`, que já recusa HABILITAR a cobrança pra
+    um tenant Z-API. Essa checagem aqui cobre o caso de um tenant que
+    habilitou via Meta e depois trocou pra Z-API: sem ela, o gate seria
+    acionado em runtime e quebraria ao tentar descriptografar um
+    access_token_encrypted=None (campos Meta ficam NULL num tenant Z-API).
+    Retornar False aqui faz o agente responder normalmente, custeado pelo
+    estoque do próprio tenant — mesma filosofia de fallback seguro já usada
+    em outros lugares deste código."""
+    if inbound.whatsapp_provider != "meta":
+        return False
     if inbound.conversation_state == "billing_gate":
         if inbound.end_customer_billing_exempt or inbound.end_customer_has_active_subscription:
             await session.execute(

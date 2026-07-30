@@ -143,6 +143,71 @@ class TestSendTextMessage:
         assert request_mock.await_count == 3
 
 
+class TestLogRedaction:
+    """Achado da revisão final de branch: diferente da Meta (token só no
+    header Authorization, nunca logado), a Z-API leva o token da instância
+    no próprio path da URL — toda chamada de log dentro de _safe_request
+    precisa usar uma versão redigida, nunca a URL real."""
+
+    async def test_sucesso_nao_loga_o_token_em_texto_plano(self, client, monkeypatch) -> None:
+        response = httpx.Response(200, json={"id": "m1"})
+        monkeypatch.setattr(
+            httpx.AsyncClient, "request", AsyncMock(return_value=response)
+        )
+        logged: list[str] = []
+        monkeypatch.setattr(
+            zapi_module.logger,
+            "info",
+            lambda msg, *args, **kwargs: logged.append(msg.format(*args)),
+        )
+
+        await client.send_text_message("5511999998888", "oi")
+
+        assert logged, "esperava pelo menos uma chamada logger.info"
+        for line in logged:
+            assert "token-do-tenant" not in line
+        assert any("token/***" in line for line in logged)
+
+    async def test_erro_http_nao_loga_o_token_em_texto_plano(self, client, monkeypatch) -> None:
+        response = httpx.Response(500, text="internal error")
+        monkeypatch.setattr(
+            httpx.AsyncClient, "request", AsyncMock(return_value=response)
+        )
+        logged: list[str] = []
+        monkeypatch.setattr(
+            zapi_module.logger,
+            "warning",
+            lambda msg, *args, **kwargs: logged.append(msg.format(*args)),
+        )
+
+        await client.send_text_message("5511999998888", "oi")
+
+        assert logged, "esperava pelo menos uma chamada logger.warning"
+        for line in logged:
+            assert "token-do-tenant" not in line
+
+    async def test_erro_de_conexao_nao_loga_o_token_em_texto_plano(
+        self, client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            httpx.AsyncClient,
+            "request",
+            AsyncMock(side_effect=httpx.ConnectError("conexão recusada")),
+        )
+        logged: list[str] = []
+        monkeypatch.setattr(
+            zapi_module.logger,
+            "error",
+            lambda msg, *args, **kwargs: logged.append(msg.format(*args)),
+        )
+
+        await client.send_text_message("5511999998888", "oi")
+
+        assert logged, "esperava pelo menos uma chamada logger.error"
+        for line in logged:
+            assert "token-do-tenant" not in line
+
+
 class TestSendTextMessageRateLimit:
     async def test_rate_limit_negado_uma_vez_ainda_tenta_de_novo(self, client, monkeypatch) -> None:
         ok_response = httpx.Response(200, json={"id": "m4"})

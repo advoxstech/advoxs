@@ -54,8 +54,22 @@ class ZApiClient:
         self._token = token
         self._client_token = client_token
         self._base_url = f"{_BASE_URL}/instances/{instance_id}/token/{token}"
+        # Versão redigida do base_url pra uso EXCLUSIVO em log — diferente da
+        # Meta (token só no header Authorization, nunca logado), a Z-API leva
+        # o token da instância no próprio path da URL. Toda chamada de
+        # logger.info/warning/error dentro de _safe_request usa isto (via
+        # _redact_url) no lugar da url real, que nunca deve aparecer em texto
+        # plano em nenhum log — a url real segue sendo usada pra fazer a
+        # requisição de verdade.
+        self._log_base_url = f"{_BASE_URL}/instances/{instance_id}/token/***"
         self._client: httpx.AsyncClient | None = None
         logger.info("ZApiClient inicializado | instance_id={}", instance_id)
+
+    def _redact_url(self, url: str) -> str:
+        """Substitui o prefixo com o token real pelo prefixo redigido,
+        preservando o segmento de endpoint (ex: /send-text) — útil pra saber
+        qual chamada gerou o log sem vazar a credencial."""
+        return url.replace(self._base_url, self._log_base_url)
 
     # ---------- SESSION LIFECYCLE ----------
     async def __aenter__(self):
@@ -86,6 +100,10 @@ class ZApiClient:
     async def _safe_request(self, method: str, url: str, **kwargs):
         client = self._get_client()
         last_error: dict = {"success": False, "data": None, "error": "Erro desconhecido"}
+        # `url` real (com o token da instância no path) só é usada pra fazer
+        # a requisição de verdade — todo log dentro desta função usa a versão
+        # redigida, pra nunca vazar a credencial em texto plano.
+        log_url = self._redact_url(url)
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             acquired = await acquire_rate_limit_slot(self._instance_id)
@@ -104,14 +122,14 @@ class ZApiClient:
             try:
                 logger.info(
                     "Executando requisição à Z-API | method={} url={} tentativa={}",
-                    method, url, attempt,
+                    method, log_url, attempt,
                 )
                 response = await client.request(method, url, **kwargs)
 
                 if response.is_error:
                     logger.warning(
                         "Resposta HTTP não OK | method={} url={} status={} body={}",
-                        method, url, response.status_code, response.text,
+                        method, log_url, response.status_code, response.text,
                     )
                     last_error = {
                         "success": False,
@@ -134,14 +152,14 @@ class ZApiClient:
                 elapsed = round(time.perf_counter() - started_at, 3)
                 logger.info(
                     "Requisição concluída | method={} url={} status={} elapsed={}s",
-                    method, url, response.status_code, elapsed,
+                    method, log_url, response.status_code, elapsed,
                 )
                 return {"success": True, "data": data, "error": None}
 
             except httpx.TimeoutException:
                 logger.error(
                     "Timeout ao acessar Z-API | method={} url={} tentativa={}",
-                    method, url, attempt,
+                    method, log_url, attempt,
                 )
                 last_error = {
                     "success": False,
@@ -156,7 +174,7 @@ class ZApiClient:
             except httpx.ConnectError as e:
                 logger.error(
                     "Erro de conexão com Z-API | method={} url={} error={} tentativa={}",
-                    method, url, e, attempt,
+                    method, log_url, e, attempt,
                 )
                 last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
                 if attempt < _MAX_ATTEMPTS:
@@ -166,13 +184,13 @@ class ZApiClient:
 
             except httpx.RequestError as e:
                 logger.error(
-                    "Erro de requisição à Z-API | method={} url={} error={}", method, url, e
+                    "Erro de requisição à Z-API | method={} url={} error={}", method, log_url, e
                 )
                 return {"success": False, "data": None, "error": f"Erro de requisição: {e}"}
 
             except Exception as e:
                 logger.exception(
-                    "Erro inesperado ao acessar Z-API | method={} url={}", method, url
+                    "Erro inesperado ao acessar Z-API | method={} url={}", method, log_url
                 )
                 return {"success": False, "data": None, "error": f"Erro inesperado: {e}"}
 

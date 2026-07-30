@@ -147,3 +147,84 @@ class TestZApiStatus:
         body = response.json()
         assert body["status"] == "disconnected"
         session.commit.assert_not_awaited()
+
+
+class TestGetConnectionSelfHeal:
+    """GET /connection precisa rodar o mesmo self-heal do polling dedicado
+    (zapi-status) — sem isso, um tenant que fechasse a aba antes do QR code
+    parear ficaria com status="disconnected" pra sempre, mesmo já pareado na
+    Z-API de verdade (ver achado da revisão final de branch)."""
+
+    def test_promove_status_para_connected_ao_carregar_a_tela(
+        self, client, session, monkeypatch
+    ) -> None:
+        number = _zapi_number(status="disconnected")
+        session.scalar.return_value = number
+
+        monkeypatch.setattr(
+            whatsapp_module, "decrypt_access_token", lambda v: v.replace("cifrado:", "")
+        )
+        monkeypatch.setattr(
+            whatsapp_module, "check_zapi_status", AsyncMock(return_value={"connected": True})
+        )
+        monkeypatch.setattr(
+            whatsapp_module,
+            "fetch_zapi_connected_phone",
+            AsyncMock(return_value="5511999998888"),
+        )
+
+        response = client.get("/api/v1/whatsapp/connection")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "connected"
+        assert number.display_phone_number == "5511999998888"
+        session.commit.assert_awaited_once()
+
+    def test_provider_meta_nunca_aciona_o_self_heal(self, client, session, monkeypatch) -> None:
+        number = SimpleNamespace(
+            tenant_id=TENANT_ID,
+            provider="meta",
+            display_phone_number="+5511987654321",
+            status="connected",
+            connected_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+        )
+        session.scalar.return_value = number
+        check_status = AsyncMock()
+        monkeypatch.setattr(whatsapp_module, "check_zapi_status", check_status)
+
+        response = client.get("/api/v1/whatsapp/connection")
+
+        assert response.status_code == 200
+        check_status.assert_not_awaited()
+
+    def test_corrige_telefone_numa_chamada_posterior_quando_a_primeira_nao_conseguiu(
+        self, client, session, monkeypatch
+    ) -> None:
+        """Cobre o caso em que a promoção pra status="connected" já
+        aconteceu (ex: via zapi-status), mas fetch_zapi_connected_phone não
+        tinha o telefone disponível ainda — display_phone_number ficou preso
+        no placeholder. Uma chamada posterior a /connection, já com o
+        telefone disponível, precisa corrigi-lo mesmo com status já
+        "connected"."""
+        number = _zapi_number(status="connected")
+        assert number.display_phone_number == "Aguardando pareamento"
+        session.scalar.return_value = number
+
+        monkeypatch.setattr(
+            whatsapp_module, "decrypt_access_token", lambda v: v.replace("cifrado:", "")
+        )
+        monkeypatch.setattr(
+            whatsapp_module, "check_zapi_status", AsyncMock(return_value={"connected": True})
+        )
+        monkeypatch.setattr(
+            whatsapp_module,
+            "fetch_zapi_connected_phone",
+            AsyncMock(return_value="5511999998888"),
+        )
+
+        response = client.get("/api/v1/whatsapp/connection")
+
+        assert response.status_code == 200
+        assert number.display_phone_number == "5511999998888"
+        session.commit.assert_awaited_once()

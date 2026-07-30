@@ -71,6 +71,42 @@ class TestMaybeEnterGate:
 
         assert entered is False
 
+    async def test_nao_entra_no_gate_para_tenant_zapi_mesmo_sem_saldo(self) -> None:
+        """O gate usa mensagens interativas (interactive/list) nativas da
+        Cloud API da Meta, sem equivalente testado na Z-API — um tenant
+        conectado via Z-API nunca deve entrar no gate, mesmo com o contato
+        sem saldo (o agente responde normalmente, custeado pelo estoque do
+        tenant)."""
+        session = AsyncMock()
+        inbound = _inbound(
+            whatsapp_provider="zapi", conversation_state="agent", end_customer_balance=Decimal(0)
+        )
+
+        entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert entered is False
+        session.execute.assert_not_called()
+        session.commit.assert_not_called()
+
+    async def test_ja_em_billing_gate_mas_tenant_migrou_pra_zapi_nao_reprocessa(self) -> None:
+        """Cobre o tenant que habilitou a cobrança via Meta (ficou preso em
+        billing_gate) e depois trocou pra Z-API — a checagem de provider vem
+        antes até do curto-circuito de reentrada, então não tenta mais
+        avançar o gate (que quebraria tentando descriptografar credenciais
+        Meta ausentes)."""
+        session = AsyncMock()
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            conversation_state="billing_gate",
+            billing_gate_step="aguardando_pagamento",
+        )
+
+        entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert entered is False
+        session.execute.assert_not_called()
+        session.commit.assert_not_called()
+
     async def test_ja_em_billing_gate_retorna_true_sem_reprocessar_entrada(self) -> None:
         session = AsyncMock()
         inbound = _inbound(

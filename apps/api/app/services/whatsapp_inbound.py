@@ -5,6 +5,7 @@ por wa_message_id) -> enfileira o job no Arq. O worker decide entre agente
 e humano (estado da conversa) e chama o agents service.
 """
 
+import hmac
 import logging
 from datetime import UTC, datetime
 
@@ -78,7 +79,7 @@ async def handle_zapi_webhook(
             WhatsAppNumber.zapi_instance_id == inbound.zapi_instance_id,
         )
     )
-    if number is None or number.zapi_webhook_secret != webhook_secret:
+    if number is None or not hmac.compare_digest(number.zapi_webhook_secret or "", webhook_secret):
         logger.warning(
             "Webhook Z-API com segredo ou instância inválidos | instance=%s",
             inbound.zapi_instance_id,

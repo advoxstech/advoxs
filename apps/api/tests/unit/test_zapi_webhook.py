@@ -79,7 +79,7 @@ class TestReceiveZApiWebhook:
         assert response.json() == {"received": 0}
         arq_pool.enqueue_job.assert_not_awaited()
 
-    def test_from_me_e_ignorado(self, client, arq_pool) -> None:
+    def test_from_me_e_ignorado(self, client, fake_session, arq_pool) -> None:
         payload = {**TEXT_PAYLOAD, "fromMe": True}
 
         response = client.post(WEBHOOK_PATH, json=payload)
@@ -87,3 +87,8 @@ class TestReceiveZApiWebhook:
         assert response.status_code == 200
         assert response.json() == {"received": 0}
         arq_pool.enqueue_job.assert_not_awaited()
+        # fromMe=true precisa ser filtrado ANTES de qualquer consulta ao
+        # banco (extract_inbound_zapi_message retorna None de cara) — sem
+        # essa asserção, um bug que movesse o filtro pra depois do lookup de
+        # zapi_instance_id passaria despercebido.
+        fake_session.scalar.assert_not_called()
