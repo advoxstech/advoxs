@@ -6,8 +6,11 @@ import { backendFetch } from "@/lib/client-api";
 
 type WebhookConfig = { callback_url: string; verify_token: string };
 
+type Provider = "meta" | "zapi";
+
 export function OnboardingWizard() {
   const [step, setStep] = useState(1);
+  const [provider, setProvider] = useState<Provider>("meta");
   const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
@@ -92,131 +95,207 @@ export function OnboardingWizard() {
               Conectar o WhatsApp Business
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-ink">
-              É pelo WhatsApp que os agentes vão atender seus clientes. Essa conexão é
-              feita direto com a Meta (a empresa dona do WhatsApp) — é uma configuração
-              técnica, mas só precisa ser feita uma vez.
+              É pelo WhatsApp que os agentes vão atender seus clientes. Tem duas formas de
+              conectar — escolha a que fizer mais sentido pro escritório.
             </p>
-            <p className="mt-3 rounded-sm border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
-              Se travar em qualquer passo abaixo, manda um print pra gente que ajudamos a
-              configurar — não precisa resolver sozinho.
-            </p>
-            <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
-              <li>
-                Consiga um número de telefone que ainda não esteja em uso no WhatsApp
-                comum nem no WhatsApp Business App — pode ser um chip novo, comprado só
-                pra isso, ou um número que o escritório já tenha disponível.
-                <span className="mt-0.5 block text-xs text-muted">
-                  É esse número que vai enviar e receber as mensagens dos seus clientes
-                  — ele fica exclusivo pra isso, então recomendamos não ser o número
-                  pessoal de ninguém.
-                </span>
-              </li>
-              <li>
-                Acesse{" "}
-                <a
-                  href="https://developers.facebook.com/apps/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  developers.facebook.com
-                </a>{" "}
-                e crie um app pro seu escritório.
-                <span className="mt-0.5 block text-xs text-muted">
-                  É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo
-                  WhatsApp, não afeta seu uso normal do Facebook.
-                </span>
-              </li>
-              <li>
-                Dentro do app, você vai criar uma{" "}
-                <a
-                  href="https://business.facebook.com/settings/system-users"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  &quot;conta de sistema&quot;
-                </a>
-                .
-                <span className="mt-0.5 block text-xs text-muted">
-                  Pense nela como um crachá de acesso que representa seu escritório
-                  perante o WhatsApp, separado da sua conta pessoal.
-                </span>
-              </li>
-              <li>
-                Gere uma chave de acesso pra essa conta — é como uma senha que a
-                plataforma vai usar pra mandar e receber mensagens em nome do seu
-                escritório. Marque as duas opções de permissão do WhatsApp que
-                aparecerem.
-                <span className="mt-0.5 block text-xs text-muted">
-                  Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
-                </span>
-              </li>
-              <li>
-                Cadastre o{" "}
-                <a
-                  href="https://business.facebook.com/wa/manage/phone-numbers/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  número de telefone
-                </a>{" "}
-                do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
-                <span className="mt-0.5 block text-xs text-muted">
-                  Você inventa esse código na hora — só serve pra essa confirmação, não
-                  precisa anotar.
-                </span>
-              </li>
-              <li>
-                Por fim, cole os dois valores abaixo numa tela de configuração do
-                WhatsApp (chamada &quot;Webhooks&quot;, dentro do mesmo app que você criou):
-                <span className="mt-0.5 block text-xs text-muted">
-                  É isso que liga o número de vocês na nossa plataforma — depois disso,
-                  as mensagens já chegam automaticamente.
-                </span>
-              </li>
-            </ol>
-            {webhookConfig && (
-              <div className="mt-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <input
-                    readOnly
-                    aria-label="Callback URL"
-                    value={webhookConfig.callback_url}
-                    className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Copiar Callback URL"
-                    onClick={() => void handleCopy("url", webhookConfig.callback_url)}
-                    className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
-                  >
-                    {copied === "url" ? "Copiado!" : "Copiar"}
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    readOnly
-                    aria-label="Verify token"
-                    value={webhookConfig.verify_token}
-                    className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Copiar Verify token"
-                    onClick={() => void handleCopy("token", webhookConfig.verify_token)}
-                    className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
-                  >
-                    {copied === "token" ? "Copiado!" : "Copiar"}
-                  </button>
-                </div>
-              </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setProvider("meta")}
+                aria-pressed={provider === "meta"}
+                className={`rounded-sm border px-3 py-2 text-xs font-medium transition-colors ${
+                  provider === "meta"
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-line text-muted hover:border-accent"
+                }`}
+              >
+                WhatsApp Business oficial
+              </button>
+              <button
+                type="button"
+                onClick={() => setProvider("zapi")}
+                aria-pressed={provider === "zapi"}
+                className={`rounded-sm border px-3 py-2 text-xs font-medium transition-colors ${
+                  provider === "zapi"
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-line text-muted hover:border-accent"
+                }`}
+              >
+                Z-API
+              </button>
+            </div>
+
+            {provider === "meta" ? (
+              <>
+                <p className="mt-4 text-sm leading-relaxed text-ink">
+                  Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — é
+                  uma configuração técnica, mas só precisa ser feita uma vez.
+                </p>
+                <p className="mt-3 rounded-sm border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
+                  Se travar em qualquer passo abaixo, manda um print pra gente que ajudamos a
+                  configurar — não precisa resolver sozinho.
+                </p>
+                <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
+                  <li>
+                    Consiga um número de telefone que ainda não esteja em uso no WhatsApp
+                    comum nem no WhatsApp Business App — pode ser um chip novo, comprado só
+                    pra isso, ou um número que o escritório já tenha disponível.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      É esse número que vai enviar e receber as mensagens dos seus clientes
+                      — ele fica exclusivo pra isso, então recomendamos não ser o número
+                      pessoal de ninguém.
+                    </span>
+                  </li>
+                  <li>
+                    Acesse{" "}
+                    <a
+                      href="https://developers.facebook.com/apps/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent underline"
+                    >
+                      developers.facebook.com
+                    </a>{" "}
+                    e crie um app pro seu escritório.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo
+                      WhatsApp, não afeta seu uso normal do Facebook.
+                    </span>
+                  </li>
+                  <li>
+                    Dentro do app, você vai criar uma{" "}
+                    <a
+                      href="https://business.facebook.com/settings/system-users"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent underline"
+                    >
+                      &quot;conta de sistema&quot;
+                    </a>
+                    .
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Pense nela como um crachá de acesso que representa seu escritório
+                      perante o WhatsApp, separado da sua conta pessoal.
+                    </span>
+                  </li>
+                  <li>
+                    Gere uma chave de acesso pra essa conta — é como uma senha que a
+                    plataforma vai usar pra mandar e receber mensagens em nome do seu
+                    escritório. Marque as duas opções de permissão do WhatsApp que
+                    aparecerem.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
+                    </span>
+                  </li>
+                  <li>
+                    Cadastre o{" "}
+                    <a
+                      href="https://business.facebook.com/wa/manage/phone-numbers/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent underline"
+                    >
+                      número de telefone
+                    </a>{" "}
+                    do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Você inventa esse código na hora — só serve pra essa confirmação, não
+                      precisa anotar.
+                    </span>
+                  </li>
+                  <li>
+                    Por fim, cole os dois valores abaixo numa tela de configuração do
+                    WhatsApp (chamada &quot;Webhooks&quot;, dentro do mesmo app que você criou):
+                    <span className="mt-0.5 block text-xs text-muted">
+                      É isso que liga o número de vocês na nossa plataforma — depois disso,
+                      as mensagens já chegam automaticamente.
+                    </span>
+                  </li>
+                </ol>
+                {webhookConfig && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        aria-label="Callback URL"
+                        value={webhookConfig.callback_url}
+                        className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Copiar Callback URL"
+                        onClick={() => void handleCopy("url", webhookConfig.callback_url)}
+                        className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                      >
+                        {copied === "url" ? "Copiado!" : "Copiar"}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        aria-label="Verify token"
+                        value={webhookConfig.verify_token}
+                        className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Copiar Verify token"
+                        onClick={() => void handleCopy("token", webhookConfig.verify_token)}
+                        className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                      >
+                        {copied === "token" ? "Copiado!" : "Copiar"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <p className="mt-3 text-sm leading-relaxed text-muted">
+                  Com tudo pronto na Meta, cole as credenciais na página de configuração — a
+                  plataforma valida, registra o número e ativa o recebimento automaticamente.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-4 text-sm leading-relaxed text-ink">
+                  A Z-API é um provedor independente (não é a Meta) — a conexão é por QR
+                  code, sem aprovação de negócio. Mais simples, e você não precisa configurar
+                  nenhum webhook manualmente.
+                </p>
+                <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
+                  <li>
+                    Crie uma conta em{" "}
+                    <a
+                      href="https://app.z-api.io/app/auth/new-account"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent underline"
+                    >
+                      app.z-api.io
+                    </a>{" "}
+                    (ou entre, se já tiver uma) e crie uma instância.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Leva menos de 1 minuto e tem período de teste gratuito.
+                    </span>
+                  </li>
+                  <li>
+                    Clique em <span className="font-medium">Editar</span> na instância
+                    criada — a tela mostra o{" "}
+                    <span className="font-medium">Instance ID</span> e o{" "}
+                    <span className="font-medium">Token</span>.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Não compartilhe esses dois valores com ninguém.
+                    </span>
+                  </li>
+                  <li>
+                    Cole os dois na página de configuração da Advoxs e escaneie o QR code
+                    com o WhatsApp do número que vai atender.
+                    <span className="mt-0.5 block text-xs text-muted">
+                      Diferente da Meta, não tem nenhum passo manual de webhook — a Advoxs
+                      configura isso automaticamente na Z-API no momento da conexão.
+                    </span>
+                  </li>
+                </ol>
+              </>
             )}
-            <p className="mt-3 text-sm leading-relaxed text-muted">
-              Com tudo pronto na Meta, cole as credenciais na página de configuração — a
-              plataforma valida, registra o número e ativa o recebimento automaticamente.
-            </p>
             <div className="mt-6 flex items-center gap-4">
               <button
                 type="button"

@@ -135,6 +135,25 @@ describe("OnboardingWizard", () => {
     ).toBe(true);
   });
 
+  it("mostra as instruções da Z-API ao escolher esse provedor, e some com as da Meta", async () => {
+    render(<OnboardingWizard />);
+    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Z-API" })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Z-API" }));
+
+    expect(screen.getByRole("link", { name: /app\.z-api\.io/i })).toHaveAttribute(
+      "href",
+      "https://app.z-api.io/app/auth/new-account",
+    );
+    expect(screen.queryByLabelText("Callback URL")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/conta de sistema/i, { exact: false }),
+    ).not.toBeInTheDocument();
+  });
+
   it("falha no webhook-config não quebra o passo 2 (campos somem, texto fica)", async () => {
     backendFetchMock.mockImplementation(async (path: string) => {
       if (String(path) === "whatsapp/webhook-config") {
