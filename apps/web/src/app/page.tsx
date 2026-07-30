@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { SignupAside } from "@/components/SignupAside";
 import { SignupForm } from "@/components/SignupForm";
 import { API_URL } from "@/lib/backend";
 import type { CreditPackage } from "@/lib/types";
@@ -18,36 +17,17 @@ export default async function HomePage() {
   const packages = await getPackages();
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-12">
-      <div className="w-full max-w-md">
-        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-          Plataforma de agentes de IA
-        </p>
-        <h1 className="mt-2 font-display text-5xl font-semibold text-ink">
-          Advoxs<span className="text-accent">.</span>
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Agentes de IA que atendem os clientes do seu escritório pelo WhatsApp. Escolha um
-          plano e comece agora.
-        </p>
-
-        <hr className="my-8 border-line" />
-
+    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[0.85fr_1fr]">
+      <SignupAside />
+      <main className="flex justify-center px-6 py-14 lg:px-16">
         {packages.length > 0 ? (
           <SignupForm packages={packages} />
         ) : (
-          <p className="rounded-sm border border-line bg-surface px-4 py-3 text-sm text-muted">
+          <p className="h-fit w-full max-w-[520px] rounded-sm border border-line bg-surface px-4 py-3 text-sm text-muted">
             Não foi possível carregar os planos agora. Tente recarregar a página em instantes.
           </p>
         )}
-
-        <p className="mt-6 text-center text-sm text-muted">
-          Já tem conta?{" "}
-          <Link href="/login" className="text-accent hover:underline">
-            Entrar
-          </Link>
-        </p>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
