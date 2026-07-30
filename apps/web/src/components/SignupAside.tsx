@@ -27,7 +27,7 @@ export function SignupAside() {
 
       <div className="relative z-10 flex flex-col gap-7">
         <div className="font-display text-5xl font-semibold leading-none tracking-tight">
-          Advoxs<span className="text-signup-accent">.</span>
+          Advoxs<span className="text-auth-accent">.</span>
         </div>
         <p className="max-w-[34ch] text-lg leading-relaxed text-nav-ink-muted">
           Agentes de IA que atendem os clientes do seu escritório pelo WhatsApp — 24 horas por
@@ -38,7 +38,7 @@ export function SignupAside() {
       <div className="relative z-10 hidden flex-col gap-5 lg:flex">
         {BENEFITS.map((benefit) => (
           <div key={benefit.title} className="flex items-start gap-3.5">
-            <span className="mt-0.5 h-5 w-5 flex-none rounded-md border border-signup-accent/50 bg-signup-accent/20" />
+            <span className="mt-0.5 h-5 w-5 flex-none rounded-md border border-auth-accent/50 bg-auth-accent/20" />
             <div className="flex flex-col gap-0.5">
               <span className="text-[15px] font-semibold text-nav-ink">{benefit.title}</span>
               <span className="text-sm leading-relaxed text-nav-ink-muted">
