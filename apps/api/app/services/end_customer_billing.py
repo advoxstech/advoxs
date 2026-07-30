@@ -15,9 +15,9 @@ import stripe
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.whatsapp import WhatsAppSendError, send_text_message
+from app.clients.whatsapp import WhatsAppSendError
 from app.core.config import settings
-from app.core.crypto import decrypt_access_token, decrypt_tenant_secret
+from app.core.crypto import decrypt_tenant_secret
 from app.models import (
     Conversation,
     EndCustomerBalance,
@@ -35,6 +35,7 @@ from app.schemas.end_customer_billing import (
     RevenueByMonthOut,
     RevenueReportOut,
 )
+from app.services.whatsapp_outbound import send_text_to_contact
 
 logger = logging.getLogger(__name__)
 
@@ -288,12 +289,7 @@ async def _notify_end_customer(
             )
             return
 
-        await send_text_message(
-            phone_number_id=number.phone_number_id,
-            access_token=decrypt_access_token(number.access_token_encrypted),
-            to=contact_phone_number,
-            text=text,
-        )
+        await send_text_to_contact(number, to=contact_phone_number, text=text)
 
         session.add(
             Message(

@@ -285,8 +285,12 @@ def _conversation(**overrides):
 def _number(**overrides):
     row = SimpleNamespace(
         tenant_id=TENANT_ID,
+        provider="meta",
         phone_number_id="PNID",
         access_token_encrypted="cifrado",
+        zapi_instance_id=None,
+        zapi_instance_token_encrypted=None,
+        zapi_client_token_encrypted=None,
         status="connected",
     )
     for key, value in overrides.items():
@@ -356,8 +360,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.add = MagicMock(side_effect=lambda obj: added.append(obj))
         session.flush = AsyncMock()
         send = AsyncMock()
-        monkeypatch.setattr(service, "send_text_message", send)
-        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+        monkeypatch.setattr(service, "send_text_to_contact", send)
 
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
@@ -384,8 +387,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         )
         session.scalar = AsyncMock(side_effect=[None, package, existing_balance, None, None])
         session.add = MagicMock()
-        monkeypatch.setattr(service, "send_text_message", AsyncMock())
-        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+        monkeypatch.setattr(service, "send_text_to_contact", AsyncMock())
 
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
@@ -398,7 +400,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         session.scalar = AsyncMock(side_effect=[None, package, None, None, None])
         session.add = MagicMock()
         monkeypatch.setattr(
-            service, "send_text_message", AsyncMock(side_effect=RuntimeError("falhou"))
+            service, "send_text_to_contact", AsyncMock(side_effect=RuntimeError("falhou"))
         )
 
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
@@ -414,8 +416,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         number = _number()
         session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         session.add = MagicMock()
-        monkeypatch.setattr(service, "send_text_message", AsyncMock())
-        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+        monkeypatch.setattr(service, "send_text_to_contact", AsyncMock())
 
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 
@@ -430,8 +431,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         number = _number()
         session.scalar = AsyncMock(side_effect=[None, package, None, conversation, number])
         session.add = MagicMock()
-        monkeypatch.setattr(service, "send_text_message", AsyncMock())
-        monkeypatch.setattr(service, "decrypt_access_token", lambda v: "token-claro")
+        monkeypatch.setattr(service, "send_text_to_contact", AsyncMock())
 
         await process_end_customer_checkout_completed(session, TENANT_ID, _checkout_session())
 

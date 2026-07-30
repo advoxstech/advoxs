@@ -42,10 +42,14 @@ def _conversation(
     )
 
 
-def _number() -> SimpleNamespace:
+def _number(provider: str = "meta") -> SimpleNamespace:
     return SimpleNamespace(
+        provider=provider,
         phone_number_id="PNID",
         access_token_encrypted="token-cifrado",
+        zapi_instance_id="inst-123",
+        zapi_instance_token_encrypted="zapi-token-cifrado",
+        zapi_client_token_encrypted=None,
         status="connected",
     )
 
@@ -89,10 +93,7 @@ def client(session):
 @pytest.fixture
 def whatsapp_send(monkeypatch):
     send = AsyncMock()
-    monkeypatch.setattr(conversations_module, "send_text_message", send)
-    monkeypatch.setattr(
-        conversations_module, "decrypt_access_token", MagicMock(return_value="token-claro")
-    )
+    monkeypatch.setattr(conversations_module, "send_text_to_contact", send)
     return send
 
 
@@ -243,7 +244,8 @@ class TestPatchSetaPresenca:
 
 class TestSendMessage:
     def test_envia_e_persiste_como_human(self, client, session, whatsapp_send) -> None:
-        session.scalar.side_effect = [_conversation(state="human"), _number()]
+        number = _number()
+        session.scalar.side_effect = [_conversation(state="human"), number]
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/messages",
@@ -253,8 +255,7 @@ class TestSendMessage:
         assert response.status_code == 201
         assert response.json()["sender_type"] == "human"
         whatsapp_send.assert_awaited_once_with(
-            phone_number_id="PNID",
-            access_token="token-claro",
+            number,
             to="5511999998888",
             text="Bom dia, aqui é o advogado",
         )
@@ -302,6 +303,42 @@ class TestSendMessage:
         )
 
         assert response.status_code == 422
+
+    def test_tenant_zapi_usa_send_zapi_text_message_nao_a_graph_api(
+        self, client, session, monkeypatch
+    ) -> None:
+        """Achado crítico da revisão final de branch: o roteamento por
+        provedor precisa acontecer de fato pra um tenant Z-API — antes da
+        correção, este endpoint sempre chamava a Graph API da Meta
+        incondicionalmente e quebrava com AttributeError pra um número
+        Z-API (phone_number_id/access_token_encrypted são NULL nesse
+        caso)."""
+        import app.services.whatsapp_outbound as whatsapp_outbound_module
+
+        number = _number(provider="zapi")
+        session.scalar.side_effect = [_conversation(state="human"), number]
+        zapi_send = AsyncMock()
+        meta_send = AsyncMock()
+        monkeypatch.setattr(whatsapp_outbound_module, "send_zapi_text_message", zapi_send)
+        monkeypatch.setattr(whatsapp_outbound_module, "send_text_message", meta_send)
+        monkeypatch.setattr(
+            whatsapp_outbound_module, "decrypt_access_token", lambda v: f"claro:{v}"
+        )
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/messages",
+            json={"content": "Oi, aqui é o escritório"},
+        )
+
+        assert response.status_code == 201
+        zapi_send.assert_awaited_once_with(
+            instance_id="inst-123",
+            token="claro:zapi-token-cifrado",
+            client_token=None,
+            to="5511999998888",
+            text="Oi, aqui é o escritório",
+        )
+        meta_send.assert_not_awaited()
 
     def test_resposta_humana_sincroniza_contexto_com_agents(
         self, client, session, whatsapp_send, monkeypatch

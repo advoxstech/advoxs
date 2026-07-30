@@ -47,6 +47,25 @@ def _instance_url(instance_id: str, token: str, path: str) -> str:
     return f"{_BASE_URL}/instances/{instance_id}/token/{token}/{path}"
 
 
+def _zapi_error_message(response: httpx.Response, fallback: str) -> str:
+    """Extrai a mensagem de erro do corpo da resposta da Z-API, quando
+    presente — mesmo espírito de `_meta_error_message` em
+    app/clients/whatsapp.py. A doc da Z-API não documenta um schema de erro
+    único e consistente entre endpoints, então tenta as chaves mais comuns
+    observadas (`error`, `message`, `msg`) antes de cair no fallback
+    genérico."""
+    try:
+        body = response.json()
+    except ValueError:
+        return fallback
+    if isinstance(body, dict):
+        for key in ("error", "message", "msg"):
+            value = body.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return fallback
+
+
 async def check_zapi_status(instance_id: str, token: str, client_token: str | None) -> dict:
     """Valida as credenciais e devolve o status de pareamento — usado tanto
     na validação inicial (conecta mesmo sem estar pareado ainda) quanto no
@@ -64,7 +83,9 @@ async def check_zapi_status(instance_id: str, token: str, client_token: str | No
             response.status_code,
             response.text,
         )
-        raise ZApiApiError("Não foi possível validar as credenciais com a Z-API")
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível validar as credenciais com a Z-API")
+        )
     return response.json()
 
 
@@ -90,7 +111,9 @@ async def configure_zapi_webhook(
             response.status_code,
             response.text,
         )
-        raise ZApiApiError("Não foi possível configurar o webhook na Z-API")
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível configurar o webhook na Z-API")
+        )
 
 
 async def fetch_zapi_qrcode(instance_id: str, token: str, client_token: str | None) -> str:
@@ -108,7 +131,9 @@ async def fetch_zapi_qrcode(instance_id: str, token: str, client_token: str | No
             response.status_code,
             response.text,
         )
-        raise ZApiApiError("Não foi possível obter o QR code da Z-API")
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível obter o QR code da Z-API")
+        )
     return response.json()["value"]
 
 
@@ -130,11 +155,18 @@ async def fetch_zapi_connected_phone(
             response.status_code,
             response.text,
         )
-        raise ZApiApiError("Não foi possível consultar o dispositivo conectado na Z-API")
+        raise ZApiApiError(
+            _zapi_error_message(
+                response, "Não foi possível consultar o dispositivo conectado na Z-API"
+            )
+        )
     return response.json().get("phone")
 
 
 async def disconnect_zapi_instance(instance_id: str, token: str, client_token: str | None) -> None:
+    """Desconecta (desparea) a instância na Z-API — chamado best-effort pelo
+    POST /whatsapp/disconnect local antes de marcar status="disconnected"
+    no banco; uma falha aqui nunca impede a desconexão local."""
     url = _instance_url(instance_id, token, "disconnect")
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -148,4 +180,32 @@ async def disconnect_zapi_instance(instance_id: str, token: str, client_token: s
             response.status_code,
             response.text,
         )
-        raise ZApiApiError("Não foi possível desconectar a instância na Z-API")
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível desconectar a instância na Z-API")
+        )
+
+
+async def send_zapi_text_message(
+    instance_id: str, token: str, client_token: str | None, to: str, text: str
+) -> None:
+    """Envia mensagem de texto pela Z-API — equivalente a
+    app.clients.whatsapp.send_text_message (Meta), usado pelo roteamento por
+    provedor em app/services/whatsapp_outbound.py (takeover humano, aviso de
+    isenção de cobrança, confirmação de compra do cliente final)."""
+    url = _instance_url(instance_id, token, "send-text")
+    payload = {"phone": to, "message": text}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(url, headers=_headers(client_token), json=payload)
+    except httpx.HTTPError as exc:
+        raise ZApiNetworkError(f"Falha de rede ao enviar mensagem pela Z-API: {exc}") from exc
+
+    if response.is_error:
+        logger.warning(
+            "Z-API (send-text) retornou erro | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível enviar a mensagem pela Z-API")
+        )

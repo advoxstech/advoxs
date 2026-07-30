@@ -19,8 +19,7 @@ from app.clients.agents import (
     generate_conversation_summary,
     sync_conversation_context,
 )
-from app.clients.whatsapp import WhatsAppSendError, send_text_message
-from app.core.crypto import decrypt_access_token
+from app.clients.whatsapp import WhatsAppSendError
 from app.models import (
     Conversation,
     CreditTransaction,
@@ -41,6 +40,7 @@ from app.schemas.conversations import (
 )
 from app.services.conversations_usage import build_conversations_usage
 from app.services.pricing import calcular_creditos, get_current_pricing_config
+from app.services.whatsapp_outbound import send_text_to_contact
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
@@ -213,9 +213,8 @@ async def update_billing_exemption(
         )
     else:
         try:
-            await send_text_message(
-                phone_number_id=number.phone_number_id,
-                access_token=decrypt_access_token(number.access_token_encrypted),
+            await send_text_to_contact(
+                number,
                 to=conversation.contact_phone_number,
                 text=notice_text,
             )
@@ -282,9 +281,8 @@ async def send_message(
         )
 
     try:
-        await send_text_message(
-            phone_number_id=number.phone_number_id,
-            access_token=decrypt_access_token(number.access_token_encrypted),
+        await send_text_to_contact(
+            number,
             to=conversation.contact_phone_number,
             text=body.content,
         )
