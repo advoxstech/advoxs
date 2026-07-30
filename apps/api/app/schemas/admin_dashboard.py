@@ -45,6 +45,7 @@ class AdminDashboardOut(BaseModel):
     messages_processed: int
     agent_executions: int
     tokens_consumed: int
+    openai_cost_estimate_usd: Decimal
     low_balance_tenants: list[LowBalanceTenant]
     whatsapp_connected: WhatsappConnectedSummary
     knowledge_base_usage: KnowledgeBaseUsageSummary

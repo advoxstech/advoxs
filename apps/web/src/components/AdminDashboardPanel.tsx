@@ -62,6 +62,10 @@ export function AdminDashboardPanel() {
         <StatTile label="Mensagens processadas" value={String(data.messages_processed)} />
         <StatTile label="Execuções de agente" value={String(data.agent_executions)} />
         <StatTile label="Tokens consumidos" value={String(data.tokens_consumed)} />
+        <StatTile
+          label="Custo estimado (OpenAI)"
+          value={`US$ ${Number(data.openai_cost_estimate_usd).toFixed(2)}`}
+        />
         <StatTile label="Arquivos de KB" value={String(data.knowledge_base_usage.total_files)} />
         <StatTile
           label="Storage de KB"

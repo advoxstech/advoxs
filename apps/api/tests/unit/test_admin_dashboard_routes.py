@@ -26,6 +26,7 @@ def _dummy_dashboard() -> AdminDashboardOut:
         messages_processed=0,
         agent_executions=0,
         tokens_consumed=0,
+        openai_cost_estimate_usd=0,
         low_balance_tenants=[],
         whatsapp_connected=WhatsappConnectedSummary(connected=0, total=1),
         knowledge_base_usage=KnowledgeBaseUsageSummary(total_files=0, total_size_bytes=0),

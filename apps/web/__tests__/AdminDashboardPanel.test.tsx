@@ -23,6 +23,7 @@ const DASHBOARD = {
   messages_processed: 500,
   agent_executions: 120,
   tokens_consumed: 90000,
+  openai_cost_estimate_usd: 12.3456,
   low_balance_tenants: [{ id: "t1", name: "Escritório Baixo", credit_balance: 5 }],
   whatsapp_connected: { connected: 8, total: 12 },
   knowledge_base_usage: { total_files: 30, total_size_bytes: 1048576 },
@@ -38,6 +39,7 @@ describe("AdminDashboardPanel", () => {
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("Escritório Baixo")).toBeInTheDocument();
     expect(screen.getByText("8 / 12")).toBeInTheDocument();
+    expect(screen.getByText("US$ 12.35")).toBeInTheDocument();
   });
 
   it("mostra mensagem de erro quando o dashboard falha ao carregar", async () => {

@@ -120,7 +120,8 @@ class TestReceiveZApiWebhook:
         assert response.status_code == 200
         assert response.json() == {"received": 1}
         messages = [
-            call.args[0] for call in fake_session.add.call_args_list
+            call.args[0]
+            for call in fake_session.add.call_args_list
             if isinstance(call.args[0], Message)
         ]
         assert len(messages) == 1

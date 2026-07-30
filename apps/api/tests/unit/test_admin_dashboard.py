@@ -32,6 +32,8 @@ class TestBuildDashboard:
                 987,  # messages_processed
                 310,  # agent_executions
                 45000,  # tokens_consumed
+                30000,  # openai_tokens_input
+                15000,  # openai_tokens_output
                 3,  # whatsapp_connected
                 12,  # kb_files
                 204800,  # kb_bytes
@@ -58,8 +60,34 @@ class TestBuildDashboard:
         assert result.messages_processed == 987
         assert result.agent_executions == 310
         assert result.tokens_consumed == 45000
+        assert result.openai_cost_estimate_usd == Decimal("0.0375")
         assert result.low_balance_tenants[0].name == "Escritório Baixo"
         assert result.whatsapp_connected.connected == 3
         assert result.whatsapp_connected.total == 42
         assert result.knowledge_base_usage.total_files == 12
         assert result.knowledge_base_usage.total_size_bytes == 204800
+
+    async def test_sem_consumo_estimativa_de_custo_e_zero(self, session) -> None:
+        session.scalar = AsyncMock(
+            side_effect=[
+                0,  # tenants_total
+                Decimal("0"),  # revenue_brl_last_30_days
+                0,  # sold
+                0,  # consumed_negative
+                0,  # messages_processed
+                0,  # agent_executions
+                0,  # tokens_consumed
+                0,  # openai_tokens_input
+                0,  # openai_tokens_output
+                0,  # whatsapp_connected
+                0,  # kb_files
+                0,  # kb_bytes
+            ]
+        )
+        session.execute = AsyncMock(
+            side_effect=[_execute_result([]), _execute_result([]), _execute_result([])]
+        )
+
+        result = await build_dashboard(session)
+
+        assert result.openai_cost_estimate_usd == Decimal("0")

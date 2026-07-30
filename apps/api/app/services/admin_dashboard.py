@@ -28,6 +28,14 @@ from app.schemas.admin_dashboard import (
 LOW_BALANCE_LIMIT = 10
 PERIOD_DAYS = 30
 
+# Preço público da OpenAI pro gpt-5-mini, $ por 1M tokens — confirmado em
+# developers.openai.com/api/docs/pricing (2026-07-30). É uma ESTIMATIVA: a
+# OpenAI pode mudar o preço sem aviso, e não cobre overhead/desconto que não
+# passe pela contagem de tokens (ex: cached input, cobrado a $0.025/1M mas
+# não distinguido aqui — tratado como input cheio, superestimando um pouco).
+OPENAI_GPT5_MINI_INPUT_PRICE_PER_1M = Decimal("0.25")
+OPENAI_GPT5_MINI_OUTPUT_PRICE_PER_1M = Decimal("2.00")
+
 
 async def build_dashboard(session: AsyncSession) -> AdminDashboardOut:
     since = datetime.now(UTC) - timedelta(days=PERIOD_DAYS)
@@ -88,6 +96,30 @@ async def build_dashboard(session: AsyncSession) -> AdminDashboardOut:
         await session.scalar(select(func.coalesce(func.sum(Message.tokens_used), 0))) or 0
     )
 
+    # tokens_input/tokens_output só existem no ledger (CreditTransaction), não
+    # em messages.tokens_used (que é o total, sem distinguir input de output —
+    # e a OpenAI cobra os dois a preços bem diferentes pro gpt-5-mini).
+    openai_tokens_input = (
+        await session.scalar(
+            select(func.coalesce(func.sum(CreditTransaction.tokens_input), 0)).where(
+                CreditTransaction.type == "consumption"
+            )
+        )
+        or 0
+    )
+    openai_tokens_output = (
+        await session.scalar(
+            select(func.coalesce(func.sum(CreditTransaction.tokens_output), 0)).where(
+                CreditTransaction.type == "consumption"
+            )
+        )
+        or 0
+    )
+    openai_cost_estimate_usd = (
+        Decimal(openai_tokens_input) * OPENAI_GPT5_MINI_INPUT_PRICE_PER_1M
+        + Decimal(openai_tokens_output) * OPENAI_GPT5_MINI_OUTPUT_PRICE_PER_1M
+    ) / Decimal(1_000_000)
+
     low_balance_rows = (
         await session.execute(
             select(Tenant.id, Tenant.name, Tenant.credit_balance)
@@ -123,6 +155,7 @@ async def build_dashboard(session: AsyncSession) -> AdminDashboardOut:
         messages_processed=messages_processed,
         agent_executions=agent_executions,
         tokens_consumed=tokens_consumed,
+        openai_cost_estimate_usd=openai_cost_estimate_usd,
         low_balance_tenants=low_balance_tenants,
         whatsapp_connected=whatsapp_summary,
         knowledge_base_usage=kb_usage,

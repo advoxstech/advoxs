@@ -44,6 +44,7 @@ export interface AdminDashboard {
   messages_processed: number;
   agent_executions: number;
   tokens_consumed: number;
+  openai_cost_estimate_usd: number;
   low_balance_tenants: { id: string; name: string; credit_balance: number }[];
   whatsapp_connected: { connected: number; total: number };
   knowledge_base_usage: { total_files: number; total_size_bytes: number };
