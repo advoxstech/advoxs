@@ -23,9 +23,9 @@
   --nav-active: #26385f;
   --nav-ink: #f4f6fa;
   --nav-ink-muted: #9aa8c2;
-  /* Azul claro — exclusivo da tela pública de cadastro (/), não usado no painel logado */
-  --signup-accent: #5a7fb0;
-  --signup-accent-soft: #eaf1f8;
+  /* Azul claro — exclusivo das telas públicas de autenticação (/ e /login), não usado no painel logado */
+  --auth-accent: #5a7fb0;
+  --auth-accent-soft: #eaf1f8;
 }
 
 body {

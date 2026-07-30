@@ -23,8 +23,8 @@ const config: Config = {
         "nav-active": "var(--nav-active)",
         "nav-ink": "var(--nav-ink)",
         "nav-ink-muted": "var(--nav-ink-muted)",
-        "signup-accent": "var(--signup-accent)",
-        "signup-accent-soft": "var(--signup-accent-soft)",
+        "auth-accent": "var(--auth-accent)",
+        "auth-accent-soft": "var(--auth-accent-soft)",
       },
       fontFamily: {
         display: ["var(--font-spectral)", "Georgia", "serif"],
