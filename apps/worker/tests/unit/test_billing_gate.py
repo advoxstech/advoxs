@@ -71,12 +71,11 @@ class TestMaybeEnterGate:
 
         assert entered is False
 
-    async def test_nao_entra_no_gate_para_tenant_zapi_mesmo_sem_saldo(self) -> None:
-        """O gate usa mensagens interativas (interactive/list) nativas da
-        Cloud API da Meta, sem equivalente testado na Z-API — um tenant
-        conectado via Z-API nunca deve entrar no gate, mesmo com o contato
-        sem saldo (o agente responde normalmente, custeado pelo estoque do
-        tenant)."""
+    async def test_entra_no_gate_para_tenant_zapi_sem_saldo(self) -> None:
+        """Paridade de provedor: Z-API entra no gate exatamente como Meta —
+        o gate manda mensagem de lista via send-option-list da Z-API em vez
+        da Cloud API da Meta (ver TestHandleBillingGateAbertura mais abaixo
+        pro envio de fato)."""
         session = AsyncMock()
         inbound = _inbound(
             whatsapp_provider="zapi", conversation_state="agent", end_customer_balance=Decimal(0)
@@ -84,16 +83,14 @@ class TestMaybeEnterGate:
 
         entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
 
-        assert entered is False
-        session.execute.assert_not_called()
-        session.commit.assert_not_called()
+        assert entered is True
+        session.execute.assert_awaited_once()
+        session.commit.assert_awaited_once()
 
-    async def test_ja_em_billing_gate_mas_tenant_migrou_pra_zapi_nao_reprocessa(self) -> None:
-        """Cobre o tenant que habilitou a cobrança via Meta (ficou preso em
-        billing_gate) e depois trocou pra Z-API — a checagem de provider vem
-        antes até do curto-circuito de reentrada, então não tenta mais
-        avançar o gate (que quebraria tentando descriptografar credenciais
-        Meta ausentes)."""
+    async def test_ja_em_billing_gate_com_provider_zapi_retorna_true_sem_reprocessar(self) -> None:
+        """Espelha test_ja_em_billing_gate_retorna_true_sem_reprocessar_entrada
+        pro provider Z-API — o curto-circuito de reentrada não depende do
+        provedor."""
         session = AsyncMock()
         inbound = _inbound(
             whatsapp_provider="zapi",
@@ -103,9 +100,8 @@ class TestMaybeEnterGate:
 
         entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
 
-        assert entered is False
+        assert entered is True
         session.execute.assert_not_called()
-        session.commit.assert_not_called()
 
     async def test_ja_em_billing_gate_retorna_true_sem_reprocessar_entrada(self) -> None:
         session = AsyncMock()
@@ -368,3 +364,134 @@ class TestPackagesToSections:
 
         assert len(sections) == 1
         assert sections[0]["title"] == "Assinatura mensal"
+
+
+class TestEnvioPorProvedorZApi:
+    async def test_abertura_do_gate_usa_zapi_quando_provider_e_zapi(self, monkeypatch) -> None:
+        session = AsyncMock()
+        send_text = AsyncMock()
+        send_list = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
+        monkeypatch.setattr("app.billing_gate.send_zapi_option_list", send_list)
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            zapi_client_token_encrypted=None,
+            billing_gate_step=None,
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        send_text.assert_awaited_once()
+        assert send_text.await_args.kwargs["instance_id"] == "inst-1"
+        assert send_text.await_args.kwargs["client_token"] is None
+        send_list.assert_awaited_once()
+        options = send_list.await_args.kwargs["options"]
+        assert options[0]["title"] == "Básico"
+        assert options[1]["title"] == "Premium"
+
+    async def test_lista_zapi_achata_avulso_e_assinatura(self, monkeypatch) -> None:
+        session = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", AsyncMock())
+        send_list = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_option_list", send_list)
+        packages = [
+            {
+                "id": "p1", "name": "Básico", "price_brl": "49.90",
+                "kind": "one_time", "credits_granted": 500,
+            },
+            {
+                "id": "p2", "name": "Ilimitado", "price_brl": "99.90",
+                "kind": "subscription", "credits_granted": None,
+            },
+        ]
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            end_customer_packages=packages,
+            billing_gate_step=None,
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        options = send_list.await_args.kwargs["options"]
+        assert len(options) == 2
+        assert options[0]["title"] == "Básico"
+        assert options[1]["title"] == "Ilimitado"
+
+    async def test_selecao_valida_via_zapi_gera_link(self, monkeypatch) -> None:
+        session = AsyncMock()
+        send_text = AsyncMock()
+        checkout = AsyncMock(return_value="https://checkout.stripe.com/xyz")
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
+        monkeypatch.setattr("app.billing_gate.create_end_customer_checkout", checkout)
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            billing_gate_step="aguardando_selecao_pacote",
+            message_content="Básico",
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        checkout.assert_awaited_once_with(
+            tenant_id=TENANT_ID, contact_phone_number="5511999998888", package_id="pkg-1"
+        )
+        assert "https://checkout.stripe.com/xyz" in send_text.await_args.kwargs["text"]
+
+    async def test_client_token_zapi_e_descriptografado_quando_presente(self, monkeypatch) -> None:
+        session = AsyncMock()
+        send_text = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
+        monkeypatch.setattr("app.billing_gate.send_zapi_option_list", AsyncMock())
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            zapi_client_token_encrypted="cifrado-client-token",
+            billing_gate_step=None,
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert send_text.await_args.kwargs["client_token"] == "token-claro"
+
+
+class TestPackagesToFlatOptions:
+    def test_achata_avulso_e_assinatura_avulso_primeiro(self) -> None:
+        from app.billing_gate import _packages_to_flat_options
+
+        packages = [
+            {
+                "id": "p2", "name": "Ilimitado", "price_brl": "99.90",
+                "kind": "subscription", "credits_granted": None,
+            },
+            {
+                "id": "p1", "name": "Básico", "price_brl": "49.90",
+                "kind": "one_time", "credits_granted": 500,
+            },
+        ]
+
+        options = _packages_to_flat_options(packages)
+
+        assert [o["title"] for o in options] == ["Básico", "Ilimitado"]
+        assert options[0]["description"] == "R$ 49.90 = 500 créditos"
+        assert options[1]["description"] == "R$ 99.90/mês — conversas ilimitadas"
+
+    def test_so_avulso(self) -> None:
+        from app.billing_gate import _packages_to_flat_options
+
+        packages = [
+            {
+                "id": "p1", "name": "Básico", "price_brl": "49.90",
+                "kind": "one_time", "credits_granted": 500,
+            },
+        ]
+
+        options = _packages_to_flat_options(packages)
+
+        assert len(options) == 1
+        assert options[0]["title"] == "Básico"
