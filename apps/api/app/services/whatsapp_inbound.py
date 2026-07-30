@@ -91,8 +91,11 @@ async def handle_zapi_webhook(
         contact_phone_number=inbound.contact_phone_number,
         wa_message_id=inbound.wa_message_id,
         content=inbound.content,
-        media_id=None,
-        media_type=None,
+        # Diferente da Meta, a Z-API já entrega a URL de mídia pronta no
+        # próprio payload — não é um ID opaco, então media_id aqui já é a
+        # URL final (o parâmetro é forwardado direto pra Message.media_url).
+        media_id=inbound.media_url,
+        media_type=inbound.media_type,
         session=session,
     )
     if result is None:

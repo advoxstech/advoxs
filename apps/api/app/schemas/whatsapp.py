@@ -89,21 +89,39 @@ class InboundZApiMessage(BaseModel):
     zapi_instance_id: str
     wa_message_id: str
     contact_phone_number: str
-    content: str
+    content: str = ""
+    # Diferente do media_id da Meta (opaco, exige um download autenticado
+    # separado), a Z-API já entrega a URL de mídia pronta pra uso no próprio
+    # payload do webhook — não precisa de uma chamada extra.
+    media_url: str | None = None
+    media_type: str | None = None
+
+
+# Nome do campo do objeto de mídia -> chave que contém a URL, por tipo —
+# confirmado na doc oficial (developer.z-api.io/webhooks/on-message-received).
+_ZAPI_MEDIA_URL_FIELDS = {
+    "image": "imageUrl",
+    "audio": "audioUrl",
+    "document": "documentUrl",
+    "video": "videoUrl",
+}
 
 
 def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
     """Extrai a mensagem de um payload de webhook da Z-API — diferente da
     Meta, cada POST já é 1 mensagem só, sem lote. Ignora eco de mensagem
-    enviada pelo próprio WhatsApp Web conectado (fromMe=true) e mensagens
-    sem texto (mídia recebida via Z-API não é processada nesta v1).
+    enviada pelo próprio WhatsApp Web conectado (fromMe=true).
 
-    Reconhece dois formatos de conteúdo: mensagem de texto simples
-    (`text.message`) e resposta de uma lista interativa enviada pelo billing
-    gate determinístico (`listResponseMessage.title`, quando o cliente final
-    escolhe um pacote de créditos — ver apps/worker/app/billing_gate.py).
-    `listResponseMessage` é checado primeiro porque uma resposta de lista não
-    vem acompanhada de um campo `text` populado."""
+    Reconhece três formatos de conteúdo, nesta ordem de prioridade: resposta
+    de uma lista interativa enviada pelo billing gate determinístico
+    (`listResponseMessage.title`, quando o cliente final escolhe um pacote de
+    créditos — ver apps/worker/app/billing_gate.py; checado primeiro porque
+    uma resposta de lista não vem acompanhada de um campo `text` populado),
+    texto simples (`text.message`), e mídia (`image`/`audio`/`document`/
+    `video`, cada um com sua própria chave de URL — `imageUrl`, `audioUrl`
+    etc. — e um `mimeType` comum; `caption` só existe em image/video, por
+    isso o `.get` com default). Uma mensagem de mídia sem legenda (áudio,
+    documento) ainda é persistida — só o texto vem vazio."""
     if payload.get("fromMe"):
         return None
 
@@ -111,14 +129,29 @@ def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
     message_id = payload.get("messageId")
     sender = payload.get("phone")
 
+    content = ""
+    media_url = None
+    media_type = None
+
     list_response = payload.get("listResponseMessage")
     if isinstance(list_response, dict) and list_response.get("title"):
         content = list_response["title"]
     else:
         text = payload.get("text") or {}
-        content = text.get("message") if isinstance(text, dict) else None
+        if isinstance(text, dict) and text.get("message"):
+            content = text["message"]
+        else:
+            for kind, url_field in _ZAPI_MEDIA_URL_FIELDS.items():
+                media = payload.get(kind)
+                if isinstance(media, dict) and media.get(url_field):
+                    media_url = media[url_field]
+                    media_type = media.get("mimeType") or kind
+                    content = media.get("caption", "")
+                    break
 
-    if not instance_id or not message_id or not sender or not content:
+    if not instance_id or not message_id or not sender:
+        return None
+    if not content and not media_url:
         return None
 
     return InboundZApiMessage(
@@ -126,4 +159,6 @@ def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
         wa_message_id=message_id,
         contact_phone_number=sender,
         content=content,
+        media_url=media_url,
+        media_type=media_type,
     )

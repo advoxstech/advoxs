@@ -154,6 +154,87 @@ def test_extract_zapi_ignora_payload_sem_instance_id() -> None:
     assert result is None
 
 
+def test_extract_zapi_imagem_com_legenda() -> None:
+    payload = _zapi_payload(
+        text=None,
+        image={
+            "mimeType": "image/jpeg",
+            "imageUrl": "https://z-api.example/media/foto.jpg",
+            "caption": "Segue o documento",
+        },
+    )
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == "Segue o documento"
+    assert result.media_url == "https://z-api.example/media/foto.jpg"
+    assert result.media_type == "image/jpeg"
+
+
+def test_extract_zapi_audio_sem_legenda_ainda_persiste() -> None:
+    """Áudio (e documento) não têm campo "caption" — mensagem sem texto
+    nenhum, mas com mídia, não deve ser descartada."""
+    payload = _zapi_payload(
+        text=None,
+        audio={
+            "ptt": True,
+            "audioUrl": "https://z-api.example/media/audio.ogg",
+            "mimeType": "audio/ogg; codecs=opus",
+        },
+    )
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == ""
+    assert result.media_url == "https://z-api.example/media/audio.ogg"
+    assert result.media_type == "audio/ogg; codecs=opus"
+
+
+def test_extract_zapi_documento_usa_mime_type() -> None:
+    payload = _zapi_payload(
+        text=None,
+        document={
+            "documentUrl": "https://z-api.example/media/contrato.pdf",
+            "mimeType": "application/pdf",
+            "fileName": "contrato.pdf",
+        },
+    )
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.media_url == "https://z-api.example/media/contrato.pdf"
+    assert result.media_type == "application/pdf"
+
+
+def test_extract_zapi_video_com_legenda() -> None:
+    payload = _zapi_payload(
+        text=None,
+        video={
+            "videoUrl": "https://z-api.example/media/video.mp4",
+            "caption": "Prova em vídeo",
+            "mimeType": "video/mp4",
+        },
+    )
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == "Prova em vídeo"
+    assert result.media_url == "https://z-api.example/media/video.mp4"
+    assert result.media_type == "video/mp4"
+
+
+def test_extract_zapi_texto_simples_nao_tem_media_url() -> None:
+    result = extract_inbound_zapi_message(_zapi_payload())
+
+    assert result is not None
+    assert result.media_url is None
+    assert result.media_type is None
+
+
 def test_extract_zapi_resposta_de_lista_usa_o_title() -> None:
     payload = _zapi_payload()
     del payload["text"]

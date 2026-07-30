@@ -6,6 +6,7 @@ docs/superpowers/specs/2026-07-23-gate-unico-deterministico-design.md).
 Funciona igual nos dois provedores de WhatsApp (Meta e Z-API) — ver
 docs/superpowers/specs/2026-07-29-billing-gate-zapi-paridade-design.md."""
 
+import logging
 import uuid
 
 from sqlalchemy import select, update
@@ -18,7 +19,10 @@ from app.clients.zapi import send_zapi_option_list, send_zapi_text_message
 from app.crypto import decrypt_access_token
 from app.tasks.inbound_context import InboundContext
 
+logger = logging.getLogger(__name__)
+
 MAX_RETRIES = 3
+MAX_LIST_ROWS = 10
 
 
 async def maybe_enter_gate(
@@ -143,12 +147,32 @@ def _package_row(package: dict) -> dict:
 def _split_by_kind(packages: list[dict]) -> tuple[list[dict], list[dict]]:
     """Separa pacotes avulsos de assinaturas, preservando a ordem original
     dentro de cada grupo — avulsos sempre aparecem primeiro na UI, tanto na
-    lista em seções da Meta quanto na lista achatada da Z-API.
+    lista em seções da Meta quanto na lista achatada da Z-API. Trunca o total
+    em MAX_LIST_ROWS — limite real da Meta (10 seções, 10 linhas somadas,
+    nunca validado no client) adotado também como teto pra Z-API (sem limite
+    documentado, mas sem motivo prático pra precisar de mais que isso numa
+    lista de seleção de pacote).
 
     `.get("kind", "one_time")` — compatibilidade com qualquer chamador/fixture
     que ainda não propague esse campo, evita um KeyError silencioso."""
     avulsos = [p for p in packages if p.get("kind", "one_time") != "subscription"]
     assinaturas = [p for p in packages if p.get("kind") == "subscription"]
+
+    total = len(avulsos) + len(assinaturas)
+    if total > MAX_LIST_ROWS:
+        logger.warning(
+            "Tenant tem %s pacotes cadastrados, truncando lista do billing gate "
+            "pra %s (limite de linhas por lista) — pacotes fora do teto não "
+            "aparecem na seleção",
+            total,
+            MAX_LIST_ROWS,
+        )
+        if len(avulsos) >= MAX_LIST_ROWS:
+            avulsos = avulsos[:MAX_LIST_ROWS]
+            assinaturas = []
+        else:
+            assinaturas = assinaturas[: MAX_LIST_ROWS - len(avulsos)]
+
     return avulsos, assinaturas
 
 

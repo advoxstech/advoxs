@@ -365,6 +365,36 @@ class TestPackagesToSections:
         assert len(sections) == 1
         assert sections[0]["title"] == "Assinatura mensal"
 
+    def test_mais_de_10_pacotes_totais_trunca_a_soma_das_secoes(self) -> None:
+        """Limite real da Meta: 10 seções, no máximo 10 linhas somadas entre
+        todas — nunca validado no client, então precisa ser respeitado aqui
+        antes de montar a lista."""
+        avulsos = [
+            {
+                "id": f"p{i}",
+                "name": f"Pacote {i}",
+                "price_brl": "10.00",
+                "kind": "one_time",
+                "credits_granted": 100,
+            }
+            for i in range(8)
+        ]
+        assinaturas = [
+            {
+                "id": f"s{i}",
+                "name": f"Assinatura {i}",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
+            }
+            for i in range(4)
+        ]
+
+        sections = _packages_to_sections(avulsos + assinaturas)
+
+        total_rows = sum(len(section["rows"]) for section in sections)
+        assert total_rows == 10
+
 
 class TestEnvioPorProvedorZApi:
     async def test_abertura_do_gate_usa_zapi_quando_provider_e_zapi(self, monkeypatch) -> None:
@@ -547,3 +577,81 @@ class TestPackagesToFlatOptions:
 
         assert len(options) == 1
         assert options[0]["title"] == "Básico"
+
+    def test_mais_de_10_pacotes_avulsos_trunca_pra_10(self) -> None:
+        from app.billing_gate import _packages_to_flat_options
+
+        packages = [
+            {
+                "id": f"p{i}",
+                "name": f"Pacote {i}",
+                "price_brl": "10.00",
+                "kind": "one_time",
+                "credits_granted": 100,
+            }
+            for i in range(12)
+        ]
+
+        options = _packages_to_flat_options(packages)
+
+        assert len(options) == 10
+        assert [o["title"] for o in options] == [f"Pacote {i}" for i in range(10)]
+
+    def test_avulsos_no_limite_descarta_assinaturas(self) -> None:
+        from app.billing_gate import _packages_to_flat_options
+
+        avulsos = [
+            {
+                "id": f"p{i}",
+                "name": f"Pacote {i}",
+                "price_brl": "10.00",
+                "kind": "one_time",
+                "credits_granted": 100,
+            }
+            for i in range(10)
+        ]
+        assinatura = {
+            "id": "sub1",
+            "name": "Ilimitado",
+            "price_brl": "99.90",
+            "kind": "subscription",
+            "credits_granted": None,
+        }
+
+        options = _packages_to_flat_options(avulsos + [assinatura])
+
+        assert len(options) == 10
+        assert "Ilimitado" not in [o["title"] for o in options]
+
+    def test_avulsos_abaixo_do_limite_completa_com_assinaturas(self) -> None:
+        from app.billing_gate import _packages_to_flat_options
+
+        avulsos = [
+            {
+                "id": f"p{i}",
+                "name": f"Pacote {i}",
+                "price_brl": "10.00",
+                "kind": "one_time",
+                "credits_granted": 100,
+            }
+            for i in range(8)
+        ]
+        assinaturas = [
+            {
+                "id": f"s{i}",
+                "name": f"Assinatura {i}",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
+            }
+            for i in range(4)
+        ]
+
+        options = _packages_to_flat_options(avulsos + assinaturas)
+
+        assert len(options) == 10
+        titles = [o["title"] for o in options]
+        assert "Assinatura 0" in titles
+        assert "Assinatura 1" in titles
+        assert "Assinatura 2" not in titles
+        assert "Assinatura 3" not in titles
