@@ -41,16 +41,43 @@ class TestCheckZApiStatus:
 
 
 class TestConfigureZApiWebhook:
-    async def test_chama_o_endpoint_de_webhook_com_a_url(self, monkeypatch) -> None:
+    async def test_chama_o_endpoint_correto_com_put_e_a_url(self, monkeypatch) -> None:
         response = httpx.Response(200, json={"value": True})
-        post_mock = AsyncMock(return_value=response)
-        monkeypatch.setattr(httpx.AsyncClient, "post", post_mock)
+        put_mock = AsyncMock(return_value=response)
+        monkeypatch.setattr(httpx.AsyncClient, "put", put_mock)
 
         await configure_zapi_webhook(
             "inst-1", "token-1", None, "https://exemplo.com/webhook/segredo"
         )
 
-        assert post_mock.await_count == 1
+        assert put_mock.await_count == 1
+        args, kwargs = put_mock.call_args
+        assert args[0].endswith("/instances/inst-1/token/token-1/update-webhook-received")
+        assert kwargs["json"] == {"value": "https://exemplo.com/webhook/segredo"}
+
+    async def test_resposta_200_com_error_no_corpo_levanta_zapi_api_error(
+        self, monkeypatch
+    ) -> None:
+        """A Z-API responde 200 mesmo pra rota inexistente/rejeitada — o erro
+        vem só no corpo (`{"error": "..."}`), nunca no status HTTP. Confirmado
+        em produção: o endpoint antigo usado aqui (`POST .../webhooks`) não
+        existe e sempre devolvia 200 com `{"error": "NOT_FOUND", ...}"`, e o
+        código antigo (só olhava `response.is_error`, isto é, o status) nunca
+        detectava isso — o webhook nunca era configurado de fato, desde a
+        implementação original desta feature."""
+        response = httpx.Response(
+            200,
+            json={
+                "error": "NOT_FOUND",
+                "message": "Unable to find matching target resource method",
+            },
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "put", AsyncMock(return_value=response))
+
+        with pytest.raises(ZApiApiError):
+            await configure_zapi_webhook(
+                "inst-1", "token-1", None, "https://exemplo.com/webhook/segredo"
+            )
 
 
 class TestFetchZApiQrcode:

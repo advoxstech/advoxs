@@ -92,23 +92,42 @@ async def check_zapi_status(instance_id: str, token: str, client_token: str | No
 async def configure_zapi_webhook(
     instance_id: str, token: str, client_token: str | None, webhook_url: str
 ) -> None:
-    """Configura a URL de callback da instância via API — a Z-API entrega
-    isso automaticamente, sem o tenant precisar colar nada num painel."""
-    url = _instance_url(instance_id, token, "webhooks")
+    """Configura a URL do webhook de mensagem recebida via API — a Z-API
+    entrega isso automaticamente, sem o tenant precisar colar nada num painel.
+
+    Endpoint correto confirmado contra a doc oficial (developer.z-api.io,
+    webhooks/on-message-received) depois de descobrir em produção que o
+    endpoint usado antes (`POST .../webhooks`) não existe: `PUT
+    .../update-webhook-received` (sem o sufixo `-delivery`, que também
+    notificaria mensagens enviadas pelo próprio número — não é o que
+    queremos aqui, o mesmo propósito do antigo `notifySentByMe=False`)."""
+    url = _instance_url(instance_id, token, "update-webhook-received")
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                url,
-                headers=_headers(client_token),
-                json={"value": webhook_url, "notifySentByMe": False},
+            response = await client.put(
+                url, headers=_headers(client_token), json={"value": webhook_url}
             )
     except httpx.HTTPError as exc:
         raise ZApiNetworkError(f"Falha de rede ao configurar webhook na Z-API: {exc}") from exc
 
     if response.is_error:
         logger.warning(
-            "Z-API (webhooks) retornou erro | status=%s body=%s",
+            "Z-API (update-webhook-received) retornou erro | status=%s body=%s",
             response.status_code,
+            response.text,
+        )
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível configurar o webhook na Z-API")
+        )
+
+    body = response.json()
+    if isinstance(body, dict) and body.get("error"):
+        # A Z-API pode responder 200 com um erro só no corpo (rota errada,
+        # payload rejeitado) — nunca confiar só no status HTTP aqui. É
+        # exatamente esse comportamento que mascarou o bug do endpoint
+        # antigo por toda a vida desta feature até agora.
+        logger.warning(
+            "Z-API (update-webhook-received) respondeu 200 com erro no corpo | body=%s",
             response.text,
         )
         raise ZApiApiError(
