@@ -111,6 +111,42 @@ describe("WhatsAppConnectionPanel", () => {
     );
   });
 
+  it("quando connect-zapi já retorna status connected, não busca QR code e mostra o resumo direto", async () => {
+    const qrcodeFetch = vi.fn();
+    mockedBackendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "whatsapp/connection") return { ok: true, json: async () => null };
+      if (path === "whatsapp/webhook-config") return { ok: false, json: async () => null };
+      if (path === "whatsapp/connect-zapi" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            provider: "zapi",
+            display_phone_number: "5511999998888",
+            status: "connected",
+            connected_at: "2026-07-29T12:00:00Z",
+          }),
+        };
+      }
+      if (path === "whatsapp/zapi-qrcode") {
+        qrcodeFetch();
+        return { ok: true, json: async () => ({ qrcode_base64: "data:image/png;base64,AAAA" }) };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+
+    fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
+    fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.click(screen.getByRole("button", { name: /conectar/i }));
+
+    await waitFor(() => expect(screen.getByText(/conectado via z-api/i)).toBeInTheDocument());
+    expect(qrcodeFetch).not.toHaveBeenCalled();
+  });
+
   it("mostra 'Conectado via Z-API' quando o provider é zapi e já está conectado", async () => {
     mockedBackendFetch.mockImplementation(async (path: string) => {
       if (path === "whatsapp/connection") {

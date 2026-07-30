@@ -155,7 +155,9 @@ async def connect_zapi(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> WhatsAppConnectionOut:
     try:
-        await check_zapi_status(body.instance_id, body.instance_token, body.client_token)
+        live_status = await check_zapi_status(
+            body.instance_id, body.instance_token, body.client_token
+        )
     except ZApiNetworkError as exc:
         logger.error("Falha de rede ao validar credenciais Z-API | erro=%s", exc)
         raise HTTPException(
@@ -182,6 +184,28 @@ async def connect_zapi(
     except ZApiApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
+    # Cobre o tenant que cola credenciais de uma instância já pareada fora do
+    # nosso fluxo (ex: testada direto no painel da Z-API antes de conectar
+    # aqui) — sem isso, o front recebe status="disconnected" e tenta buscar
+    # um QR code que a Z-API se recusa a gerar pra instância já conectada
+    # (ver fetch_zapi_qrcode em app/clients/zapi.py).
+    zapi_status = "disconnected"
+    zapi_display_phone = "Aguardando pareamento"
+    if live_status.get("connected"):
+        zapi_status = "connected"
+        try:
+            phone = await fetch_zapi_connected_phone(
+                body.instance_id, body.instance_token, body.client_token
+            )
+        except (ZApiNetworkError, ZApiApiError) as exc:
+            logger.warning(
+                "Falha ao buscar telefone de instância Z-API já conectada (best-effort) | erro=%s",
+                exc,
+            )
+            phone = None
+        if phone:
+            zapi_display_phone = phone
+
     existing = await session.scalar(
         select(WhatsAppNumber).where(WhatsAppNumber.tenant_id == ctx.tenant_id)
     )
@@ -198,8 +222,8 @@ async def connect_zapi(
         existing.phone_number_id = None
         existing.waba_id = None
         existing.access_token_encrypted = None
-        existing.display_phone_number = "Aguardando pareamento"
-        existing.status = "disconnected"
+        existing.display_phone_number = zapi_display_phone
+        existing.status = zapi_status
         # Simétrico ao branch Meta de connect() acima — reconectar (mesmo
         # trocando de provedor) sempre reseta connected_at pro instante atual.
         existing.connected_at = now
@@ -212,8 +236,8 @@ async def connect_zapi(
             zapi_instance_token_encrypted=encrypted_token,
             zapi_client_token_encrypted=encrypted_client_token,
             zapi_webhook_secret=webhook_secret,
-            display_phone_number="Aguardando pareamento",
-            status="disconnected",
+            display_phone_number=zapi_display_phone,
+            status=zapi_status,
             connected_at=now,
         )
         session.add(number)

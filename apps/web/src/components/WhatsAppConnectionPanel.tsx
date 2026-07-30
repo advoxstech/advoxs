@@ -179,6 +179,16 @@ export function WhatsAppConnectionPanel() {
       setConnection(body);
       setZapiForm(EMPTY_ZAPI_FORM);
 
+      // A instância já pode ter sido pareada fora do nosso fluxo (ex: testada
+      // direto no painel da Z-API antes de conectar aqui) — nesse caso o
+      // backend já devolve status="connected" e não há QR code pra buscar
+      // (a Z-API se recusa a gerar um pra instância já conectada). Pular
+      // direto pro card de resumo evita um "Falha ao gerar o QR code" falso.
+      if (body?.status === "connected") {
+        setShowForm(false);
+        return;
+      }
+
       const qrResponse = await backendFetch("whatsapp/zapi-qrcode");
       if (qrResponse.ok) {
         const qrBody = await qrResponse.json().catch(() => null);

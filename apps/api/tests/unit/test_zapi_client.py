@@ -62,6 +62,24 @@ class TestFetchZApiQrcode:
 
         assert "AAAA" in result
 
+    async def test_resposta_200_sem_value_levanta_zapi_api_error(self, monkeypatch) -> None:
+        """A Z-API responde 200 sem o campo `value` quando a instância já está
+        conectada (não há QR pra mostrar) — confirmado em produção, o corpo
+        real é `{"error": "NOT_FOUND", "message": "Unable to find matching
+        target resource method"}`. Sem essa checagem, `response.json()["value"]`
+        levanta um `KeyError` não tratado (500 pro tenant)."""
+        response = httpx.Response(
+            200,
+            json={
+                "error": "NOT_FOUND",
+                "message": "Unable to find matching target resource method",
+            },
+        )
+        monkeypatch.setattr(httpx.AsyncClient, "get", AsyncMock(return_value=response))
+
+        with pytest.raises(ZApiApiError):
+            await fetch_zapi_qrcode("inst-1", "token-1", None)
+
 
 class TestFetchZApiConnectedPhone:
     async def test_retorna_o_telefone_quando_presente(self, monkeypatch) -> None:

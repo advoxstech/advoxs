@@ -104,6 +104,41 @@ class TestConnectZApi:
         response = TestClient(app).post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
         assert response.status_code == 401
 
+    def test_instancia_ja_conectada_persiste_status_connected(
+        self, client, session, zapi_mocks, monkeypatch
+    ) -> None:
+        """Visto em produção: um tenant cola credenciais de uma instância
+        Z-API que já estava pareada (fora do nosso fluxo) — check_zapi_status
+        já devolve connected=True nesse instante, então persistir
+        status="disconnected" incondicionalmente manda o front pro fluxo de
+        QR code, que a Z-API se recusa a gerar pra uma instância já pareada
+        (ver TestFetchZApiQrcode::test_resposta_200_sem_value_levanta_zapi_api_error
+        em test_zapi_client.py)."""
+        zapi_mocks["check_status"].return_value = {"connected": True}
+        fetch_phone = AsyncMock(return_value="5511999998888")
+        monkeypatch.setattr(whatsapp_module, "fetch_zapi_connected_phone", fetch_phone)
+        session.scalar.return_value = None
+
+        response = client.post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "connected"
+        fetch_phone.assert_awaited_once_with("inst-123", "token-claro", "client-token-claro")
+
+    def test_instancia_ja_conectada_mas_falha_ao_buscar_telefone_ainda_persiste_connected(
+        self, client, session, zapi_mocks, monkeypatch
+    ) -> None:
+        zapi_mocks["check_status"].return_value = {"connected": True}
+        fetch_phone = AsyncMock(side_effect=ZApiApiError("instância indisponível"))
+        monkeypatch.setattr(whatsapp_module, "fetch_zapi_connected_phone", fetch_phone)
+        session.scalar.return_value = None
+
+        response = client.post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "connected"
+
 
 def _zapi_number(status: str = "disconnected") -> SimpleNamespace:
     return SimpleNamespace(

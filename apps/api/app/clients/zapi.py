@@ -134,7 +134,25 @@ async def fetch_zapi_qrcode(instance_id: str, token: str, client_token: str | No
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível obter o QR code da Z-API")
         )
-    return response.json()["value"]
+    body = response.json()
+    if "value" not in body:
+        # A Z-API responde 200 sem `value` quando a instância já está
+        # conectada (não há QR pra mostrar) — visto em produção com o corpo
+        # `{"error": "NOT_FOUND", "message": "Unable to find matching target
+        # resource method"}`. `connect_zapi` já deveria ter detectado esse
+        # caso antes de chegar aqui (ver check_zapi_status), mas nunca confiar
+        # só nisso — sem essa checagem, isso vira um KeyError não tratado.
+        logger.warning(
+            "Z-API (qr-code-image) resposta sem QR code | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise ZApiApiError(
+            _zapi_error_message(
+                response, "A Z-API não retornou um QR code — a instância já pode estar conectada"
+            )
+        )
+    return body["value"]
 
 
 async def fetch_zapi_connected_phone(
