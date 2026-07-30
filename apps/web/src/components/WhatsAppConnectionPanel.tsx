@@ -247,6 +247,7 @@ export function WhatsAppConnectionPanel() {
   const inConnectFlow = !connection || showForm;
   const activeProvider = providerChoice ?? connection?.provider ?? null;
   const showMetaInstructions = webhookConfig && activeProvider !== "zapi";
+  const showZApiInstructions = activeProvider === "zapi";
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
@@ -614,6 +615,69 @@ export function WhatsAppConnectionPanel() {
                 <span className="mt-0.5 block text-xs text-muted">
                   Sem assinar esse campo específico, o webhook fica configurado mas nunca é
                   acionado.
+                </span>
+              </li>
+            </ol>
+          </section>
+        )}
+
+        {showZApiInstructions && (
+          <section className="mt-8 max-w-xl rounded border border-line bg-surface p-6">
+            <h2 className="font-display text-base font-semibold text-ink">
+              Conectar via Z-API
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              A Z-API é um provedor independente (não é a Meta) — a conexão é por QR code, sem
+              aprovação de negócio. Você só precisa buscar duas informações no painel da Z-API e
+              colar no formulário acima.
+            </p>
+            <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
+              <li>
+                Crie uma conta em{" "}
+                <a
+                  href="https://app.z-api.io/app/auth/new-account"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-accent underline"
+                >
+                  app.z-api.io
+                </a>{" "}
+                (ou entre, se já tiver uma).
+                <span className="mt-0.5 block text-xs text-muted">
+                  Leva menos de 1 minuto e tem período de teste gratuito.
+                </span>
+              </li>
+              <li>
+                No painel, crie uma instância — pode dar o nome do escritório, é só pra você
+                identificar depois.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Cada instância representa uma conexão de WhatsApp; se você tiver mais de uma,
+                  use a instância dedicada ao número que vai atender pela Advoxs.
+                </span>
+              </li>
+              <li>
+                Clique em <span className="font-medium">Editar</span> na instância criada — a
+                tela mostra o <span className="font-medium">Instance ID</span> e o{" "}
+                <span className="font-medium">Token</span>. Copie os dois e cole aqui no
+                formulário.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Não compartilhe esses dois valores com ninguém — eles dão acesso total a essa
+                  instância.
+                </span>
+              </li>
+              <li>
+                O campo <span className="font-medium">Client-Token</span> é opcional — só
+                preencha se você ativou a camada extra de segurança da sua conta (aba{" "}
+                <span className="font-medium">Segurança → Token de Segurança da Conta</span> no
+                painel da Z-API). Se nunca configurou isso, deixe em branco.
+              </li>
+              <li>
+                Clique em <span className="font-medium">Conectar</span>: o QR code aparece na
+                hora. Abra o WhatsApp do número que vai atender, vá em{" "}
+                <span className="font-medium">Aparelhos conectados</span> e escaneie.
+                <span className="mt-0.5 block text-xs text-muted">
+                  Diferente da Meta, não tem nenhum passo manual de webhook aqui — a Advoxs
+                  configura isso automaticamente na Z-API no momento da conexão.
                 </span>
               </li>
             </ol>

@@ -76,6 +76,35 @@ describe("WhatsAppConnectionPanel", () => {
     await waitFor(() => expect(screen.getByAltText(/qr code/i)).toBeInTheDocument());
   });
 
+  it("mostra o manual de instruções da Z-API ao escolher esse provedor, e não o da Meta", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/connection") return { ok: true, json: async () => null };
+      if (path === "whatsapp/webhook-config") {
+        return {
+          ok: true,
+          json: async () => ({
+            callback_url: "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
+            verify_token: "verify-abc",
+          }),
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByText(/conectar o whatsapp business/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+
+    expect(screen.getByText(/conectar via z-api/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /app\.z-api\.io/i })).toHaveAttribute(
+      "href",
+      "https://app.z-api.io/app/auth/new-account",
+    );
+    expect(screen.queryByText(/conectar o whatsapp business/i)).not.toBeInTheDocument();
+  });
+
   it("mostra aviso quando connect-zapi funciona mas o QR code falha", async () => {
     mockedBackendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === "whatsapp/connection") return { ok: true, json: async () => null };
