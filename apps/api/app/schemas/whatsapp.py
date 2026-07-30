@@ -96,15 +96,27 @@ def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
     """Extrai a mensagem de um payload de webhook da Z-API — diferente da
     Meta, cada POST já é 1 mensagem só, sem lote. Ignora eco de mensagem
     enviada pelo próprio WhatsApp Web conectado (fromMe=true) e mensagens
-    sem texto (mídia recebida via Z-API não é processada nesta v1)."""
+    sem texto (mídia recebida via Z-API não é processada nesta v1).
+
+    Reconhece dois formatos de conteúdo: mensagem de texto simples
+    (`text.message`) e resposta de uma lista interativa enviada pelo billing
+    gate determinístico (`listResponseMessage.title`, quando o cliente final
+    escolhe um pacote de créditos — ver apps/worker/app/billing_gate.py).
+    `listResponseMessage` é checado primeiro porque uma resposta de lista não
+    vem acompanhada de um campo `text` populado."""
     if payload.get("fromMe"):
         return None
 
     instance_id = payload.get("instanceId")
     message_id = payload.get("messageId")
     sender = payload.get("phone")
-    text = payload.get("text") or {}
-    content = text.get("message") if isinstance(text, dict) else None
+
+    list_response = payload.get("listResponseMessage")
+    if isinstance(list_response, dict) and list_response.get("title"):
+        content = list_response["title"]
+    else:
+        text = payload.get("text") or {}
+        content = text.get("message") if isinstance(text, dict) else None
 
     if not instance_id or not message_id or not sender or not content:
         return None

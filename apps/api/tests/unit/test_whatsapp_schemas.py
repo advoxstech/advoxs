@@ -152,3 +152,34 @@ def test_extract_zapi_ignora_payload_sem_instance_id() -> None:
     result = extract_inbound_zapi_message(payload)
 
     assert result is None
+
+
+def test_extract_zapi_resposta_de_lista_usa_o_title() -> None:
+    payload = _zapi_payload()
+    del payload["text"]
+    payload["listResponseMessage"] = {"title": "Básico", "selectedRowId": "Básico"}
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == "Básico"
+
+
+def test_extract_zapi_lista_tem_prioridade_sobre_texto() -> None:
+    payload = _zapi_payload()
+    payload["listResponseMessage"] = {"title": "Premium", "selectedRowId": "Premium"}
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == "Premium"
+
+
+def test_extract_zapi_lista_sem_title_ignora_e_cai_no_texto() -> None:
+    payload = _zapi_payload()
+    payload["listResponseMessage"] = {"selectedRowId": "Básico"}
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == "Olá, preciso de ajuda"
