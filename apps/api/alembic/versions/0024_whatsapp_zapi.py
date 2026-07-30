@@ -50,6 +50,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # As colunas Meta (phone_number_id, waba_id, access_token_encrypted)
+    # voltam a NOT NULL no final desta função — isso falha se sobrar
+    # qualquer linha provider='zapi' (esses campos ficam NULL nela por
+    # desenho, ver ck_whatsapp_numbers_provider_fields). O downgrade assume
+    # que nenhum tenant real segue conectado via Z-API no momento do
+    # rollback; apagar essas linhas aqui é mais seguro operacionalmente do
+    # que deixar o downgrade quebrar no meio (constraint parcialmente
+    # revertida) — o tenant afetado simplesmente perde a conexão e precisa
+    # reconectar (via Meta ou Z-API de novo, depois de um upgrade seguinte).
+    op.execute("DELETE FROM whatsapp_numbers WHERE provider = 'zapi'")
     op.drop_constraint("ck_whatsapp_numbers_provider_fields", "whatsapp_numbers", type_="check")
     op.drop_column("whatsapp_numbers", "zapi_webhook_secret")
     op.drop_column("whatsapp_numbers", "zapi_client_token_encrypted")

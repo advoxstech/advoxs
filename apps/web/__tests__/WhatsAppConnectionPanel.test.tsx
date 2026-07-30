@@ -76,6 +76,41 @@ describe("WhatsAppConnectionPanel", () => {
     await waitFor(() => expect(screen.getByAltText(/qr code/i)).toBeInTheDocument());
   });
 
+  it("mostra aviso quando connect-zapi funciona mas o QR code falha", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "whatsapp/connection") return { ok: true, json: async () => null };
+      if (path === "whatsapp/webhook-config") return { ok: false, json: async () => null };
+      if (path === "whatsapp/connect-zapi" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            provider: "zapi",
+            display_phone_number: "Aguardando pareamento",
+            status: "disconnected",
+            connected_at: "2026-07-29T12:00:00Z",
+          }),
+        };
+      }
+      if (path === "whatsapp/zapi-qrcode") {
+        return { ok: false, json: async () => null };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+
+    fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
+    fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.click(screen.getByRole("button", { name: /conectar/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/falha ao gerar o qr code/i)).toBeInTheDocument(),
+    );
+  });
+
   it("mostra 'Conectado via Z-API' quando o provider é zapi e já está conectado", async () => {
     mockedBackendFetch.mockImplementation(async (path: string) => {
       if (path === "whatsapp/connection") {

@@ -185,7 +185,11 @@ export function WhatsAppConnectionPanel() {
         if (qrBody?.qrcode_base64) {
           setQrcode(qrBody.qrcode_base64);
           startZApiPolling();
+        } else {
+          setFeedback("Falha ao gerar o QR code — tente novamente.");
         }
+      } else {
+        setFeedback("Falha ao gerar o QR code — tente novamente.");
       }
     } catch {
       setFeedback("Falha de conexão — tente novamente.");

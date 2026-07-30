@@ -558,6 +558,7 @@ Além da via oficial da Meta acima, o escritório pode conectar o WhatsApp via *
 
 ### Fluxo de mensagem saindo (agente ou humano)
 - Mesma rota de envio para ambos os casos (agente ou takeover humano), diferenciando apenas a origem no registro da conversa (`sender_type: agent | human`).
+- ✅ **Roteamento por provedor no `api`** (`app/services/whatsapp_outbound.py::send_text_to_contact`, ponto único reaproveitado pela resposta manual do takeover, pelo aviso de isenção de cobrança e pela confirmação de compra/cancelamento do cliente final): ramifica por `whatsapp_numbers.provider` — `"meta"` usa `send_text_message` (Graph API, como já era); `"zapi"` usa `send_zapi_text_message` (`app/clients/zapi.py`), reempacotando erros da Z-API como `WhatsAppSendError` pra manter um único tipo de exceção nos 3 call sites. Corrigido numa revisão final de branch: antes desse helper, os 3 pontos chamavam `send_text_message` incondicionalmente e quebravam com `AttributeError` pra um tenant Z-API (`phone_number_id`/`access_token_encrypted` são sempre `NULL` nesse caso).
 - Suporte a texto e mídia/documentos (ex: agente gerando um PDF e enviando via WhatsApp) — usar endpoint de upload de mídia da Cloud API antes de referenciar no envio.
 - Mensagens fora da janela de 24h (sem "mensagem ativa" do usuário) exigem **template pré-aprovado** pela Meta — relevante caso a plataforma queira permitir contato proativo (a definir se será usado).
 
