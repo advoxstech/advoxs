@@ -325,8 +325,11 @@ async def test_pacotes_incluem_kind() -> None:
         balance=Decimal(0),
         packages=[
             SimpleNamespace(
-                id=uuid.uuid4(), name="Básico", price_brl=Decimal("49.90"),
-                credits_granted=500, kind="one_time",
+                id=uuid.uuid4(),
+                name="Básico",
+                price_brl=Decimal("49.90"),
+                credits_granted=500,
+                kind="one_time",
             )
         ],
     )

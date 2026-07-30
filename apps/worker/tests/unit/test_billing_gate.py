@@ -398,12 +398,18 @@ class TestEnvioPorProvedorZApi:
         monkeypatch.setattr("app.billing_gate.send_zapi_option_list", send_list)
         packages = [
             {
-                "id": "p1", "name": "Básico", "price_brl": "49.90",
-                "kind": "one_time", "credits_granted": 500,
+                "id": "p1",
+                "name": "Básico",
+                "price_brl": "49.90",
+                "kind": "one_time",
+                "credits_granted": 500,
             },
             {
-                "id": "p2", "name": "Ilimitado", "price_brl": "99.90",
-                "kind": "subscription", "credits_granted": None,
+                "id": "p2",
+                "name": "Ilimitado",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
             },
         ]
         inbound = _inbound(
@@ -459,6 +465,43 @@ class TestEnvioPorProvedorZApi:
 
         assert send_text.await_args.kwargs["client_token"] == "token-claro"
 
+    async def test_selecao_nao_reconhecida_via_zapi_reenvia_lista(self, monkeypatch) -> None:
+        session = AsyncMock()
+        send_text = AsyncMock()
+        send_list = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
+        monkeypatch.setattr("app.billing_gate.send_zapi_option_list", send_list)
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            billing_gate_step="aguardando_selecao_pacote",
+            message_content="não sei escolher",
+            billing_gate_retries=0,
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        send_text.assert_awaited_once()
+        send_list.assert_awaited_once()
+
+    async def test_aguardando_pagamento_via_zapi_reenvia_o_link(self, monkeypatch) -> None:
+        session = AsyncMock()
+        send_text = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
+        inbound = _inbound(
+            whatsapp_provider="zapi",
+            zapi_instance_id="inst-1",
+            zapi_instance_token_encrypted="cifrado-token",
+            billing_gate_step="aguardando_pagamento",
+            billing_gate_checkout_url="https://checkout.stripe.com/xyz",
+            billing_gate_retries=0,
+        )
+
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
+
+        assert "https://checkout.stripe.com/xyz" in send_text.await_args.kwargs["text"]
+
 
 class TestPackagesToFlatOptions:
     def test_achata_avulso_e_assinatura_avulso_primeiro(self) -> None:
@@ -466,12 +509,18 @@ class TestPackagesToFlatOptions:
 
         packages = [
             {
-                "id": "p2", "name": "Ilimitado", "price_brl": "99.90",
-                "kind": "subscription", "credits_granted": None,
+                "id": "p2",
+                "name": "Ilimitado",
+                "price_brl": "99.90",
+                "kind": "subscription",
+                "credits_granted": None,
             },
             {
-                "id": "p1", "name": "Básico", "price_brl": "49.90",
-                "kind": "one_time", "credits_granted": 500,
+                "id": "p1",
+                "name": "Básico",
+                "price_brl": "49.90",
+                "kind": "one_time",
+                "credits_granted": 500,
             },
         ]
 
@@ -486,8 +535,11 @@ class TestPackagesToFlatOptions:
 
         packages = [
             {
-                "id": "p1", "name": "Básico", "price_brl": "49.90",
-                "kind": "one_time", "credits_granted": 500,
+                "id": "p1",
+                "name": "Básico",
+                "price_brl": "49.90",
+                "kind": "one_time",
+                "credits_granted": 500,
             },
         ]
 

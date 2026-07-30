@@ -480,9 +480,7 @@ async def test_contato_isento_nunca_e_customer_funded(patched) -> None:
 
 
 async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patched) -> None:
-    patched["load"].return_value = _inbound_com_billing(
-        balance=1000, credit_balance=0, exempt=True
-    )
+    patched["load"].return_value = _inbound_com_billing(balance=1000, credit_balance=0, exempt=True)
 
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 

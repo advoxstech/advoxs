@@ -143,7 +143,10 @@ def _package_row(package: dict) -> dict:
 def _split_by_kind(packages: list[dict]) -> tuple[list[dict], list[dict]]:
     """Separa pacotes avulsos de assinaturas, preservando a ordem original
     dentro de cada grupo — avulsos sempre aparecem primeiro na UI, tanto na
-    lista em seções da Meta quanto na lista achatada da Z-API."""
+    lista em seções da Meta quanto na lista achatada da Z-API.
+
+    `.get("kind", "one_time")` — compatibilidade com qualquer chamador/fixture
+    que ainda não propague esse campo, evita um KeyError silencioso."""
     avulsos = [p for p in packages if p.get("kind", "one_time") != "subscription"]
     assinaturas = [p for p in packages if p.get("kind") == "subscription"]
     return avulsos, assinaturas
@@ -160,9 +163,7 @@ def _packages_to_sections(packages: list[dict]) -> list[dict]:
         sections.append(
             {"title": "Pacotes de créditos", "rows": [_package_row(p) for p in avulsos]}
         )
-    sections.append(
-        {"title": "Assinatura mensal", "rows": [_package_row(p) for p in assinaturas]}
-    )
+    sections.append({"title": "Assinatura mensal", "rows": [_package_row(p) for p in assinaturas]})
     return sections
 
 

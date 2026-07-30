@@ -4,7 +4,12 @@ import httpx
 import pytest
 
 import app.clients.zapi as zapi_client
-from app.clients.zapi import ZApiApiError, ZApiNetworkError, send_zapi_option_list, send_zapi_text_message
+from app.clients.zapi import (
+    ZApiApiError,
+    ZApiNetworkError,
+    send_zapi_option_list,
+    send_zapi_text_message,
+)
 
 
 def _mock_async_client(monkeypatch, response: MagicMock) -> AsyncMock:
@@ -65,7 +70,11 @@ class TestSendZApiTextMessage:
 
         with pytest.raises(ZApiNetworkError):
             await send_zapi_text_message(
-                instance_id="inst-1", token="token-1", client_token=None, to="5511999998888", text="Olá"
+                instance_id="inst-1",
+                token="token-1",
+                client_token=None,
+                to="5511999998888",
+                text="Olá",
             )
 
     async def test_erro_http_levanta_zapi_api_error(self, monkeypatch) -> None:
@@ -74,7 +83,11 @@ class TestSendZApiTextMessage:
 
         with pytest.raises(ZApiApiError, match="instância não encontrada"):
             await send_zapi_text_message(
-                instance_id="inst-1", token="token-1", client_token=None, to="5511999998888", text="Olá"
+                instance_id="inst-1",
+                token="token-1",
+                client_token=None,
+                to="5511999998888",
+                text="Olá",
             )
 
 

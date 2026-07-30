@@ -53,9 +53,7 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
         select(
             tables.agent_knowledge_base_files.c.agent_id,
             tables.agent_knowledge_base_files.c.knowledge_base_file_id,
-        ).where(
-            tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows])
-        )
+        ).where(tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows]))
     )
     kb_by_agent: dict[uuid.UUID, list[str]] = {}
     for agent_id, file_id in links_result.all():
