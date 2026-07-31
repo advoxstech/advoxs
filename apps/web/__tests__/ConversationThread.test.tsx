@@ -24,6 +24,7 @@ function conversation(
   state: "agent" | "human",
   summary: string | null = null,
   summaryGeneratedAt: string | null = null,
+  currentAgentName: string | null = null,
 ): Conversation {
   return {
     id: "c1",
@@ -36,6 +37,7 @@ function conversation(
     summary_generated_at: summaryGeneratedAt,
     end_customer_billing_exempt: false,
     end_customer_billing_enabled: false,
+    current_agent_name: currentAgentName,
   };
 }
 
@@ -74,6 +76,34 @@ beforeEach(() => {
 });
 
 describe("ConversationThread", () => {
+  it("mostra o nome do agente ativo quando current_agent_name está presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent", null, null, "Condominial")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+  });
+
+  it("mostra o texto genérico quando current_agent_name é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+  });
+
   it("carrega e exibe as mensagens em ordem de leitura", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse(messages));
 

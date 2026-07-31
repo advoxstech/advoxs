@@ -66,7 +66,11 @@ export function ConversationList({
                       isManual ? "bg-brass" : "bg-accent"
                     }`}
                   />
-                  {isManual ? "atendimento manual" : "agente respondendo"}
+                  {isManual
+                    ? "atendimento manual"
+                    : conversation.current_agent_name
+                      ? `${conversation.current_agent_name} respondendo`
+                      : "agente respondendo"}
                 </span>
                 {conversation.end_customer_balance != null ? (
                   <span className="font-mono text-[11px] text-muted">

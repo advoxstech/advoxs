@@ -21,6 +21,7 @@ from app.clients.agents import (
 )
 from app.clients.whatsapp import WhatsAppSendError
 from app.models import (
+    Agent,
     Conversation,
     CreditTransaction,
     EndCustomerBalance,
@@ -69,12 +70,16 @@ async def list_conversations(
     balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, phone_numbers)
     cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, phone_numbers)
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
+    agent_names = await _agent_names_by_id(
+        session, ctx.tenant_id, [c.current_agent_id for c in conversations]
+    )
     return [
         _to_conversation_out(
             c,
             balances.get(c.contact_phone_number),
             cycles.get(c.contact_phone_number),
             billing_enabled,
+            agent_names,
         )
         for c in conversations
     ]
@@ -139,11 +144,13 @@ async def update_state(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
+    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
         cycles.get(conversation.contact_phone_number),
         billing_enabled,
+        agent_names,
     )
 
 
@@ -175,11 +182,15 @@ async def update_billing_exemption(
         cycles = await _end_customer_cycles_by_phone(
             session, ctx.tenant_id, [conversation.contact_phone_number]
         )
+        agent_names = await _agent_names_by_id(
+            session, ctx.tenant_id, [conversation.current_agent_id]
+        )
         return _to_conversation_out(
             conversation,
             balances.get(conversation.contact_phone_number),
             cycles.get(conversation.contact_phone_number),
             billing_enabled,
+            agent_names,
         )
 
     if body.exempt:
@@ -231,11 +242,13 @@ async def update_billing_exemption(
     cycles = await _end_customer_cycles_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
+    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
         cycles.get(conversation.contact_phone_number),
         billing_enabled,
+        agent_names,
     )
 
 
@@ -398,11 +411,13 @@ async def generate_summary(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
+    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
         cycles.get(conversation.contact_phone_number),
         billing_enabled,
+        agent_names,
     )
 
 
@@ -543,11 +558,26 @@ async def _is_end_customer_billing_enabled(session: AsyncSession, tenant_id: uui
     return bool(enabled)
 
 
+async def _agent_names_by_id(
+    session: AsyncSession, tenant_id: uuid.UUID, agent_ids: list[uuid.UUID | None]
+) -> dict[uuid.UUID, str]:
+    """Nome do agente atual de cada conversa — pra exibir "{nome} respondendo"
+    no painel em vez do texto genérico "agente respondendo"."""
+    ids = [i for i in agent_ids if i is not None]
+    if not ids:
+        return {}
+    result = await session.execute(
+        select(Agent.id, Agent.name).where(Agent.tenant_id == tenant_id, Agent.id.in_(ids))
+    )
+    return {row.id: row.name for row in result.all()}
+
+
 def _to_conversation_out(
     conversation: Conversation,
     end_customer_balance: Decimal | None,
     end_customer_cycle: tuple[Decimal, Decimal] | None = None,
     end_customer_billing_enabled: bool = False,
+    agent_names: dict[uuid.UUID, str] | None = None,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
     out.end_customer_balance = (
@@ -557,6 +587,8 @@ def _to_conversation_out(
         out.end_customer_cycle_total = float(end_customer_cycle[0])
         out.end_customer_cycle_consumed = float(end_customer_cycle[1])
     out.end_customer_billing_enabled = end_customer_billing_enabled
+    if agent_names and conversation.current_agent_id is not None:
+        out.current_agent_name = agent_names.get(conversation.current_agent_id)
     return out
 
 

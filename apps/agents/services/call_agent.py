@@ -1,11 +1,13 @@
-from agents.workflow import graph
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langchain_core.messages import HumanMessage
-from dotenv import load_dotenv
-from loguru import logger
 import os
 import time
+
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
 from langfuse.langchain import CallbackHandler
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from loguru import logger
+
+from agents.workflow import graph
 
 load_dotenv()
 
@@ -50,7 +52,7 @@ async def run_agent(
     num_before_messages: int = 35,
     extra_data: dict = {},
     agents: list[dict] | None = None,
-) -> tuple[list[str], dict, str | None]:
+) -> tuple[list[str], dict, str | None, str | None]:
     started_at = time.perf_counter()
     config = {
         "configurable": {"thread_id": conversation_id},
@@ -70,9 +72,7 @@ async def run_agent(
         agent = graph.compile(checkpointer=checkpointer)
 
         prior_state = await agent.aget_state(config)
-        prior_count = (
-            len(prior_state.values.get("messages", [])) if prior_state.values else 0
-        )
+        prior_count = len(prior_state.values.get("messages", [])) if prior_state.values else 0
 
         logger.info("Enviando mensagem ao agente | conversation_id={}", conversation_id)
         response = await agent.ainvoke(
@@ -91,12 +91,14 @@ async def run_agent(
     usage = sum_usage_breakdown(new_messages)
 
     agents_by_id = {a["id"]: a for a in agents}
-    current_agent_entry = agents_by_id.get(response.get("current_agent_id"))
+    current_agent_id = response.get("current_agent_id")
+    current_agent_entry = agents_by_id.get(current_agent_id)
     current_agent = current_agent_entry["name"] if current_agent_entry else None
 
     elapsed = round(time.perf_counter() - started_at, 3)
     logger.info(
-        "Respostas geradas | conversation_id={} | total={} | tokens={} | current_agent={} | elapsed_s={}",
+        "Respostas geradas | conversation_id={} | total={} | tokens={} | "
+        "current_agent={} | elapsed_s={}",
         conversation_id,
         len(answers),
         usage["total_tokens"],
@@ -104,8 +106,6 @@ async def run_agent(
         elapsed,
     )
     for i, ans in enumerate(answers):
-        logger.debug(
-            "Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans
-        )
+        logger.debug("Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans)
 
-    return answers, usage, current_agent
+    return answers, usage, current_agent, current_agent_id

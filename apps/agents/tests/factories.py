@@ -1,16 +1,19 @@
-from langchain_core.messages import AIMessage, HumanMessage
 from unittest.mock import AsyncMock, MagicMock
+
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 def ai_with_tool_call(tool_name: str, args: dict, content: str = "") -> AIMessage:
     return AIMessage(
         content=content,
-        tool_calls=[{
-            "id": "call_test_123",
-            "name": tool_name,
-            "args": args,
-            "type": "tool_call",
-        }],
+        tool_calls=[
+            {
+                "id": "call_test_123",
+                "name": tool_name,
+                "args": args,
+                "type": "tool_call",
+            }
+        ],
     )
 
 

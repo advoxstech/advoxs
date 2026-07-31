@@ -221,7 +221,9 @@ export function ConversationThread({
           ) : (
             <span className="flex items-center gap-1.5 text-xs text-muted">
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-              agente respondendo
+              {conversation.current_agent_name
+                ? `${conversation.current_agent_name} respondendo`
+                : "agente respondendo"}
             </span>
           )}
           {conversation.end_customer_balance != null ? (

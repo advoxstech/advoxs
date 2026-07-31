@@ -163,6 +163,20 @@ class TestProcessCheckoutCompleted:
             {"id": "cs_123", "metadata": metadata}, "sk_test_fake"
         )
 
+    @pytest.fixture(autouse=True)
+    def _mock_redis(self, monkeypatch):
+        """Sem isso, um teste que chama process_checkout_completed sem mockar
+        o Redis cria o singleton real (app.core.redis) preso ao event loop
+        function-scoped do próprio teste — quando esse loop fecha, o
+        teardown de get_redis rodando num teste de OUTRO arquivo (ex:
+        test_whatsapp_webhook.py) quebra tentando fechar uma conexão já
+        morta. Autouse pra não depender de lembrar disso em cada teste novo
+        desta classe; os dois testes que já mockavam get_redis manualmente
+        (test_signup_gera_token_de_auto_login/test_falha_no_redis_nao_quebra_o_webhook)
+        continuam funcionando — o setattr deles simplesmente sobrescreve
+        este, no mesmo monkeypatch."""
+        monkeypatch.setattr(billing, "get_redis", AsyncMock(return_value=AsyncMock()))
+
     async def test_ja_processado_nao_faz_nada(self, session) -> None:
         session.scalar.return_value = uuid.uuid4()
 

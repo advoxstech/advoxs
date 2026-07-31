@@ -115,6 +115,12 @@ export function TestConversationThread({
           <span className="rounded-full bg-brass-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-brass">
             ambiente de teste
           </span>
+          <span className="flex items-center gap-1.5 text-xs text-muted">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            {conversation.current_agent_name
+              ? `${conversation.current_agent_name} respondendo`
+              : "agente respondendo"}
+          </span>
         </div>
         <button
           type="button"

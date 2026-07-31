@@ -1,8 +1,11 @@
-from langgraph.graph import StateGraph, START, END
-from typing_extensions import Annotated, TypedDict
-from langchain.messages import AnyMessage
-from agents.nodes import agent_node, tool_node
 import operator
+from typing import Annotated
+
+from langchain.messages import AnyMessage
+from langgraph.graph import START, StateGraph
+from typing_extensions import TypedDict
+
+from agents.nodes import agent_node, tool_node
 
 
 class State(TypedDict):

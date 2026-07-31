@@ -16,6 +16,7 @@ const conversations: Conversation[] = [
     summary_generated_at: null,
     end_customer_billing_exempt: false,
     end_customer_billing_enabled: false,
+    current_agent_name: null,
   },
   {
     id: "c2",
@@ -28,6 +29,7 @@ const conversations: Conversation[] = [
     summary_generated_at: null,
     end_customer_billing_exempt: false,
     end_customer_billing_enabled: false,
+    current_agent_name: null,
   },
 ];
 
@@ -45,6 +47,19 @@ describe("ConversationList", () => {
     expect(screen.getByText("agente respondendo")).toBeInTheDocument();
     expect(screen.getByText("atendimento manual")).toBeInTheDocument();
     expect(screen.getByText("+55 11 99999-8888")).toBeInTheDocument();
+  });
+
+  it("mostra o nome do agente quando current_agent_name está presente", () => {
+    render(
+      <ConversationList
+        conversations={[{ ...conversations[0], current_agent_name: "Condominial" }]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Condominial respondendo")).toBeInTheDocument();
   });
 
   it("chama onSelect com o id da conversa clicada", () => {

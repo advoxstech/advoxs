@@ -113,7 +113,9 @@ class TestSendTextMessageRateLimit:
         assert acquire_mock.await_count == 2
         assert request_mock.await_count == 1
 
-    async def test_rate_limit_negado_em_todas_as_tentativas_falha(self, client, monkeypatch) -> None:
+    async def test_rate_limit_negado_em_todas_as_tentativas_falha(
+        self, client, monkeypatch
+    ) -> None:
         acquire_mock = AsyncMock(return_value=False)
         monkeypatch.setattr(whatsapp_module, "acquire_rate_limit_slot", acquire_mock)
         request_mock = AsyncMock()

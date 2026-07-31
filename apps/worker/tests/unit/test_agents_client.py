@@ -27,6 +27,7 @@ async def test_returns_responses_and_tokens_on_200() -> None:
         "tokens_used": 1234,
         "tokens_input": 1000,
         "tokens_output": 234,
+        "current_agent_id": "a1",
     }
     http = _http_returning(response)
 
@@ -37,6 +38,7 @@ async def test_returns_responses_and_tokens_on_200() -> None:
         "tokens_used": 1234,
         "tokens_input": 1000,
         "tokens_output": 234,
+        "current_agent_id": "a1",
         "delivery_failures": [],
     }
     body = http.post.await_args.kwargs["json"]
@@ -57,6 +59,7 @@ async def test_resposta_sem_tokens_usa_zero() -> None:
         "tokens_used": 0,
         "tokens_input": 0,
         "tokens_output": 0,
+        "current_agent_id": None,
         "delivery_failures": [],
     }
 

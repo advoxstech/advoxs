@@ -220,6 +220,34 @@ class TestSendTestMessage:
 
         assert playground_mock.await_args.kwargs["agents"] == agents_payload
 
+    def test_persiste_current_agent_id_na_conversa(self, client, session, playground_mock) -> None:
+        agent_id = uuid.uuid4()
+        playground_mock.return_value = {
+            "responses": ["oi"],
+            "tokens_used": 100,
+            "current_agent_id": str(agent_id),
+        }
+        conversation = _conversation()
+        self._arm_session(session, conversation)
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "oi"},
+        )
+
+        assert conversation.current_agent_id == agent_id
+
+    def test_sem_current_agent_id_nao_seta_atributo(self, client, session, playground_mock) -> None:
+        conversation = _conversation()
+        self._arm_session(session, conversation)
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "oi"},
+        )
+
+        assert getattr(conversation, "current_agent_id", None) is None
+
     def test_conversa_inexistente_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None
 

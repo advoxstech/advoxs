@@ -1,15 +1,17 @@
-import redis.asyncio as aioredis
 import asyncio
-import uuid
-from loguru import logger
-from dotenv import load_dotenv
 import os
+import uuid
+
+import redis.asyncio as aioredis
+from dotenv import load_dotenv
+from loguru import logger
 
 load_dotenv()
 
 redis_host = os.getenv("REDIS_HOST")
 redis_port = os.getenv("REDIS_PORT")
 redis_password = os.getenv("REDIS_PASSWORD")
+
 
 async def debounce_messages(
     message: str,
@@ -24,11 +26,13 @@ async def debounce_messages(
         debounce_seconds,
     )
 
-    r = aioredis.Redis(host=redis_host, port=redis_port, password=redis_password, decode_responses=True)
+    r = aioredis.Redis(
+        host=redis_host, port=redis_port, password=redis_password, decode_responses=True
+    )
 
     exec_id = str(uuid.uuid4())
     buffer_key = f"whatsapp:buffer:{conversation_id}"
-    timer_key  = f"whatsapp:timer:{conversation_id}"
+    timer_key = f"whatsapp:timer:{conversation_id}"
 
     await r.rpush(buffer_key, message)
     await r.expire(buffer_key, debounce_seconds + 10)
