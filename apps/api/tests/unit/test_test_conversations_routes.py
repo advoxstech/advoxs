@@ -220,9 +220,7 @@ class TestSendTestMessage:
 
         assert playground_mock.await_args.kwargs["agents"] == agents_payload
 
-    def test_persiste_current_agent_id_na_conversa(
-        self, client, session, playground_mock
-    ) -> None:
+    def test_persiste_current_agent_id_na_conversa(self, client, session, playground_mock) -> None:
         agent_id = uuid.uuid4()
         playground_mock.return_value = {
             "responses": ["oi"],
@@ -239,9 +237,7 @@ class TestSendTestMessage:
 
         assert conversation.current_agent_id == agent_id
 
-    def test_sem_current_agent_id_nao_seta_atributo(
-        self, client, session, playground_mock
-    ) -> None:
+    def test_sem_current_agent_id_nao_seta_atributo(self, client, session, playground_mock) -> None:
         conversation = _conversation()
         self._arm_session(session, conversation)
 

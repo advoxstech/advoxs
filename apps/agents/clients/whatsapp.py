@@ -1,8 +1,9 @@
 import asyncio
-import httpx
-from dotenv import load_dotenv
 import os
 import time
+
+import httpx
+from dotenv import load_dotenv
 from loguru import logger
 
 from clients.ratelimit import acquire_rate_limit_slot
@@ -30,9 +31,7 @@ class WhatsAppClient:
         self._access_token = access_token
         self._base_url = f"{GRAPH_API_BASE_URL}/{GRAPH_API_VERSION}"
         self._client: httpx.AsyncClient | None = None
-        logger.info(
-            "WhatsAppClient inicializado | phone_number_id={}", phone_number_id
-        )
+        logger.info("WhatsAppClient inicializado | phone_number_id={}", phone_number_id)
 
     # ---------- SESSION LIFECYCLE ----------
     async def __aenter__(self):
@@ -74,14 +73,19 @@ class WhatsAppClient:
             try:
                 logger.info(
                     "Executando requisição à Graph API | method={} url={} tentativa={}",
-                    method, url, attempt,
+                    method,
+                    url,
+                    attempt,
                 )
                 response = await client.request(method, url, **kwargs)
 
                 if response.is_error:
                     logger.warning(
                         "Resposta HTTP não OK | method={} url={} status={} body={}",
-                        method, url, response.status_code, response.text,
+                        method,
+                        url,
+                        response.status_code,
+                        response.text,
                     )
                     last_error = {
                         "success": False,
@@ -104,14 +108,19 @@ class WhatsAppClient:
                 elapsed = round(time.perf_counter() - started_at, 3)
                 logger.info(
                     "Requisição concluída | method={} url={} status={} elapsed={}s",
-                    method, url, response.status_code, elapsed,
+                    method,
+                    url,
+                    response.status_code,
+                    elapsed,
                 )
                 return {"success": True, "data": data, "error": None}
 
             except httpx.TimeoutException:
                 logger.error(
                     "Timeout ao acessar Graph API | method={} url={} tentativa={}",
-                    method, url, attempt,
+                    method,
+                    url,
+                    attempt,
                 )
                 last_error = {
                     "success": False,
@@ -126,7 +135,10 @@ class WhatsAppClient:
             except httpx.ConnectError as e:
                 logger.error(
                     "Erro de conexão com Graph API | method={} url={} error={} tentativa={}",
-                    method, url, e, attempt,
+                    method,
+                    url,
+                    e,
+                    attempt,
                 )
                 last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
                 if attempt < _MAX_ATTEMPTS:

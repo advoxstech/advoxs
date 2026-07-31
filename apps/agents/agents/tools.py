@@ -1,15 +1,18 @@
+import os
+import tempfile
+from urllib.parse import urlparse
+
+import requests
 from langchain.tools import tool
 from langgraph.types import Command
-from clients.retrieval import retrieval_usuario, retrieval_escritorio
 from loguru import logger
-import requests
-import tempfile
-import os
-from urllib.parse import urlparse
+
+from clients.retrieval import retrieval_escritorio, retrieval_usuario
 
 ENDPOINT_URL = "http://localhost:8000/documents/users/insert"  # ajuste a URL base
 API_KEY = "LASKDJFLK234LWAK"  # ajuste conforme necessário
 CONVERSATION_ID = "1"  # ajuste conforme necessário
+
 
 @tool("enviar_documento")
 def enviar_documento(url: str, conversation_id: str) -> str:
@@ -41,7 +44,10 @@ def enviar_documento(url: str, conversation_id: str) -> str:
         return "Falha ao enviar documento: tempo limite excedido ao baixar o arquivo."
     except requests.exceptions.HTTPError as e:
         logger.error("Erro HTTP ao baixar documento | error={}", e)
-        return f"Falha ao enviar documento: erro ao baixar o arquivo (HTTP {download_response.status_code})."
+        return (
+            "Falha ao enviar documento: erro ao baixar o arquivo "
+            f"(HTTP {download_response.status_code})."
+        )
     except Exception as e:
         logger.error("Erro inesperado ao baixar documento | error={}", e)
         return "Falha ao enviar documento: erro inesperado ao baixar o arquivo."
@@ -69,7 +75,13 @@ def enviar_documento(url: str, conversation_id: str) -> str:
         logger.info("Arquivo temporário criado | path={}", tmp_path)
 
         with open(tmp_path, "rb") as f:
-            files = {"file": (filename, f, download_response.headers.get("Content-Type", "application/octet-stream"))}
+            files = {
+                "file": (
+                    filename,
+                    f,
+                    download_response.headers.get("Content-Type", "application/octet-stream"),
+                )
+            }
             data = {"convesation_id": conversation_id}  # typo mantido igual ao endpoint
             headers = {"Authorization": f"{API_KEY}"}  # ajuste conforme seu esquema de auth
 
@@ -109,15 +121,28 @@ def enviar_documento(url: str, conversation_id: str) -> str:
 
     elif insert_response.status_code == 422:
         logger.error("Erro de validação | response={}", insert_response.text)
-        return "Falha ao inserir documento: dados inválidos enviados ao servidor (erro de validação)."
+        return (
+            "Falha ao inserir documento: dados inválidos enviados ao servidor (erro de validação)."
+        )
 
     elif insert_response.status_code >= 500:
         logger.error("Erro interno do servidor | status={}", insert_response.status_code)
-        return f"Falha ao inserir documento: erro interno no servidor (HTTP {insert_response.status_code}). Tente novamente mais tarde."
+        return (
+            "Falha ao inserir documento: erro interno no servidor "
+            f"(HTTP {insert_response.status_code}). Tente novamente mais tarde."
+        )
 
     else:
-        logger.error("Resposta inesperada | status={} | response={}", insert_response.status_code, insert_response.text)
-        return f"Falha ao inserir documento: resposta inesperada do servidor (HTTP {insert_response.status_code})."
+        logger.error(
+            "Resposta inesperada | status={} | response={}",
+            insert_response.status_code,
+            insert_response.text,
+        )
+        return (
+            "Falha ao inserir documento: resposta inesperada do servidor "
+            f"(HTTP {insert_response.status_code})."
+        )
+
 
 @tool("buscar_base_conhecimento_agente")
 async def buscar_base_conhecimento_agente(

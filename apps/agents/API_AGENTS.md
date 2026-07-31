@@ -318,7 +318,7 @@ async def debounce_messages(
 **Retorno:**
 
 ```python
-{ "combined_message": str | None, "other_exec_is_running": bool }
+{"combined_message": str | None, "other_exec_is_running": bool}
 ```
 
 > Esse padrão garante que, numa rajada, **apenas a última** chamada processa o
@@ -335,10 +335,12 @@ class State(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]  # histórico acumulado
     attachments: list
     conversation_id: str
-    num_before_messages: int                             # janela de histórico
-    current_agent_id: str | None                         # agente fixado (id na lista `agents`)
-    receptive_message_specialist: bool                   # flag "primeira resposta"
-    agents: list[dict]                                   # agentes do tenant (id, name, instructions, is_entry_point, knowledge_base_file_ids)
+    num_before_messages: int  # janela de histórico
+    current_agent_id: str | None  # agente fixado (id na lista `agents`)
+    receptive_message_specialist: bool  # flag "primeira resposta"
+    agents: list[
+        dict
+    ]  # agentes do tenant (id, name, instructions, is_entry_point, knowledge_base_file_ids)
 ```
 
 - `messages` usa o reducer `operator.add` → cada execução do `agent_node`
@@ -653,7 +655,7 @@ from services.call_agent import run_agent
 
 respostas: list[str] = await run_agent(
     message="texto do usuário",
-    conversation_id="id-unico-da-conversa",   # vira o thread_id do checkpoint
+    conversation_id="id-unico-da-conversa",  # vira o thread_id do checkpoint
     attachments=[],
     num_before_messages=35,
 )

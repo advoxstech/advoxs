@@ -122,14 +122,19 @@ class ZApiClient:
             try:
                 logger.info(
                     "Executando requisição à Z-API | method={} url={} tentativa={}",
-                    method, log_url, attempt,
+                    method,
+                    log_url,
+                    attempt,
                 )
                 response = await client.request(method, url, **kwargs)
 
                 if response.is_error:
                     logger.warning(
                         "Resposta HTTP não OK | method={} url={} status={} body={}",
-                        method, log_url, response.status_code, response.text,
+                        method,
+                        log_url,
+                        response.status_code,
+                        response.text,
                     )
                     last_error = {
                         "success": False,
@@ -152,14 +157,19 @@ class ZApiClient:
                 elapsed = round(time.perf_counter() - started_at, 3)
                 logger.info(
                     "Requisição concluída | method={} url={} status={} elapsed={}s",
-                    method, log_url, response.status_code, elapsed,
+                    method,
+                    log_url,
+                    response.status_code,
+                    elapsed,
                 )
                 return {"success": True, "data": data, "error": None}
 
             except httpx.TimeoutException:
                 logger.error(
                     "Timeout ao acessar Z-API | method={} url={} tentativa={}",
-                    method, log_url, attempt,
+                    method,
+                    log_url,
+                    attempt,
                 )
                 last_error = {
                     "success": False,
@@ -174,7 +184,10 @@ class ZApiClient:
             except httpx.ConnectError as e:
                 logger.error(
                     "Erro de conexão com Z-API | method={} url={} error={} tentativa={}",
-                    method, log_url, e, attempt,
+                    method,
+                    log_url,
+                    e,
+                    attempt,
                 )
                 last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
                 if attempt < _MAX_ATTEMPTS:

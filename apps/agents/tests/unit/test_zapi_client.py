@@ -51,7 +51,10 @@ class TestSendTextMessage:
         assert result["success"] is True
         call = request_mock.await_args
         assert call.args[0] == "POST"
-        assert call.args[1] == "https://api.z-api.io/instances/inst-123/token/token-do-tenant/send-text"
+        assert (
+            call.args[1]
+            == "https://api.z-api.io/instances/inst-123/token/token-do-tenant/send-text"
+        )
         assert call.kwargs["json"] == {"phone": "5511999998888", "message": "oi"}
         assert call.kwargs["headers"] == {"Content-Type": "application/json"}
 
@@ -151,9 +154,7 @@ class TestLogRedaction:
 
     async def test_sucesso_nao_loga_o_token_em_texto_plano(self, client, monkeypatch) -> None:
         response = httpx.Response(200, json={"id": "m1"})
-        monkeypatch.setattr(
-            httpx.AsyncClient, "request", AsyncMock(return_value=response)
-        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=response))
         logged: list[str] = []
         monkeypatch.setattr(
             zapi_module.logger,
@@ -170,9 +171,7 @@ class TestLogRedaction:
 
     async def test_erro_http_nao_loga_o_token_em_texto_plano(self, client, monkeypatch) -> None:
         response = httpx.Response(500, text="internal error")
-        monkeypatch.setattr(
-            httpx.AsyncClient, "request", AsyncMock(return_value=response)
-        )
+        monkeypatch.setattr(httpx.AsyncClient, "request", AsyncMock(return_value=response))
         logged: list[str] = []
         monkeypatch.setattr(
             zapi_module.logger,
@@ -222,7 +221,9 @@ class TestSendTextMessageRateLimit:
         assert acquire_mock.await_count == 2
         assert request_mock.await_count == 1
 
-    async def test_rate_limit_negado_em_todas_as_tentativas_falha(self, client, monkeypatch) -> None:
+    async def test_rate_limit_negado_em_todas_as_tentativas_falha(
+        self, client, monkeypatch
+    ) -> None:
         acquire_mock = AsyncMock(return_value=False)
         monkeypatch.setattr(zapi_module, "acquire_rate_limit_slot", acquire_mock)
         request_mock = AsyncMock()

@@ -1,15 +1,16 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from langchain_core.messages import AIMessage
 from langgraph.graph import END
-from tests.factories import ai_with_tool_call, ai_response, mock_model, base_state
 
 import agents.tools as tools_module
-
+from tests.factories import ai_response, ai_with_tool_call, base_state, mock_model
 
 # ──────────────────────────────────────────────
 # agent_node — ponto de entrada (current_agent_id=None)
 # ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_entry_point_sem_tool_calls_vai_para_end():
@@ -25,6 +26,7 @@ async def test_entry_point_sem_tool_calls_vai_para_end():
 @pytest.mark.asyncio
 async def test_entry_point_com_tool_call_vai_para_tool_node():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "other-1"})
 
     with patch("agents.nodes.model", mock_model(fake)):
@@ -58,6 +60,7 @@ async def test_sem_agentes_no_estado_retorna_erro_generico():
 @pytest.mark.asyncio
 async def test_transfer_sem_content_injeta_despedida_com_nome_do_agente():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "other-1"}, content="")
 
     with patch("agents.nodes.model", mock_model(fake)):
@@ -71,6 +74,7 @@ async def test_transfer_sem_content_injeta_despedida_com_nome_do_agente():
 @pytest.mark.asyncio
 async def test_transfer_com_content_nao_sobrescreve():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call(
         "transfer_to_agent", {"agent_id": "other-1"}, content="Um momento, vou transferir você."
     )
@@ -85,6 +89,7 @@ async def test_transfer_com_content_nao_sobrescreve():
 @pytest.mark.asyncio
 async def test_transfer_tool_call_mantem_tool_calls_na_mensagem():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "other-1"})
 
     with patch("agents.nodes.model", mock_model(fake)):
@@ -98,6 +103,7 @@ async def test_transfer_tool_call_mantem_tool_calls_na_mensagem():
 # ──────────────────────────────────────────────
 # agent_node — roster de outros agentes no prompt (transferência dinâmica)
 # ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_prompt_inclui_roster_de_outros_agentes_para_transferencia(monkeypatch) -> None:
@@ -133,13 +139,17 @@ async def test_sem_outros_agentes_nao_inclui_bloco_de_roster(monkeypatch) -> Non
     model = mock_model(ai_response("oi"))
     monkeypatch.setattr("agents.nodes.model", model)
 
-    state = base_state(agents=[{
-        "id": "entry-1",
-        "name": "Secretária",
-        "instructions": "Você é a secretária de triagem.",
-        "is_entry_point": True,
-        "knowledge_base_file_ids": [],
-    }])
+    state = base_state(
+        agents=[
+            {
+                "id": "entry-1",
+                "name": "Secretária",
+                "instructions": "Você é a secretária de triagem.",
+                "is_entry_point": True,
+                "knowledge_base_file_ids": [],
+            }
+        ]
+    )
     await agent_node(state)
 
     prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
@@ -150,12 +160,15 @@ async def test_sem_outros_agentes_nao_inclui_bloco_de_roster(monkeypatch) -> Non
 # agent_node — agente não-entry-point (equivalente aos especialistas de antes)
 # ──────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_agente_atual_sem_tool_calls_sem_content_vai_para_end():
     from agents.nodes import agent_node
 
     with patch("agents.nodes.model", mock_model(ai_response(""))):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=False)
+        )
 
     assert result.goto == END
     assert result.update["current_agent_id"] == "other-1"
@@ -164,10 +177,13 @@ async def test_agente_atual_sem_tool_calls_sem_content_vai_para_end():
 @pytest.mark.asyncio
 async def test_agente_atual_com_tool_call_vai_para_tool_node():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "entry-1"})
 
     with patch("agents.nodes.model", mock_model(fake)):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=False)
+        )
 
     assert result.goto == "tool_node"
 
@@ -177,7 +193,9 @@ async def test_agente_atual_com_content_sem_tool_vai_para_end():
     from agents.nodes import agent_node
 
     with patch("agents.nodes.model", mock_model(ai_response("Vou te ajudar com o condomínio."))):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=False)
+        )
 
     assert result.goto == END
 
@@ -187,8 +205,11 @@ async def test_agente_atual_first_run_reseta_flag():
     """receptive_message_specialist deve ser False no update após first_run=True."""
     from agents.nodes import agent_node
 
-    with patch("agents.nodes.model", mock_model(ai_response("Olá! Sou o especialista condominial."))):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=True))
+    resposta = ai_response("Olá! Sou o especialista condominial.")
+    with patch("agents.nodes.model", mock_model(resposta)):
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=True)
+        )
 
     assert result.update.get("receptive_message_specialist") is False
 
@@ -198,7 +219,9 @@ async def test_agente_atual_nao_first_run_nao_inclui_flag_no_update():
     from agents.nodes import agent_node
 
     with patch("agents.nodes.model", mock_model(ai_response(""))):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=False)
+        )
 
     assert "receptive_message_specialist" not in result.update
 
@@ -221,10 +244,13 @@ async def test_ponto_de_entrada_nunca_recebe_instrucao_de_first_run(monkeypatch)
 @pytest.mark.asyncio
 async def test_transfer_sem_content_injeta_despedida_no_agente_atual():
     from agents.nodes import agent_node
+
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "entry-1"}, content="")
 
     with patch("agents.nodes.model", mock_model(fake)):
-        result = await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+        result = await agent_node(
+            base_state(current_agent_id="other-1", receptive_message_specialist=False)
+        )
 
     ai_msg = result.update["messages"][0]
     assert ai_msg.content != ""
@@ -234,6 +260,7 @@ async def test_transfer_sem_content_injeta_despedida_no_agente_atual():
 # ──────────────────────────────────────────────
 # tool_node — injeção de conversation_id, KB do agente e transferência
 # ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_tool_node_injeta_conversation_id_do_estado(monkeypatch) -> None:
@@ -291,9 +318,7 @@ async def test_tool_node_injeta_knowledge_base_file_ids_do_agente_atual(monkeypa
 
     await tool_node(state)
 
-    retrieval.assert_awaited_once_with(
-        "tenant-real:5511999998888", "regimento", doc_ids=["kb-1"]
-    )
+    retrieval.assert_awaited_once_with("tenant-real:5511999998888", "regimento", doc_ids=["kb-1"])
 
 
 @pytest.mark.asyncio

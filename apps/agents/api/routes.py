@@ -4,16 +4,17 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import JSONResponse
-from services.concat_messages import debounce_messages
-from services.call_agent import run_agent, DB_URI
-from services.summarize import summarize_conversation
-from services.update_context import add_context_messages
-from clients.whatsapp import WhatsAppClient
-from clients.zapi import ZApiClient
-from agents.registry import AGENTS_REGISTRY
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
 from pydantic import BaseModel, Field
+
+from agents.registry import AGENTS_REGISTRY
+from clients.whatsapp import WhatsAppClient
+from clients.zapi import ZApiClient
+from services.call_agent import DB_URI, run_agent
+from services.concat_messages import debounce_messages
+from services.summarize import summarize_conversation
+from services.update_context import add_context_messages
 
 AGENTS_API_KEY = os.getenv("AGENTS_API_KEY")
 
@@ -158,21 +159,18 @@ async def receive(body: IncomingMessage):
 
             async with whatsapp_client_cm as client:
                 for i, msg in enumerate(response):
-                    result = await client.send_text_message(
-                        body.contact_phone_number, msg
-                    )
+                    result = await client.send_text_message(body.contact_phone_number, msg)
                     if not result.get("success"):
                         logger.warning(
-                            "Falha ao entregar mensagem via WhatsApp | thread_id={} índice={} erro={}",
+                            "Falha ao entregar mensagem via WhatsApp | "
+                            "thread_id={} índice={} erro={}",
                             thread_id,
                             i,
                             result.get("error"),
                         )
                         delivery_failures.append(i)
         else:
-            logger.info(
-                "send_to_whatsapp=False — envio pulado | thread_id={}", thread_id
-            )
+            logger.info("send_to_whatsapp=False — envio pulado | thread_id={}", thread_id)
 
         # Devolve as respostas, os tokens da execução e as falhas de entrega
         # para o chamador (`worker`) persistir em `messages` e debitar
@@ -242,10 +240,7 @@ async def summarize(body: SummaryRequest):
 
     try:
         summary, usage = await summarize_conversation(
-            [
-                {"sender_type": m.sender_type, "content": m.content}
-                for m in body.messages
-            ]
+            [{"sender_type": m.sender_type, "content": m.content} for m in body.messages]
         )
     except Exception:
         logger.exception("Erro ao gerar resumo")
