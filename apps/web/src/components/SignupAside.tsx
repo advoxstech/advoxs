@@ -38,7 +38,7 @@ export function SignupAside() {
       <div className="relative z-10 hidden flex-col gap-5 lg:flex">
         {BENEFITS.map((benefit) => (
           <div key={benefit.title} className="flex items-start gap-3.5">
-            <span className="mt-0.5 h-5 w-5 flex-none rounded-md border border-auth-accent/50 bg-auth-accent/20" />
+            <span className="mt-2.5 h-1.5 w-1.5 flex-none rounded-full bg-auth-accent" />
             <div className="flex flex-col gap-0.5">
               <span className="text-[15px] font-semibold text-nav-ink">{benefit.title}</span>
               <span className="text-sm leading-relaxed text-nav-ink-muted">
