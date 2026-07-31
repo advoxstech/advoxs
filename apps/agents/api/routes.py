@@ -133,7 +133,7 @@ async def receive(body: IncomingMessage):
 
     try:
         logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
-        response, usage, current_agent = await run_agent(
+        response, usage, current_agent, current_agent_id = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
             conversation_id=thread_id,
@@ -184,6 +184,7 @@ async def receive(body: IncomingMessage):
             "tokens_input": usage["input_tokens"],
             "tokens_output": usage["output_tokens"],
             "current_agent": current_agent,
+            "current_agent_id": current_agent_id,
             "delivery_failures": delivery_failures,
         }
     except Exception:

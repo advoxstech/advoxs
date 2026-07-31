@@ -31,9 +31,9 @@ async def send_playground_message(
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
     Retorna {"responses": [...], "tokens_used": N, "tokens_input": N,
-    "tokens_output": N, "current_agent": "..."}, ou None quando o agents
-    devolve 202 (debounce agrupou a mensagem numa execução em andamento —
-    as respostas virão pela execução que já roda).
+    "tokens_output": N, "current_agent": "...", "current_agent_id": "..."},
+    ou None quando o agents devolve 202 (debounce agrupou a mensagem numa
+    execução em andamento — as respostas virão pela execução que já roda).
 
     `agents`: lista de agentes do tenant (id, name, instructions,
     is_entry_point, knowledge_base_file_ids) — ver
@@ -74,6 +74,7 @@ async def send_playground_message(
         "tokens_input": data.get("tokens_input", 0),
         "tokens_output": data.get("tokens_output", 0),
         "current_agent": data.get("current_agent"),
+        "current_agent_id": data.get("current_agent_id"),
     }
 
 

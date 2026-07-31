@@ -26,6 +26,7 @@ const conversation: Conversation = {
   summary_generated_at: null,
   end_customer_billing_exempt: false,
   end_customer_billing_enabled: false,
+  current_agent_name: null,
 };
 
 function message(id: string, sender: Message["sender_type"], content: string): Message {
@@ -45,6 +46,28 @@ beforeEach(() => {
 });
 
 describe("TestConversationThread", () => {
+  it("mostra o nome do agente ativo quando current_agent_name está presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <TestConversationThread
+        conversation={{ ...conversation, current_agent_name: "Condominial" }}
+        onDeleted={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+  });
+
+  it("mostra o texto genérico quando current_agent_name é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(<TestConversationThread conversation={conversation} onDeleted={() => {}} pollMs={0} />);
+
+    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+  });
+
   it("envia mensagem e renderiza a resposta do agente", async () => {
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (String(path).endsWith("/test-messages") && init?.method === "POST") {

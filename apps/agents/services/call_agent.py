@@ -50,7 +50,7 @@ async def run_agent(
     num_before_messages: int = 35,
     extra_data: dict = {},
     agents: list[dict] | None = None,
-) -> tuple[list[str], dict, str | None]:
+) -> tuple[list[str], dict, str | None, str | None]:
     started_at = time.perf_counter()
     config = {
         "configurable": {"thread_id": conversation_id},
@@ -91,7 +91,8 @@ async def run_agent(
     usage = sum_usage_breakdown(new_messages)
 
     agents_by_id = {a["id"]: a for a in agents}
-    current_agent_entry = agents_by_id.get(response.get("current_agent_id"))
+    current_agent_id = response.get("current_agent_id")
+    current_agent_entry = agents_by_id.get(current_agent_id)
     current_agent = current_agent_entry["name"] if current_agent_entry else None
 
     elapsed = round(time.perf_counter() - started_at, 3)
@@ -108,4 +109,4 @@ async def run_agent(
             "Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans
         )
 
-    return answers, usage, current_agent
+    return answers, usage, current_agent, current_agent_id

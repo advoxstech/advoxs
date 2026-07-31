@@ -264,6 +264,7 @@ async def process_inbound_message(
     tokens_used = result.get("tokens_used", 0)
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
+    current_agent_id = result.get("current_agent_id")
     delivery_failures = set(result.get("delivery_failures", []))
 
     async with open_tenant_session(session_factory, tenant_id) as session:
@@ -293,6 +294,15 @@ async def process_inbound_message(
             credits_persistido,
             delivery_failures,
         )
+
+        if current_agent_id:
+            # Pra exibir "{nome do agente} respondendo" no painel em vez do
+            # texto genérico — atualiza mesmo se `responses` veio vazio.
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(current_agent_id=uuid.UUID(current_agent_id))
+            )
         if credits and first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final
             # (quando a cobrança está habilitada e havia saldo antes da

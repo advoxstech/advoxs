@@ -51,6 +51,7 @@ conversations = Table(
     Column("billing_gate_retries", Integer),
     Column("billing_gate_checkout_url", Text),
     Column("end_customer_billing_exempt", Boolean, nullable=False),
+    Column("current_agent_id", Uuid),
 )
 
 messages = Table(

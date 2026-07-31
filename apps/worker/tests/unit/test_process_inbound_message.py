@@ -504,6 +504,48 @@ async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched
     assert persist_args[5] == 0  # credits não contabilizado (ilimitado)
 
 
+async def test_persiste_current_agent_id_quando_presente(patched) -> None:
+    agent_id = str(uuid.uuid4())
+    patched["send"].return_value = {
+        "responses": ["oi"],
+        "tokens_used": 100,
+        "current_agent_id": agent_id,
+    }
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    updates = [
+        call.args[0]
+        for call in session.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+        and "current_agent_id" in str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+    ]
+    assert len(updates) == 1
+    compiled = str(updates[0].compile(compile_kwargs={"literal_binds": True}))
+    # UUID literal compilado vem sem hífens.
+    assert agent_id.replace("-", "") in compiled
+
+
+async def test_sem_current_agent_id_nao_atualiza_conversa(patched) -> None:
+    # Resposta sem current_agent_id (versão antiga do agents durante deploy,
+    # ou grafo sem agente resolvido) — não deve tentar setar a coluna.
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 100}
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    updates = [
+        call.args[0]
+        for call in session.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+        and "current_agent_id" in str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+    ]
+    assert updates == []
+
+
 async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> None:
     # Assinatura ativa + tenant e cliente final zerados: mesmo assim não fica
     # em silêncio (o gate/silêncio nunca dispara pra assinante) e nenhum dos

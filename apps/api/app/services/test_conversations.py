@@ -55,6 +55,12 @@ async def send_test_message(
     tokens_used = result["tokens_used"] or 0
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
+    current_agent_id = result.get("current_agent_id")
+    if current_agent_id:
+        # Pra exibir "{nome do agente} respondendo" no painel — mesma coluna
+        # usada pelas conversas reais (worker), atualizada aqui pro caminho
+        # síncrono das conversas de teste.
+        conversation.current_agent_id = uuid.UUID(current_agent_id)
     config = await get_current_pricing_config(session)
     credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
 
