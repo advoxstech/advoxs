@@ -15,7 +15,7 @@ const BENEFITS = [
 
 export function SignupAside() {
   return (
-    <aside className="relative flex flex-col justify-between gap-12 overflow-hidden bg-gradient-to-b from-nav-bg to-nav-bg-2 px-8 py-10 text-nav-ink lg:px-14 lg:py-14">
+    <aside className="relative flex flex-col justify-start gap-12 overflow-hidden bg-gradient-to-b from-nav-bg to-nav-bg-2 px-8 py-10 text-nav-ink lg:sticky lg:top-0 lg:h-screen lg:self-start lg:px-14 lg:py-14">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-44 -top-44 h-[460px] w-[460px] rounded-full bg-nav-active/45 blur-3xl"
