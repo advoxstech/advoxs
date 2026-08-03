@@ -19,7 +19,7 @@ TENANT_ID = uuid.uuid4()
 FILE_ID = uuid.uuid4()
 
 
-def _record(status: str = "ready") -> SimpleNamespace:
+def _record(status: str = "ready", category: str | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         id=FILE_ID,
         tenant_id=TENANT_ID,
@@ -28,6 +28,7 @@ def _record(status: str = "ready") -> SimpleNamespace:
         mime_type="application/pdf",
         status=status,
         error_message=None,
+        category=category,
         uploaded_at=datetime.now(UTC),
     )
 
@@ -100,11 +101,15 @@ def _upload(
     content=b"%PDF-1.4 conteudo",
     mime="application/pdf",
     agent_id=None,
+    category=None,
 ):
+    data = {"agent_id": str(agent_id or AGENT_ID)}
+    if category is not None:
+        data["category"] = category
     return client.post(
         "/api/v1/knowledge-base/files",
         files={"file": (filename, io.BytesIO(content), mime)},
-        data={"agent_id": str(agent_id or AGENT_ID)},
+        data=data,
     )
 
 
@@ -139,6 +144,25 @@ class TestUpload:
         assert kwargs["tenant_id"] == str(TENANT_ID)
         saved = tmp_path / str(TENANT_ID) / kwargs["file_id"]
         assert saved.read_bytes() == b"%PDF-1.4 conteudo"
+
+    def test_upload_com_categoria_valida(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+        session.scalar.side_effect = [
+            SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID),
+            0,
+            0,
+            None,
+        ]
+
+        response = _upload(client, category="decisoes_tribunais")
+
+        assert response.status_code == 202
+        assert response.json()["category"] == "decisoes_tribunais"
+
+    def test_upload_com_categoria_invalida_422(self, client, session) -> None:
+        response = _upload(client, category="categoria-que-nao-existe")
+
+        assert response.status_code == 422
 
     def test_extensao_invalida_400(self, client, session) -> None:
         session.execute.return_value = _active_subscription()
@@ -289,7 +313,7 @@ class TestUpload:
 class TestList:
     def test_lista_arquivos_do_tenant(self, client, session) -> None:
         files_result = MagicMock()
-        files_result.scalars.return_value.all.return_value = [_record()]
+        files_result.scalars.return_value.all.return_value = [_record(category="livros_digitais")]
         links_result = MagicMock()
         links_result.all.return_value = [(FILE_ID, AGENT_ID)]
         session.execute.side_effect = [files_result, links_result]
@@ -300,6 +324,7 @@ class TestList:
         body = response.json()
         assert body[0]["filename"] == "regimento.pdf"
         assert body[0]["agent_ids"] == [str(AGENT_ID)]
+        assert body[0]["category"] == "livros_digitais"
 
     def test_lista_arquivos_com_multiplos_agentes_e_sem_agente(self, client, session) -> None:
         """Cobre as 3 cardinalidades que a árvore do frontend precisa
@@ -315,6 +340,7 @@ class TestList:
             mime_type="application/pdf",
             status="ready",
             error_message=None,
+            category=None,
             uploaded_at=datetime.now(UTC),
         )
         files_result = MagicMock()
@@ -411,3 +437,58 @@ class TestReprocess:
 
         assert response.status_code == 409
         arq.enqueue_job.assert_not_awaited()
+
+
+class TestPatchCategory:
+    def test_recategoriza_com_sucesso(self, client, session) -> None:
+        record = _record(category=None)
+        session.scalar.return_value = record
+        links_result = MagicMock()
+        links_result.scalars.return_value.all.return_value = [AGENT_ID]
+        session.execute.return_value = links_result
+
+        response = client.patch(
+            f"/api/v1/knowledge-base/files/{FILE_ID}",
+            json={"category": "processos_judiciais"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["category"] == "processos_judiciais"
+        assert body["agent_ids"] == [str(AGENT_ID)]
+        assert record.category == "processos_judiciais"
+        session.commit.assert_awaited_once()
+
+    def test_recategoriza_para_sem_categoria(self, client, session) -> None:
+        record = _record(category="livros_digitais")
+        session.scalar.return_value = record
+        links_result = MagicMock()
+        links_result.scalars.return_value.all.return_value = []
+        session.execute.return_value = links_result
+
+        response = client.patch(
+            f"/api/v1/knowledge-base/files/{FILE_ID}",
+            json={"category": None},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["category"] is None
+        assert record.category is None
+
+    def test_recategoriza_arquivo_inexistente_404(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.patch(
+            f"/api/v1/knowledge-base/files/{uuid.uuid4()}",
+            json={"category": "livros_digitais"},
+        )
+
+        assert response.status_code == 404
+
+    def test_categoria_invalida_422(self, client, session) -> None:
+        response = client.patch(
+            f"/api/v1/knowledge-base/files/{FILE_ID}",
+            json={"category": "categoria-que-nao-existe"},
+        )
+
+        assert response.status_code == 422

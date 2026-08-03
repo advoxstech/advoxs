@@ -58,7 +58,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     return () => clearInterval(interval);
   }, [load, pollMs, hasProcessing]);
 
-  async function handleUpload(agentId: string, selected: File) {
+  async function handleUpload(agentId: string, selected: File, category: string) {
     setFeedback(null);
     const extension = selected.name.slice(selected.name.lastIndexOf(".")).toLowerCase();
     if (![".pdf", ".docx", ".txt"].includes(extension)) {
@@ -72,6 +72,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     const form = new FormData();
     form.append("file", selected);
     form.append("agent_id", agentId);
+    if (category) form.append("category", category);
     setUploading(true);
     try {
       const response = await backendFetch("knowledge-base/files", { method: "POST", body: form });
@@ -138,6 +139,24 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     }
   }
 
+  async function handleRecategorize(fileId: string, category: string) {
+    setFeedback(null);
+    try {
+      const response = await backendFetch(`knowledge-base/files/${fileId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ category: category || null }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setFeedback(body?.detail ?? "Falha ao recategorizar — tente novamente.");
+        return;
+      }
+      await load();
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
   async function handleReprocess(file: KbFile) {
     try {
       const response = await backendFetch(`knowledge-base/files/${file.id}/reprocess`, {
@@ -159,8 +178,8 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
         <p className="text-sm text-muted">
-          PDF, DOCX ou TXT, até 20 MB — organizada por agente. Um arquivo pode ser anexado a mais
-          de um.
+          PDF, DOCX ou TXT, até 20 MB — organizada por agente e, dentro de cada agente, por
+          categoria. Um arquivo pode ser anexado a mais de um agente.
         </p>
       </header>
 
@@ -187,6 +206,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
             onDetach={handleDetach}
             onDelete={handleDelete}
             onReprocess={handleReprocess}
+            onRecategorize={handleRecategorize}
           />
         ))}
       </div>
