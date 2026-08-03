@@ -44,9 +44,17 @@ DOCUMENT_API_KEY = os.getenv("DOCUMENT_API_KEY", "")
 # dia DOCUMENT_API_BASE_URL apontar pra um hostname válido (o conserto de
 # verdade, do lado da infra), esse código some da jogada sozinho, sem precisar
 # tocar aqui.
+#
+# IMPORTANTE: a âncora precisa ser um hostname que a Cloudflare realmente
+# roteia por Host: — a raiz "nua" da zona (rootlab.com.br) NÃO funciona (dá
+# 404, confirmado em produção 2026-08-03: provavelmente não tem regra de
+# roteamento própria configurada pra ela sozinha). "advoxs.rootlab.com.br"
+# É o hostname validado de ponta a ponta (TLS + roteamento por Host: até o
+# serviço de geração de documento) — usar qualquer outro hostname aqui sem
+# testar de novo pode reintroduzir esse mesmo bug.
 _parsed_base_url = urlsplit(DOCUMENT_API_BASE_URL)
 _REAL_HOSTNAME = _parsed_base_url.hostname or ""
-_TLS_SNI_ANCHOR_HOSTNAME = "rootlab.com.br"
+_TLS_SNI_ANCHOR_HOSTNAME = "advoxs.rootlab.com.br"
 _NEEDS_SNI_HOST_WORKAROUND = "_" in _REAL_HOSTNAME
 
 
@@ -73,6 +81,15 @@ _DRAFT_RESPONSE_FIELD = {
     "aviso": "aviso",
 }
 
+# Segmento de URL do endpoint make_{...}_llm — normalmente igual à chave
+# interna (`tipo`), EXCETO "contrato": o endpoint real é "make_contract_llm"
+# (inglês), confirmado no fluxo n8n original e reproduzido pelo erro 404 em
+# produção (2026-08-03) até essa correção. Os demais tipos usam o nome em
+# português, igual à chave interna.
+_DRAFT_ENDPOINT_SEGMENT = {
+    "contrato": "contract",
+}
+
 _TIMEOUT_SECONDS = 90.0
 
 
@@ -92,7 +109,8 @@ def _headers() -> dict:
 
 async def _draft_document(client: httpx.AsyncClient, tipo: str, text_payload: str) -> str:
     campo = _DRAFT_RESPONSE_FIELD[tipo]
-    url = f"{_REQUEST_BASE_URL}/make_{tipo}_llm"
+    endpoint_segment = _DRAFT_ENDPOINT_SEGMENT.get(tipo, tipo)
+    url = f"{_REQUEST_BASE_URL}/make_{endpoint_segment}_llm"
     try:
         response = await client.post(url, headers=_headers(), json={"text": text_payload})
         response.raise_for_status()
