@@ -133,6 +133,25 @@ describe("TestConversationThread", () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
   });
 
+  it("mensagem com media_url renderiza como link clicável", async () => {
+    const docMessage: Message = {
+      id: "m5",
+      sender_type: "agent",
+      content: "📄 Aviso.pdf",
+      media_url: "https://agents.exemplo.com/generated-documents/doc-1",
+      media_type: "application/pdf",
+      delivery_status: null,
+      created_at: new Date().toISOString(),
+    };
+    backendFetchMock.mockResolvedValue(jsonResponse([docMessage]));
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} pollMs={0} />);
+
+    const link = await screen.findByRole("link", { name: "📄 Aviso.pdf" });
+    expect(link).toHaveAttribute("href", "https://agents.exemplo.com/generated-documents/doc-1");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
   it("não duplica a mensagem do contato quando o polling já a trouxe antes do POST resolver", async () => {
     // Corrida real: a mensagem do contato é commitada antes da chamada ao
     // agente (que pode levar >4s), então o poll a exibe primeiro; o retorno

@@ -449,7 +449,18 @@ function MessageBubble({ message }: { message: Message }) {
             {fromHuman ? "Você" : "Agente"}
           </span>
         ) : null}
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        {message.media_url ? (
+          <a
+            href={message.media_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-words underline decoration-dotted underline-offset-2 hover:text-accent"
+          >
+            {message.content}
+          </a>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        )}
       </div>
       <div className="mt-1 flex items-center gap-1.5">
         {message.delivery_status === "failed" ? (
