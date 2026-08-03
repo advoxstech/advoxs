@@ -7,8 +7,15 @@ from loguru import logger
 
 from agents.helpers import strip_messages
 from agents.tools import (
+    DOCUMENT_TOOLS,
     bucar_base_conhecimento_usuario,
     buscar_base_conhecimento_agente,
+    enviar_aviso,
+    enviar_edital_convocacao,
+    fazer_advertencia,
+    fazer_contrato,
+    fazer_multa,
+    fazer_oficio,
     tools,
     transfer_to_agent,
 )
@@ -18,11 +25,13 @@ load_dotenv()
 model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
-# o tenant_id vive dentro dele (isolamento multi-tenant).
+# o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
+# documento (ver agents/tools.py) usam conversation_id só pra log/rastreio,
+# mas mesmo assim nunca confiam no valor que o LLM eventualmente informe.
 STATE_SCOPED_TOOLS = {
     "bucar_base_conhecimento_usuario",
     "buscar_base_conhecimento_agente",
-}
+} | DOCUMENT_TOOLS
 
 
 async def agent_node(state: dict) -> Command:
@@ -65,6 +74,12 @@ async def agent_node(state: dict) -> Command:
         transfer_to_agent,
         buscar_base_conhecimento_agente,
         bucar_base_conhecimento_usuario,
+        fazer_contrato,
+        fazer_multa,
+        fazer_advertencia,
+        fazer_oficio,
+        enviar_edital_convocacao,
+        enviar_aviso,
     ]
     model_with_tools = model.bind_tools(tools_for_agent)
 

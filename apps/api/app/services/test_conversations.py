@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.agents import send_playground_message
 from app.models import Conversation, CreditTransaction, Message, Tenant
 from app.services.agents_engine import load_agents_for_engine
-from app.services.pricing import calcular_creditos, get_current_pricing_config
+from app.services.pricing import (
+    DOCUMENT_GENERATION_CREDIT_COST,
+    calcular_creditos,
+    get_current_pricing_config,
+)
 
 
 async def send_test_message(
@@ -56,32 +60,55 @@ async def send_test_message(
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
     current_agent_id = result.get("current_agent_id")
+    documents: list[dict] = result.get("documents", [])
     if current_agent_id:
         # Pra exibir "{nome do agente} respondendo" no painel — mesma coluna
         # usada pelas conversas reais (worker), atualizada aqui pro caminho
         # síncrono das conversas de teste.
         conversation.current_agent_id = uuid.UUID(current_agent_id)
     config = await get_current_pricing_config(session)
-    credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
+    # Custo de tokens + custo fixo de cada documento gerado nesta execução
+    # (ver agents/tools.py) — mesma fórmula do worker (conversas reais).
+    credits = (
+        calcular_creditos(tokens_input, tokens_output, tokens_used, config)
+        + len(documents) * DOCUMENT_GENERATION_CREDIT_COST
+    )
 
     now = datetime.now(UTC)
     agent_messages: list[Message] = []
-    for i, text in enumerate(responses):
+    index = 0
+    for text in responses:
         message = Message(
             conversation_id=conversation.id,
             tenant_id=tenant_id,
             sender_type="agent",
             content=text,
-            # Mesma execução pode gerar várias respostas (ex: despedida da
-            # secretária + saudação do especialista) — sem offset por índice,
-            # todas cravam o mesmo instante e a ordenação por created_at não
-            # tem como desempatar a ordem real de geração.
-            created_at=now + timedelta(microseconds=i),
-            tokens_used=tokens_used if i == 0 else None,
-            credits_consumed=credits if i == 0 else None,
+            # Mesma execução pode gerar várias respostas/documentos (ex:
+            # despedida da secretária + saudação do especialista) — sem
+            # offset por índice, todas cravam o mesmo instante e a ordenação
+            # por created_at não tem como desempatar a ordem real de geração.
+            created_at=now + timedelta(microseconds=index),
+            tokens_used=tokens_used if index == 0 else None,
+            credits_consumed=credits if index == 0 else None,
         )
         session.add(message)
         agent_messages.append(message)
+        index += 1
+    for doc in documents:
+        message = Message(
+            conversation_id=conversation.id,
+            tenant_id=tenant_id,
+            sender_type="agent",
+            content=f"📄 {doc['filename']}",
+            media_url=doc["link"],
+            media_type="application/pdf",
+            created_at=now + timedelta(microseconds=index),
+            tokens_used=tokens_used if index == 0 else None,
+            credits_consumed=credits if index == 0 else None,
+        )
+        session.add(message)
+        agent_messages.append(message)
+        index += 1
     conversation.last_message_at = now
     await session.flush()
 
