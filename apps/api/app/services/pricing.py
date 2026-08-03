@@ -15,6 +15,13 @@ from app.models import PricingConfig
 
 _PRECISION = Decimal("1")
 
+# Custo fixo em créditos por documento gerado (fazer_contrato/fazer_multa/etc,
+# ver apps/agents/agents/tools.py) — somado ao custo normal de tokens do
+# turno. Espelha apps/worker/app/pricing.py e
+# apps/agents/agents/tools.py::DOCUMENT_GENERATION_CREDIT_COST (mesmo padrão
+# de constante duplicada por serviço já usado no resto do projeto).
+DOCUMENT_GENERATION_CREDIT_COST = Decimal(20)
+
 
 async def get_current_pricing_config(session: AsyncSession) -> PricingConfig:
     config = await session.scalar(

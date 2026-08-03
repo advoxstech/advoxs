@@ -111,8 +111,8 @@ async def test_consumo_ponderado_arredonda_pro_inteiro(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[4] == 3500  # tokens_used
-    assert persist_args[5] == Decimal("2")  # credits arredondados
+    assert persist_args[5] == 3500  # tokens_used
+    assert persist_args[6] == Decimal("2")  # credits arredondados
     patched["debitar"].assert_awaited_once_with(
         patched["debitar"].await_args.args[0],
         TENANT_ID,
@@ -257,7 +257,7 @@ async def test_delivery_failures_repassado_ao_persistir(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[6] == {1}
+    assert persist_args[7] == {1}
 
 
 def test_decrypt_access_token_roundtrip(monkeypatch) -> None:
@@ -500,8 +500,8 @@ async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[4] == 0  # tokens_used não contabilizado (ilimitado)
-    assert persist_args[5] == 0  # credits não contabilizado (ilimitado)
+    assert persist_args[5] == 0  # tokens_used não contabilizado (ilimitado)
+    assert persist_args[6] == 0  # credits não contabilizado (ilimitado)
 
 
 async def test_persiste_current_agent_id_quando_presente(patched) -> None:

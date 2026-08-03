@@ -5,11 +5,19 @@ import requests
 from langgraph.types import Command
 
 from agents.tools import (
+    DOCUMENT_GENERATION_CREDIT_COST,
     bucar_base_conhecimento_usuario,
     buscar_base_conhecimento_agente,
+    enviar_aviso,
     enviar_documento,
+    enviar_edital_convocacao,
+    fazer_advertencia,
+    fazer_contrato,
+    fazer_multa,
+    fazer_oficio,
     transfer_to_agent,
 )
+from clients.document_generation import DocumentGenerationError
 
 # ──────────────────────────────────────────────
 # transfer_to_agent
@@ -251,3 +259,154 @@ def test_enviar_documento_infere_extensao_pelo_content_type():
 
         filename = mock_post.call_args[1]["files"]["file"][0]
         assert filename.endswith(".png")
+
+
+# ──────────────────────────────────────────────
+# Tools de geração de documento (fazer_contrato/fazer_multa/etc)
+# ──────────────────────────────────────────────
+
+_MULTA_ARGS = {
+    "nome_condominio": "Edifício Alfa",
+    "unidade": "101",
+    "nome_morador": "Fulano de Tal",
+    "tipo_infracao": "barulho",
+    "descricao_ocorrencia": "festa após as 22h",
+    "data_ocorrencia": "2026-01-01",
+    "hora_ocorrencia": "23:00",
+    "local_ocorrencia": "unidade 101",
+    "houve_advertencia_previa": True,
+    "nome_responsavel": "Síndico",
+    "cidade_data_emissao": "São Paulo, 02/01/2026",
+    "valor_multa": "R$ 500,00",
+    "percentual_taxa_condominial": "50%",
+    "forma_cobranca": "boleto",
+    "data_vencimento": "2026-02-01",
+    "prazo_recurso": "10 dias",
+    "destino_recurso": "síndico",
+}
+
+_CONTRATO_ARGS = {
+    "tipo_contrato": "prestação de serviço",
+    "objetivo_contrato": "consultoria",
+    "dados_contratante": "Empresa X",
+    "dados_contratado": "Empresa Y",
+    "servico_ou_objeto": "consultoria jurídica",
+    "valor_acordado": "R$ 1000,00",
+    "forma_pagamento": "à vista",
+    "prazo_contrato": "12 meses",
+    "multa_ou_penalidade": "10% sobre o valor",
+    "regras_importantes": "confidencialidade",
+    "foro_contrato": "São Paulo",
+}
+
+_ADVERTENCIA_ARGS = {
+    "nome_condominio": "Edifício Alfa",
+    "unidade": "101",
+    "nome_morador": "Fulano de Tal",
+    "tipo_infracao": "barulho",
+    "descricao_ocorrencia": "festa após as 22h",
+    "data_ocorrencia": "2026-01-01",
+    "hora_ocorrencia": "23:00",
+    "nome_responsavel": "Síndico",
+    "cidade_data_emissao": "São Paulo, 02/01/2026",
+}
+
+_OFICIO_ARGS = {
+    "numero_oficio": "014/2026",
+    "destinatario": "Secretaria Municipal",
+    "assunto": "manutenção",
+    "objetivo_oficio": "solicitar manutenção",
+    "descricao_detalhada": "computadores com defeito",
+    "nome_responsavel": "Diretor",
+    "cargo_responsavel": "Diretor Escolar",
+    "cidade_data": "Aracaju, 14/05/2026",
+}
+
+_EDITAL_ARGS = {
+    "nome_condominio": "Edifício Alfa",
+    "cnpj_condominio": "00.000.000/0001-00",
+    "endereco_condominio": "Rua X, 123",
+    "tipo_assembleia": "ordinária",
+    "data_assembleia": "2026-03-01",
+    "local_plataforma": "salão de festas",
+    "horario_primeira_convocacao": "19h",
+    "horario_segunda_convocacao": "19h30",
+    "ordem_dia": "eleição de síndico",
+    "nome_responsavel": "Síndico",
+    "cargo_responsavel": "Síndico",
+    "cidade_data_emissao": "São Paulo, 01/02/2026",
+}
+
+_AVISO_ARGS = {
+    "titulo_comunicado": "Manutenção da piscina",
+    "data": "2026-01-10",
+    "local_setor": "piscina",
+    "assunto": "manutenção",
+    "descricao_comunicado": "piscina fechada para manutenção",
+    "impactos_alteracoes": "piscina indisponível",
+    "orientacoes": "evitar a área",
+    "prazo_periodo": "3 dias",
+    "responsavel_comunicado": "Síndico",
+    "tom_comunicado": "informativo",
+}
+
+_DOCUMENT_TOOLS_CASES = [
+    (fazer_contrato, "contrato", "Contrato.pdf", _CONTRATO_ARGS),
+    (fazer_multa, "multa", "Multa.pdf", _MULTA_ARGS),
+    (fazer_advertencia, "advertencia", "Advertência.pdf", _ADVERTENCIA_ARGS),
+    (fazer_oficio, "oficio", "Ofício.pdf", _OFICIO_ARGS),
+    (enviar_edital_convocacao, "edital_convocacao", "Edital de Convocação.pdf", _EDITAL_ARGS),
+    (enviar_aviso, "aviso", "Aviso.pdf", _AVISO_ARGS),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, tipo, filename, args", _DOCUMENT_TOOLS_CASES)
+async def test_tool_documento_sucesso_devolve_command_com_link(tool, tipo, filename, args):
+    with (
+        patch("agents.tools.generate_pdf", new=AsyncMock(return_value=b"%PDF-1.4")) as mock_gen,
+        patch("agents.tools.save_pdf", return_value="doc-id-123") as mock_save,
+        patch(
+            "agents.tools.build_public_url",
+            return_value="https://agents.exemplo.com/generated-documents/doc-id-123",
+        ),
+    ):
+        result = await tool.ainvoke(args)
+
+    assert isinstance(result, Command)
+    docs = result.update["generated_documents"]
+    assert len(docs) == 1
+    assert docs[0]["filename"] == filename
+    assert docs[0]["link"] == "https://agents.exemplo.com/generated-documents/doc-id-123"
+    assert docs[0]["credit_cost"] == DOCUMENT_GENERATION_CREDIT_COST
+    mock_gen.assert_awaited_once()
+    assert mock_gen.await_args.args[0] == tipo
+    mock_save.assert_called_once_with(b"%PDF-1.4")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, tipo, filename, args", _DOCUMENT_TOOLS_CASES)
+async def test_tool_documento_falha_na_geracao_devolve_string_de_erro(tool, tipo, filename, args):
+    with patch(
+        "agents.tools.generate_pdf",
+        new=AsyncMock(side_effect=DocumentGenerationError("Falha ao gerar o documento.")),
+    ):
+        result = await tool.ainvoke(args)
+
+    assert isinstance(result, str)
+    assert "Falha" in result
+
+
+@pytest.mark.asyncio
+async def test_fazer_multa_repassa_todos_os_campos_no_payload():
+    with (
+        patch("agents.tools.generate_pdf", new=AsyncMock(return_value=b"%PDF-1.4")) as mock_gen,
+        patch("agents.tools.save_pdf", return_value="doc-id"),
+        patch("agents.tools.build_public_url", return_value="https://exemplo.com/x"),
+    ):
+        await fazer_multa.ainvoke(_MULTA_ARGS)
+
+    text_payload = mock_gen.await_args.args[1]
+    assert "Edifício Alfa" in text_payload
+    assert "Fulano de Tal" in text_payload
+    assert "R$ 500,00" in text_payload

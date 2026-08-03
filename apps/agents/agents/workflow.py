@@ -16,6 +16,11 @@ class State(TypedDict):
     current_agent_id: str | None
     receptive_message_specialist: bool
     agents: list[dict]
+    # Documentos gerados nesta invocação (fazer_contrato/fazer_multa/etc, ver
+    # agents/tools.py) — acumula por toda a conversa (mesmo reducer de
+    # `messages`); call_agent.py fatia só os novos, mesmo padrão usado pra
+    # `messages`.
+    generated_documents: Annotated[list[dict], operator.add]
 
 
 graph = StateGraph(State)

@@ -1,9 +1,11 @@
+import asyncio
 import os
 import secrets
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -13,6 +15,7 @@ from clients.whatsapp import WhatsAppClient
 from clients.zapi import ZApiClient
 from services.call_agent import DB_URI, run_agent
 from services.concat_messages import debounce_messages
+from services.document_storage import resolve_path, start_cleanup_loop
 from services.summarize import summarize_conversation
 from services.update_context import add_context_messages
 
@@ -83,12 +86,33 @@ class ContextRequest(BaseModel):
     messages: list[ContextMessageIn] = Field(min_length=1)
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    asyncio.create_task(start_cleanup_loop())
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/agents")
 async def list_agents():
     return AGENTS_REGISTRY
+
+
+@app.get("/generated-documents/{doc_id}")
+async def get_generated_document(doc_id: str):
+    """Serve o PDF gerado pelas tools de documento (fazer_contrato, etc.) —
+    o link montado a partir desta rota é o que send_document_message
+    (Meta/Z-API) usa pra entregar o documento ao contato. doc_id aleatório
+    (UUID) é a única camada de proteção, sem auth adicional (mesmo espírito
+    do segredo no path do webhook da Z-API)."""
+    path = resolve_path(doc_id)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Documento não encontrado."
+        )
+    return FileResponse(path, media_type="application/pdf")
 
 
 @app.post("/messages", dependencies=[Depends(verify_api_key)])
@@ -134,7 +158,7 @@ async def receive(body: IncomingMessage):
 
     try:
         logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
-        response, usage, current_agent, current_agent_id = await run_agent(
+        response, usage, current_agent, current_agent_id, generated_documents = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
             conversation_id=thread_id,
@@ -143,6 +167,12 @@ async def receive(body: IncomingMessage):
         )
 
         delivery_failures: list[int] = []
+        # `documents` carrega o custo fixo em crédito de cada documento
+        # gerado (ver agents/tools.py) — devolvido ao chamador mesmo quando
+        # send_to_whatsapp=False (playground/conversa de teste), pra que o
+        # débito de créditos aconteça igual independente do canal de entrega.
+        documents: list[dict] = [{**doc, "delivered": False} for doc in generated_documents]
+
         if body.send_to_whatsapp:
             logger.info(
                 "Enviando {} resposta(s) via WhatsApp | thread_id={} provider={}",
@@ -169,13 +199,27 @@ async def receive(body: IncomingMessage):
                             result.get("error"),
                         )
                         delivery_failures.append(i)
+
+                for doc in documents:
+                    result = await client.send_document_message(
+                        body.contact_phone_number, doc["link"], filename=doc["filename"]
+                    )
+                    doc["delivered"] = bool(result.get("success"))
+                    if not doc["delivered"]:
+                        logger.warning(
+                            "Falha ao entregar documento via WhatsApp | "
+                            "thread_id={} filename={} erro={}",
+                            thread_id,
+                            doc["filename"],
+                            result.get("error"),
+                        )
         else:
             logger.info("send_to_whatsapp=False — envio pulado | thread_id={}", thread_id)
 
-        # Devolve as respostas, os tokens da execução e as falhas de entrega
-        # para o chamador (`worker`) persistir em `messages` e debitar
-        # créditos — a cobrança independe da entrega ter funcionado (o custo
-        # do LLM já ocorreu).
+        # Devolve as respostas, os tokens da execução, os documentos gerados
+        # e as falhas de entrega para o chamador (`worker`/`api`) persistir
+        # em `messages` e debitar créditos — a cobrança independe da entrega
+        # ter funcionado (o custo do LLM/da geração já ocorreu).
         return {
             "responses": response,
             "tokens_used": usage["total_tokens"],
@@ -184,6 +228,7 @@ async def receive(body: IncomingMessage):
             "current_agent": current_agent,
             "current_agent_id": current_agent_id,
             "delivery_failures": delivery_failures,
+            "documents": documents,
         }
     except Exception:
         logger.exception("Erro ao chamar o agente | thread_id={}", thread_id)

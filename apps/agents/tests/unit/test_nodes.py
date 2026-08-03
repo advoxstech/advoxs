@@ -369,6 +369,54 @@ async def test_tool_node_transfer_to_agent_valido_atualiza_estado() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_node_injeta_conversation_id_em_tool_de_documento(monkeypatch) -> None:
+    """As 6 tools de documento (fazer_contrato/fazer_multa/etc) também são
+    state-scoped — o conversation_id do estado sempre vence, mesmo que o LLM
+    tente informar outro (mesmo princípio das tools de RAG)."""
+    from agents.nodes import tool_node
+
+    generate_pdf_mock = AsyncMock(return_value=b"%PDF-1.4")
+    monkeypatch.setattr(tools_module, "generate_pdf", generate_pdf_mock)
+    monkeypatch.setattr(tools_module, "save_pdf", lambda pdf_bytes: "doc-id")
+    monkeypatch.setattr(
+        tools_module, "build_public_url", lambda doc_id: "https://exemplo.com/doc-id"
+    )
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "fazer_advertencia",
+                "args": {
+                    "nome_condominio": "Edifício Alfa",
+                    "unidade": "101",
+                    "nome_morador": "Fulano",
+                    "tipo_infracao": "barulho",
+                    "descricao_ocorrencia": "festa",
+                    "data_ocorrencia": "2026-01-01",
+                    "hora_ocorrencia": "23:00",
+                    "nome_responsavel": "Síndico",
+                    "cidade_data_emissao": "São Paulo",
+                    # O LLM tentou passar outro conversation_id — deve ser ignorado.
+                    "conversation_id": "tenant-malicioso:123",
+                },
+                "id": "call-1",
+            }
+        ],
+    )
+    state = {
+        "messages": [message],
+        "conversation_id": "tenant-real:5511999998888",
+        "agents": base_state()["agents"],
+    }
+
+    result = await tool_node(state)
+
+    generate_pdf_mock.assert_awaited_once()
+    assert result["generated_documents"][0]["filename"] == "Advertência.pdf"
+
+
+@pytest.mark.asyncio
 async def test_tool_node_transfer_sem_billing_no_state_funciona_normalmente() -> None:
     from agents.nodes import tool_node
 

@@ -63,6 +63,8 @@ messages = Table(
     Column("sender_type", String),
     Column("content", Text),
     Column("delivery_status", String),
+    Column("media_url", String),
+    Column("media_type", String),
     Column("tokens_used", Integer),
     Column("credits_consumed", Numeric(12, 4)),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
