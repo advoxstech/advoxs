@@ -23,6 +23,14 @@ class KnowledgeBaseFile(Base):
     __tablename__ = "knowledge_base_files"
     __table_args__ = (
         CheckConstraint("status IN ('processing', 'ready', 'error')", name="status"),
+        CheckConstraint(
+            "category IN ("
+            "'artigos_cientificos', 'materias_jornalisticas', 'decisoes_tribunais', "
+            "'livros_digitais', 'processos_judiciais', 'modelos_contratos', "
+            "'pecas_processuais', 'nao_selecionaveis'"
+            ") OR category IS NULL",
+            name="category",
+        ),
         UniqueConstraint("tenant_id", "filename", name="uq_knowledge_base_files_tenant_filename"),
     )
 
@@ -37,6 +45,10 @@ class KnowledgeBaseFile(Base):
     mime_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'processing'"))
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Categoria fixa (POP GVA Digital) — só organização/visual, não afeta a
+    # busca do agente. NULL = "sem categoria" (arquivos legados ou upload sem
+    # categoria escolhida).
+    category: Mapped[str | None] = mapped_column(String)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

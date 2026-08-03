@@ -15,7 +15,11 @@ from app.clients.rag import RagApiError, delete_documents
 from app.core.config import settings
 from app.core.queue import get_arq_pool
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
-from app.schemas.knowledge_base import KnowledgeBaseFileOut
+from app.schemas.knowledge_base import (
+    KnowledgeBaseCategory,
+    KnowledgeBaseFileCategoryUpdate,
+    KnowledgeBaseFileOut,
+)
 from app.services.subscriptions import get_active_subscription
 
 logger = logging.getLogger(__name__)
@@ -36,6 +40,7 @@ GENERIC_MIME_TYPES = {"", "application/octet-stream"}
 async def upload_file(
     file: UploadFile = File(...),
     agent_id: uuid.UUID | None = Form(default=None),
+    category: KnowledgeBaseCategory | None = Form(default=None),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
     arq: ArqRedis = Depends(get_arq_pool),
@@ -143,6 +148,7 @@ async def upload_file(
         size_bytes=len(data),
         mime_type=expected_mime,
         status="processing",
+        category=category,
     )
     session.add(record)
     # Flush explícito antes de adicionar o vínculo: sem isso, a FK de
@@ -184,6 +190,7 @@ async def upload_file(
         mime_type=record.mime_type,
         status=record.status,
         error_message=record.error_message,
+        category=record.category,
         uploaded_at=record.uploaded_at,
         agent_ids=[agent_id],
     )
@@ -222,11 +229,50 @@ async def list_files(
             mime_type=f.mime_type,
             status=f.status,
             error_message=f.error_message,
+            category=f.category,
             uploaded_at=f.uploaded_at,
             agent_ids=agent_ids_by_file.get(f.id, []),
         )
         for f in files
     ]
+
+
+@router.patch("/files/{file_id}")
+async def update_file_category(
+    file_id: uuid.UUID,
+    body: KnowledgeBaseFileCategoryUpdate,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> KnowledgeBaseFileOut:
+    record = await session.scalar(
+        select(KnowledgeBaseFile).where(
+            KnowledgeBaseFile.id == file_id,
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+        )
+    )
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
+
+    record.category = body.category
+    await session.commit()
+    await session.refresh(record)
+
+    links_result = await session.execute(
+        select(AgentKnowledgeBaseFile.agent_id).where(
+            AgentKnowledgeBaseFile.knowledge_base_file_id == record.id
+        )
+    )
+    return KnowledgeBaseFileOut(
+        id=record.id,
+        filename=record.filename,
+        size_bytes=record.size_bytes,
+        mime_type=record.mime_type,
+        status=record.status,
+        error_message=record.error_message,
+        category=record.category,
+        uploaded_at=record.uploaded_at,
+        agent_ids=[row for row in links_result.scalars().all()],
+    )
 
 
 @router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
