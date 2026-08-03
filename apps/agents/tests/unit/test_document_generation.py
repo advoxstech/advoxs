@@ -67,9 +67,11 @@ async def test_generate_pdf_encadeia_as_3_chamadas():
     assert compile_kwargs["content"] == b"\\documentclass..."
 
 
-async def test_generate_pdf_usa_endpoint_certo_por_tipo():
+async def test_generate_pdf_contrato_usa_endpoint_ingles():
+    # "contrato" é o único tipo cujo endpoint real diverge da chave interna —
+    # o serviço expõe "make_contract_llm" (inglês), não "make_contrato_llm".
     FakeAsyncClient.responses = {
-        "make_contrato_llm": _ok_response(json_body={"contract": "texto"}),
+        "make_contract_llm": _ok_response(json_body={"contract": "texto"}),
         "make_latex": _ok_response(text="latex"),
         "compile_latex": _ok_response(content=b"pdf"),
     }
@@ -77,7 +79,20 @@ async def test_generate_pdf_usa_endpoint_certo_por_tipo():
     await generate_pdf("contrato", "campo: valor")
 
     called_endpoints = [url.rsplit("/", 1)[-1] for url, _ in FakeAsyncClient.calls]
-    assert called_endpoints[0] == "make_contrato_llm"
+    assert called_endpoints[0] == "make_contract_llm"
+
+
+async def test_generate_pdf_usa_endpoint_certo_por_tipo():
+    FakeAsyncClient.responses = {
+        "make_oficio_llm": _ok_response(json_body={"oficio": "texto"}),
+        "make_latex": _ok_response(text="latex"),
+        "compile_latex": _ok_response(content=b"pdf"),
+    }
+
+    await generate_pdf("oficio", "campo: valor")
+
+    called_endpoints = [url.rsplit("/", 1)[-1] for url, _ in FakeAsyncClient.calls]
+    assert called_endpoints[0] == "make_oficio_llm"
 
 
 async def test_erro_http_na_redacao_vira_document_generation_error():
