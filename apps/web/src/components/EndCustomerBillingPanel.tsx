@@ -211,7 +211,7 @@ export function EndCustomerBillingPanel() {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">Cobrança dos clientes</h1>
         <p className="text-sm text-muted">
-          Use a sua própria conta Stripe para vender créditos aos seus clientes finais.
+          Use sua própria conta de pagamentos para vender créditos aos seus clientes finais.
         </p>
       </header>
 
@@ -247,15 +247,15 @@ export function EndCustomerBillingPanel() {
             {settings.stripe_account_status === "active" ? (
               <>
                 <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-accent">
-                  Sua conta Stripe já está configurada
+                  Sua conta de pagamentos já está configurada
                 </p>
                 <ConnectEarnings />
               </>
             ) : settings.stripe_account_status === "in_review" ? (
               <div className="mt-4">
                 <p className="text-sm text-muted">
-                  Sua conta está em análise pela Stripe. Isso pode levar alguns minutos — não é
-                  necessário preencher os dados de novo.
+                  Sua conta está em análise. Isso pode levar alguns minutos — não é necessário
+                  preencher os dados de novo.
                 </p>
                 <ConnectAccountOnboarding visible={false} />
               </div>
@@ -295,24 +295,24 @@ export function EndCustomerBillingPanel() {
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
-                Se seu escritório ainda não tem conta na{" "}
+                Se seu escritório ainda não tem uma conta de pagamentos,{" "}
                 <a
                   href="https://dashboard.stripe.com/register"
                   target="_blank"
                   rel="noreferrer"
                   className="text-accent underline"
                 >
-                  Stripe
+                  crie uma aqui
                 </a>
-                , crie uma.
+                .
                 <span className="mt-0.5 block text-xs text-muted">
-                  É a plataforma de pagamento que processa as cobranças dos seus clientes
-                  com segurança — grátis pra criar, só cobra uma taxa pequena quando
-                  processar um pagamento de verdade.
+                  É a plataforma que processa as cobranças dos seus clientes com segurança —
+                  grátis pra criar, só cobra uma taxa pequena quando processar um pagamento
+                  de verdade.
                 </span>
               </li>
               <li>
-                No painel da Stripe, gere uma{" "}
+                No painel da sua conta de pagamentos, gere uma{" "}
                 <a
                   href="https://dashboard.stripe.com/apikeys"
                   target="_blank"
@@ -334,7 +334,7 @@ export function EndCustomerBillingPanel() {
                 formulário.
               </li>
               <li>
-                Ainda no painel da Stripe, crie um{" "}
+                Ainda no painel da sua conta de pagamentos, crie um{" "}
                 <a
                   href="https://dashboard.stripe.com/webhooks"
                   target="_blank"
@@ -368,7 +368,7 @@ export function EndCustomerBillingPanel() {
               Cobrar meus clientes pelo uso dos agentes
             </label>
             <label className="flex flex-col gap-1 text-sm text-ink">
-              Secret Key da Stripe {settings.stripe_secret_key_configured && "(configurada)"}
+              Chave secreta (Secret Key) {settings.stripe_secret_key_configured && "(configurada)"}
               <input
                 type="password"
                 value={secretKey}
@@ -384,7 +384,7 @@ export function EndCustomerBillingPanel() {
                   {settings.webhook_url}
                 </code>
                 <p className="text-xs text-muted">
-                  Crie um endpoint com essa URL no Dashboard da sua conta Stripe (evento{" "}
+                  Crie um endpoint com essa URL no painel da sua conta de pagamentos (evento{" "}
                   <code>checkout.session.completed</code>) e cole o Webhook Secret gerado abaixo.
                 </p>
               </div>
