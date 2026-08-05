@@ -114,7 +114,13 @@ export function AgentDetail({ agentId }: { agentId: string }) {
       )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        <form onSubmit={handleSave} className="flex max-w-md flex-col gap-4">
+        <p className="max-w-md text-sm text-muted">
+          As instruções abaixo definem quem esse agente é e como ele responde nas conversas —
+          escreva como se estivesse orientando alguém novo no escritório: quem ele é, o que deve
+          saber, e quando deve avisar que vai transferir a conversa pra outro agente ou pra um
+          humano.
+        </p>
+        <form onSubmit={handleSave} className="mt-4 flex max-w-md flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink">
             Nome
             <input

@@ -34,6 +34,19 @@ describe("AgentDetail", () => {
     mockedFetch.mockReset();
   });
 
+  it("mostra explicação sobre o que colocar nas instruções", async () => {
+    mockLoad();
+
+    render(<AgentDetail agentId="a1" />);
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Você é a secretária.")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/escreva como se estivesse orientando alguém novo no escritório/i),
+    ).toBeInTheDocument();
+  });
+
   it("carrega e preenche o formulário com os dados do agente", async () => {
     mockLoad();
 

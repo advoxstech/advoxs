@@ -90,7 +90,11 @@ export function AgentsPanel() {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">Agentes</h1>
         <p className="text-sm text-muted">
-          Cada agente responde por conta própria, com suas instruções e sua base de conhecimento.
+          Um agente é uma &quot;persona&quot; de IA — tem um nome, um conjunto de instruções
+          (o que ele sabe e como deve responder) e pode ter uma base de conhecimento própria. O
+          agente marcado como ponto de entrada é quem recebe a primeira mensagem de qualquer
+          contato novo pelo WhatsApp; a partir daí, ele decide se responde direto ou transfere
+          pra outro agente do escritório.
         </p>
       </header>
 
@@ -134,11 +138,17 @@ export function AgentsPanel() {
         <hr className="my-6 border-line" />
 
         <h2 className="font-display text-lg font-semibold text-ink">Criar agente</h2>
+        <p className="mt-2 max-w-md text-sm text-muted">
+          Não sabe por onde começar? Pense num atendente que você está treinando: dê um nome pra
+          ele e escreva, em texto livre, quem ele é, o que ele deve saber e como deve se comportar
+          nas conversas. Você pode editar as instruções quantas vezes quiser depois de criar.
+        </p>
         <form onSubmit={handleCreate} className="mt-4 flex max-w-md flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm text-ink">
             Nome
             <input
               required
+              placeholder="Ex: Recepção, Direito de Família, Suporte Financeiro"
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
@@ -149,11 +159,21 @@ export function AgentsPanel() {
             <textarea
               required
               rows={6}
+              placeholder={
+                "Você é a recepcionista do escritório. Atenda com cordialidade, " +
+                "faça a triagem inicial dos clientes e responda dúvidas simples sobre " +
+                "horários e documentos necessários. Se a pergunta for sobre um caso " +
+                "jurídico específico, avise que um advogado vai retornar em breve."
+              }
               value={form.instructions}
               onChange={(event) => setForm({ ...form, instructions: event.target.value })}
               className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
           </label>
+          <p className="-mt-2 text-xs text-muted">
+            Escreva como se estivesse orientando alguém novo no escritório — quanto mais
+            específico, melhor ele responde.
+          </p>
           <button
             type="submit"
             disabled={creating}

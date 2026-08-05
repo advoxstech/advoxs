@@ -44,6 +44,21 @@ describe("AgentsPanel", () => {
     expect(screen.getByText("ponto de entrada")).toBeInTheDocument();
   });
 
+  it("explica o que é um agente e como escrever as instruções, pra quem nunca usou", async () => {
+    mockedFetch.mockResolvedValue({ ok: true, json: async () => AGENTS });
+
+    render(<AgentsPanel />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    expect(screen.getByText(/uma "persona" de IA/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/escreva como se estivesse orientando alguém novo no escritório/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/Ex: Recepção, Direito de Família, Suporte Financeiro/),
+    ).toBeInTheDocument();
+  });
+
   it("cria um agente novo e recarrega a lista", async () => {
     const created = {
       id: "a3",
