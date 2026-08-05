@@ -114,8 +114,8 @@ async def update_settings(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "Configuração via secret key não está mais disponível pra tenants novos — "
-                    "use POST /end-customer-billing/connect-account (Stripe Connect)."
+                    "Configuração via chave secreta não está mais disponível pra tenants "
+                    "novos — use o onboarding automático de pagamentos."
                 ),
             )
         # Valores explícitos (em vez de confiar no `server_default` das colunas):
@@ -147,8 +147,8 @@ async def update_settings(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Configure a secret key da Stripe (ou conclua o onboarding Connect) "
-                "antes de ativar a cobrança"
+                "Configure a chave secreta de pagamentos (ou conclua o onboarding "
+                "automático) antes de ativar a cobrança"
             ),
         )
     if body.enabled is True:
@@ -191,7 +191,7 @@ async def connect_account_earnings(
     if row is None or row.billing_provider != "connect" or row.stripe_account_id is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conta Stripe Connect ainda não configurada",
+            detail="Conta de pagamentos ainda não configurada",
         )
     try:
         return await get_account_earnings(row.stripe_account_id)
@@ -215,7 +215,10 @@ async def revenue_report(
     if row is None or row.billing_provider != "connect":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Faturamento disponível só pra tenants configurados via Stripe Connect",
+            detail=(
+                "Faturamento disponível só pra tenants com o onboarding automático "
+                "de pagamentos concluído"
+            ),
         )
     return await get_revenue_report(session, ctx.tenant_id, from_, to)
 
@@ -241,8 +244,8 @@ async def create_package(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Assinatura recorrente só está disponível pra tenants "
-                "configurados via Stripe Connect"
+                "Assinatura recorrente só está disponível pra tenants com o "
+                "onboarding automático de pagamentos concluído"
             ),
         )
     package = EndCustomerCreditPackage(tenant_id=ctx.tenant_id, **body.model_dump())

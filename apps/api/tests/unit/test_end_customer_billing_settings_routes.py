@@ -284,7 +284,7 @@ def test_patch_com_secret_key_sem_linha_existente_retorna_400(client, session) -
     )
 
     assert response.status_code == 400
-    assert "Connect" in response.json()["detail"]
+    assert "onboarding automático" in response.json()["detail"]
 
 
 def test_sem_token_retorna_401() -> None:

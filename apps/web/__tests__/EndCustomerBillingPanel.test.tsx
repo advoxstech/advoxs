@@ -57,7 +57,7 @@ describe("EndCustomerBillingPanel", () => {
     expect(screen.getByText(/secret key/i)).toBeInTheDocument();
   });
 
-  it("mostra a URL completa do webhook devolvida pelo backend, pra colar no Dashboard da Stripe", async () => {
+  it("mostra a URL completa do webhook devolvida pelo backend, pra colar no painel de pagamentos", async () => {
     // Grandfathered (secret key já configurada) — é a única forma de o
     // formulário antigo (onde a URL do webhook aparece) renderizar.
     mockLoad({
@@ -122,7 +122,12 @@ describe("EndCustomerBillingPanel", () => {
     // já configurada; o texto de erro devolvido pelo backend é só ilustrativo.
     mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === "end-customer-billing/settings" && init?.method === "PATCH") {
-        return { ok: false, json: async () => ({ detail: "Configure a secret key da Stripe antes de ativar" }) };
+        return {
+          ok: false,
+          json: async () => ({
+            detail: "Configure a chave secreta de pagamentos antes de ativar",
+          }),
+        };
       }
       if (path === "end-customer-billing/settings") {
         return {
@@ -149,7 +154,7 @@ describe("EndCustomerBillingPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /salvar configuração/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/configure a secret key/i)).toBeInTheDocument(),
+      expect(screen.getByText(/configure a chave secreta/i)).toBeInTheDocument(),
     );
     // Sem isso, o checkbox continua marcado mesmo com o PATCH tendo falhado —
     // o usuário vê a caixa "salva" e só descobre que não persistiu ao
@@ -389,7 +394,7 @@ describe("EndCustomerBillingPanel", () => {
     render(<EndCustomerBillingPanel />);
 
     await waitFor(() =>
-      expect(screen.getByText(/sua conta stripe já está configurada/i)).toBeInTheDocument(),
+      expect(screen.getByText(/sua conta de pagamentos já está configurada/i)).toBeInTheDocument(),
     );
   });
 
@@ -408,7 +413,9 @@ describe("EndCustomerBillingPanel", () => {
     render(<EndCustomerBillingPanel />);
 
     await waitFor(() => expect(screen.getByText("onboarding-connect-mock")).toBeInTheDocument());
-    expect(screen.queryByText(/sua conta stripe já está configurada/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/sua conta de pagamentos já está configurada/i),
+    ).not.toBeInTheDocument();
   });
 
   it("mostra aviso de conta em análise em vez do formulário de onboarding", async () => {
@@ -425,10 +432,10 @@ describe("EndCustomerBillingPanel", () => {
 
     render(<EndCustomerBillingPanel />);
 
-    await waitFor(() => expect(screen.getByText(/em análise pela stripe/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/sua conta está em análise/i)).toBeInTheDocument());
     expect(screen.queryByText("onboarding-connect-mock")).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/sua conta stripe já está configurada/i),
+      screen.queryByText(/sua conta de pagamentos já está configurada/i),
     ).not.toBeInTheDocument();
   });
 
