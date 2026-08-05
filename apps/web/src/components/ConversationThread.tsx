@@ -221,7 +221,9 @@ export function ConversationThread({
           ) : (
             <span className="flex items-center gap-1.5 text-xs text-muted">
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-              agente respondendo
+              {conversation.current_agent_name
+                ? `${conversation.current_agent_name} respondendo`
+                : "agente respondendo"}
             </span>
           )}
           {conversation.end_customer_balance != null ? (
@@ -447,7 +449,18 @@ function MessageBubble({ message }: { message: Message }) {
             {fromHuman ? "Você" : "Agente"}
           </span>
         ) : null}
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        {message.media_url ? (
+          <a
+            href={message.media_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-words underline decoration-dotted underline-offset-2 hover:text-accent"
+          >
+            {message.content}
+          </a>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        )}
       </div>
       <div className="mt-1 flex items-center gap-1.5">
         {message.delivery_status === "failed" ? (

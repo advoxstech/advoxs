@@ -24,6 +24,7 @@ def _conversation(
     human_last_seen_at=None,
     is_test: bool = False,
     end_customer_billing_exempt: bool = False,
+    current_agent_id: uuid.UUID | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
@@ -39,6 +40,7 @@ def _conversation(
         end_customer_billing_exempt=end_customer_billing_exempt,
         billing_gate_step=None,
         billing_gate_retries=0,
+        current_agent_id=current_agent_id,
     )
 
 

@@ -37,6 +37,7 @@ const files = [
     mime_type: "application/pdf",
     status: "ready",
     error_message: null,
+    category: null,
     uploaded_at: "2026-07-08T12:00:00Z",
     agent_ids: ["a1"],
   },
@@ -47,6 +48,7 @@ const files = [
     mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     status: "error",
     error_message: "Falha na ingestão (HTTP 400)",
+    category: null,
     uploaded_at: "2026-07-08T11:00:00Z",
     agent_ids: ["a1", "a2"],
   },
@@ -58,7 +60,7 @@ function mockRouting(postHandler?: (path: string, init: RequestInit) => unknown)
     if (path === "knowledge-base/files" && (!init || !init.method)) {
       return { ok: true, status: 200, json: async () => files };
     }
-    if (init?.method === "POST" || init?.method === "DELETE") {
+    if (init?.method === "POST" || init?.method === "DELETE" || init?.method === "PATCH") {
       return postHandler
         ? postHandler(path, init)
         : { ok: true, status: 200, json: async () => null };
@@ -250,5 +252,69 @@ describe("KnowledgeBasePanel", () => {
         screen.getByText("Só é possível reprocessar um arquivo com falha na ingestão"),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("agrupa arquivos por categoria dentro da pasta do agente", async () => {
+    const categorized = [
+      { ...files[0], category: "livros_digitais" },
+      { ...files[1], category: null },
+    ];
+    mockedFetch.mockImplementation(async (path: string) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (path === "knowledge-base/files") {
+        return { ok: true, status: 200, json: async () => categorized };
+      }
+      return { ok: true, status: 200, json: async () => null };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Livros Digitais/ })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /Sem categoria/ })).toBeInTheDocument();
+    expect(screen.getByText("regimento.pdf")).toBeInTheDocument();
+  });
+
+  it("envia a categoria escolhida no upload", async () => {
+    let capturedForm: FormData | null = null;
+    mockRouting((_path, init) => {
+      capturedForm = init.body as FormData;
+      return { ok: true, status: 202, json: async () => files[0] };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Categoria do envio para Secretária"), {
+      target: { value: "processos_judiciais" },
+    });
+    const file = new File(["conteudo"], "novo.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Enviar arquivo para Secretária"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => expect(capturedForm).not.toBeNull());
+    expect(capturedForm!.get("category")).toBe("processos_judiciais");
+  });
+
+  it("recategoriza um arquivo existente via PATCH", async () => {
+    let capturedPath = "";
+    let capturedBody = "";
+    mockRouting((path, init) => {
+      capturedPath = path;
+      capturedBody = init.body as string;
+      return { ok: true, status: 200, json: async () => ({ ...files[0], category: "aviso" }) };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("regimento.pdf")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Categoria de regimento.pdf"), {
+      target: { value: "artigos_cientificos" },
+    });
+
+    await waitFor(() => expect(capturedPath).toBe("knowledge-base/files/f1"));
+    expect(JSON.parse(capturedBody).category).toBe("artigos_cientificos");
   });
 });

@@ -47,7 +47,8 @@ async def acquire_rate_limit_slot(phone_number_id: str) -> bool:
             if waited >= _MAX_WAIT_SECONDS:
                 logger.warning(
                     "Rate limit não liberado a tempo | phone_number_id={} limite={}",
-                    phone_number_id, WHATSAPP_RATE_LIMIT_PER_SECOND,
+                    phone_number_id,
+                    WHATSAPP_RATE_LIMIT_PER_SECOND,
                 )
                 return False
             await asyncio.sleep(_POLL_INTERVAL_SECONDS)

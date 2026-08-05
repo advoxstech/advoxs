@@ -115,6 +115,12 @@ export function TestConversationThread({
           <span className="rounded-full bg-brass-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-brass">
             ambiente de teste
           </span>
+          <span className="flex items-center gap-1.5 text-xs text-muted">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+            {conversation.current_agent_name
+              ? `${conversation.current_agent_name} respondendo`
+              : "agente respondendo"}
+          </span>
         </div>
         <button
           type="button"
@@ -201,7 +207,18 @@ function TestMessageBubble({ message }: { message: Message }) {
         >
           {fromContact ? "Você (cliente)" : "Agente"}
         </span>
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        {message.media_url ? (
+          <a
+            href={message.media_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-words underline decoration-dotted underline-offset-2 hover:text-accent"
+          >
+            {message.content}
+          </a>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        )}
       </div>
       <time className="mt-1 font-mono text-[10px] text-muted">
         {formatMessageTime(message.created_at)}

@@ -1,7 +1,7 @@
-import sys
 import os
-from loguru import logger
+import sys
 
+from loguru import logger
 
 _LOG_FMT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "

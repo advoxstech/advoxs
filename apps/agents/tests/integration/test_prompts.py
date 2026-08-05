@@ -11,10 +11,11 @@ Rodar um cenário específico:
     pytest tests/integration/test_prompts.py::test_secretaria_transfere_para_condominial -v -s
 """
 import pytest
+from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
+
 from agents.workflow import graph
-from dotenv import load_dotenv
 
 load_dotenv()
 

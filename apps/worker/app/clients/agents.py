@@ -20,11 +20,21 @@ async def send_message_to_agents(
     """Chama POST /messages do agents service.
 
     Retorna {"responses": [...], "tokens_used": N, "tokens_input": N,
-    "tokens_output": N, "delivery_failures": [...]}, ou None quando o agents
-    devolve 202 (a mensagem foi agrupada pelo debounce numa execução já em
-    andamento — as respostas virão pela execução que está rodando).
+    "tokens_output": N, "current_agent_id": str | None, "delivery_failures":
+    [...], "documents": [...]}, ou None quando o agents devolve 202 (a
+    mensagem foi agrupada pelo debounce numa execução já em andamento — as
+    respostas virão pela execução que está rodando). `current_agent_id` é o
+    agente do tenant que respondeu por último nesta execução — persistido em
+    `conversations.current_agent_id` pelo chamador.
     tokens_input/tokens_output valem 0 quando o agents ainda não devolve o
     breakdown (versão antiga durante o deploy).
+
+    `documents`: documentos gerados nesta execução (fazer_contrato/fazer_multa/
+    etc, ver apps/agents/agents/tools.py) — cada item tem {"link", "filename",
+    "credit_cost", "delivered"}. `credit_cost` é somado ao custo normal de
+    tokens do turno (ver app/pricing.py); `delivered` reflete se o envio pelo
+    WhatsApp/Z-API funcionou, mas a cobrança independe disso (o custo da
+    geração já ocorreu).
 
     `agents`: a lista de agentes do tenant (id, name, instructions,
     is_entry_point, knowledge_base_file_ids) — resolvida aqui a partir do
@@ -60,7 +70,9 @@ async def send_message_to_agents(
         "tokens_used": data.get("tokens_used", 0),
         "tokens_input": data.get("tokens_input", 0),
         "tokens_output": data.get("tokens_output", 0),
+        "current_agent_id": data.get("current_agent_id"),
         "delivery_failures": data.get("delivery_failures", []),
+        "documents": data.get("documents", []),
     }
 
 

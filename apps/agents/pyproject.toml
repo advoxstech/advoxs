@@ -22,8 +22,24 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "ruff>=0.15.20",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+# tests/integration/test_prompts.py testa o antigo modelo de especialistas
+# fixos (current_specialist/transfer_to_specialist), substituído pelos
+# agentes dinâmicos por tenant (ver CLAUDE.md) — e exigiria uma chave real
+# da OpenAI, que não existe no CI. Só tests/unit roda por padrão.
+testpaths = ["tests/unit"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+# tests/integration testa o antigo modelo de especialistas fixos (removido —
+# ver testpaths acima), nunca mais executado; excluído do lint por já ser
+# código morto, não por relaxar o padrão do resto do serviço.
+extend-exclude = ["tests/integration"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

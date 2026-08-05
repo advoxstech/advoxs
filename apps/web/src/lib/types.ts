@@ -14,6 +14,7 @@ export interface Conversation {
   end_customer_cycle_consumed?: number | null;
   end_customer_billing_exempt: boolean;
   end_customer_billing_enabled: boolean;
+  current_agent_name: string | null;
 }
 
 export type SenderType = "agent" | "human" | "contact";

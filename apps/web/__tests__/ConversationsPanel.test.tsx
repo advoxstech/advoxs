@@ -27,6 +27,7 @@ function conversation(id: string, isTest: boolean): Conversation {
     summary_generated_at: null,
     end_customer_billing_exempt: false,
     end_customer_billing_enabled: false,
+    current_agent_name: null,
   };
 }
 

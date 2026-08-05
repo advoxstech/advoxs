@@ -1,12 +1,15 @@
 """
 Teste manual do grafo completo.
 """
+
 import asyncio
 import os
+
+from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
 from agents.workflow import graph
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -47,7 +50,7 @@ def _print_historico(messages: list, prior_count: int) -> None:
             nomes = ", ".join(tc["name"] for tc in m.tool_calls)
             print(f"{prefixo} tool▶   : {nomes}")
         elif m.type == "tool":
-            preview = (m.content or "(vazio)")
+            preview = m.content or "(vazio)"
             print(f"{prefixo} ◀result : {preview}")
 
     print("=" * 60)
@@ -83,8 +86,6 @@ async def _run():
 
 def test_agente():
     asyncio.run(_run())
-
-
 
 
 if __name__ == "__main__":

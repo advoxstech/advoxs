@@ -220,6 +220,75 @@ class TestSendTestMessage:
 
         assert playground_mock.await_args.kwargs["agents"] == agents_payload
 
+    def test_persiste_current_agent_id_na_conversa(self, client, session, playground_mock) -> None:
+        agent_id = uuid.uuid4()
+        playground_mock.return_value = {
+            "responses": ["oi"],
+            "tokens_used": 100,
+            "current_agent_id": str(agent_id),
+        }
+        conversation = _conversation()
+        self._arm_session(session, conversation)
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "oi"},
+        )
+
+        assert conversation.current_agent_id == agent_id
+
+    def test_documento_gerado_soma_custo_fixo_e_persiste_media_url(
+        self, client, session, playground_mock
+    ) -> None:
+        playground_mock.return_value = {
+            "responses": ["segue a multa"],
+            "tokens_used": 100,
+            "tokens_input": 70,
+            "tokens_output": 30,
+            "current_agent": "Condominial",
+            "documents": [
+                {
+                    "link": "https://agents.exemplo.com/generated-documents/doc-1",
+                    "filename": "Multa.pdf",
+                    "credit_cost": 20,
+                    "delivered": False,
+                }
+            ],
+        }
+        self._arm_session(session, _conversation())
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "quero uma multa"},
+        )
+
+        assert response.status_code == 201
+        added_agent_messages = [
+            call.args[0]
+            for call in session.add.call_args_list
+            if getattr(call.args[0], "sender_type", None) == "agent"
+        ]
+        doc_message = next(m for m in added_agent_messages if m.media_url is not None)
+        assert doc_message.media_url == "https://agents.exemplo.com/generated-documents/doc-1"
+        assert doc_message.media_type == "application/pdf"
+        assert "Multa.pdf" in doc_message.content
+
+        # 70*0.3 + 30*1.0 = 51 tokens ponderados -> 0.051 créditos -> arredonda
+        # pra 0, mais os 20 créditos fixos do documento gerado.
+        transaction = session.add.call_args.args[0]
+        assert transaction.amount_credits == Decimal("-20")
+
+    def test_sem_current_agent_id_nao_seta_atributo(self, client, session, playground_mock) -> None:
+        conversation = _conversation()
+        self._arm_session(session, conversation)
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            json={"content": "oi"},
+        )
+
+        assert getattr(conversation, "current_agent_id", None) is None
+
     def test_conversa_inexistente_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None
 

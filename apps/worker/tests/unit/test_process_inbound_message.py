@@ -111,8 +111,8 @@ async def test_consumo_ponderado_arredonda_pro_inteiro(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[4] == 3500  # tokens_used
-    assert persist_args[5] == Decimal("2")  # credits arredondados
+    assert persist_args[5] == 3500  # tokens_used
+    assert persist_args[6] == Decimal("2")  # credits arredondados
     patched["debitar"].assert_awaited_once_with(
         patched["debitar"].await_args.args[0],
         TENANT_ID,
@@ -257,7 +257,7 @@ async def test_delivery_failures_repassado_ao_persistir(patched) -> None:
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[6] == {1}
+    assert persist_args[7] == {1}
 
 
 def test_decrypt_access_token_roundtrip(monkeypatch) -> None:
@@ -500,8 +500,50 @@ async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[4] == 0  # tokens_used não contabilizado (ilimitado)
-    assert persist_args[5] == 0  # credits não contabilizado (ilimitado)
+    assert persist_args[5] == 0  # tokens_used não contabilizado (ilimitado)
+    assert persist_args[6] == 0  # credits não contabilizado (ilimitado)
+
+
+async def test_persiste_current_agent_id_quando_presente(patched) -> None:
+    agent_id = str(uuid.uuid4())
+    patched["send"].return_value = {
+        "responses": ["oi"],
+        "tokens_used": 100,
+        "current_agent_id": agent_id,
+    }
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    updates = [
+        call.args[0]
+        for call in session.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+        and "current_agent_id" in str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+    ]
+    assert len(updates) == 1
+    compiled = str(updates[0].compile(compile_kwargs={"literal_binds": True}))
+    # UUID literal compilado vem sem hífens.
+    assert agent_id.replace("-", "") in compiled
+
+
+async def test_sem_current_agent_id_nao_atualiza_conversa(patched) -> None:
+    # Resposta sem current_agent_id (versão antiga do agents durante deploy,
+    # ou grafo sem agente resolvido) — não deve tentar setar a coluna.
+    patched["send"].return_value = {"responses": ["oi"], "tokens_used": 100}
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    updates = [
+        call.args[0]
+        for call in session.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+        and "current_agent_id" in str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+    ]
+    assert updates == []
 
 
 async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> None:

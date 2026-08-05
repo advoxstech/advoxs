@@ -1,9 +1,10 @@
 # agents/clients/rag.py
 
-import httpx
 import os
-from loguru import logger
+
+import httpx
 from dotenv import load_dotenv
+from loguru import logger
 
 load_dotenv()
 
@@ -35,7 +36,11 @@ async def retrieval_sistema(base: str, message: str) -> list[dict]:
             return results
 
     except httpx.HTTPStatusError as e:
-        logger.error("Erro HTTP no retrieval sistema | status={} | response={}", e.response.status_code, e.response.text)
+        logger.error(
+            "Erro HTTP no retrieval sistema | status={} | response={}",
+            e.response.status_code,
+            e.response.text,
+        )
         return []
     except Exception as e:
         logger.error("Erro ao consultar retrieval sistema | error={}", str(e))
@@ -73,11 +78,19 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
             response.raise_for_status()
             data = response.json()
             results = data.get("results", [])
-            logger.debug("Retrieval usuário retornou {} chunks | conversation_id={}", len(results), conversation_id)
+            logger.debug(
+                "Retrieval usuário retornou {} chunks | conversation_id={}",
+                len(results),
+                conversation_id,
+            )
             return results
 
     except httpx.HTTPStatusError as e:
-        logger.error("Erro HTTP no retrieval usuário | status={} | response={}", e.response.status_code, e.response.text)
+        logger.error(
+            "Erro HTTP no retrieval usuário | status={} | response={}",
+            e.response.status_code,
+            e.response.text,
+        )
         return []
     except Exception as e:
         logger.error("Erro ao consultar retrieval usuário | error={}", str(e))
@@ -123,11 +136,17 @@ async def retrieval_escritorio(
             response.raise_for_status()
             data = response.json()
             results = data.get("results", [])
-            logger.debug("Retrieval escritório retornou {} chunks | tenant={}", len(results), tenant_id)
+            logger.debug(
+                "Retrieval escritório retornou {} chunks | tenant={}", len(results), tenant_id
+            )
             return results
 
     except httpx.HTTPStatusError as e:
-        logger.error("Erro HTTP no retrieval escritório | status={} | response={}", e.response.status_code, e.response.text)
+        logger.error(
+            "Erro HTTP no retrieval escritório | status={} | response={}",
+            e.response.status_code,
+            e.response.text,
+        )
         return []
     except Exception as e:
         logger.error("Erro ao consultar retrieval escritório | error={}", str(e))

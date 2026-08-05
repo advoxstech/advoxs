@@ -26,6 +26,7 @@ const conversation: Conversation = {
   summary_generated_at: null,
   end_customer_billing_exempt: false,
   end_customer_billing_enabled: false,
+  current_agent_name: null,
 };
 
 function message(id: string, sender: Message["sender_type"], content: string): Message {
@@ -45,6 +46,28 @@ beforeEach(() => {
 });
 
 describe("TestConversationThread", () => {
+  it("mostra o nome do agente ativo quando current_agent_name está presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <TestConversationThread
+        conversation={{ ...conversation, current_agent_name: "Condominial" }}
+        onDeleted={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+  });
+
+  it("mostra o texto genérico quando current_agent_name é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(<TestConversationThread conversation={conversation} onDeleted={() => {}} pollMs={0} />);
+
+    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+  });
+
   it("envia mensagem e renderiza a resposta do agente", async () => {
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (String(path).endsWith("/test-messages") && init?.method === "POST") {
@@ -108,6 +131,25 @@ describe("TestConversationThread", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  });
+
+  it("mensagem com media_url renderiza como link clicável", async () => {
+    const docMessage: Message = {
+      id: "m5",
+      sender_type: "agent",
+      content: "📄 Aviso.pdf",
+      media_url: "https://agents.exemplo.com/generated-documents/doc-1",
+      media_type: "application/pdf",
+      delivery_status: null,
+      created_at: new Date().toISOString(),
+    };
+    backendFetchMock.mockResolvedValue(jsonResponse([docMessage]));
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} pollMs={0} />);
+
+    const link = await screen.findByRole("link", { name: "📄 Aviso.pdf" });
+    expect(link).toHaveAttribute("href", "https://agents.exemplo.com/generated-documents/doc-1");
+    expect(link).toHaveAttribute("target", "_blank");
   });
 
   it("não duplica a mensagem do contato quando o polling já a trouxe antes do POST resolver", async () => {

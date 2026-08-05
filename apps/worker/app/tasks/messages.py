@@ -14,7 +14,11 @@ from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
-from app.pricing import calcular_creditos, get_current_pricing_config
+from app.pricing import (
+    DOCUMENT_GENERATION_CREDIT_COST,
+    calcular_creditos,
+    get_current_pricing_config,
+)
 from app.tasks.inbound_context import InboundContext
 
 logger = logging.getLogger(__name__)
@@ -264,12 +268,20 @@ async def process_inbound_message(
     tokens_used = result.get("tokens_used", 0)
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
+    current_agent_id = result.get("current_agent_id")
     delivery_failures = set(result.get("delivery_failures", []))
+    documents = result.get("documents", [])
 
     async with open_tenant_session(session_factory, tenant_id) as session:
-        # Tokens ponderados -> créditos fracionados, pela config vigente.
+        # Tokens ponderados -> créditos fracionados, pela config vigente, mais
+        # o custo fixo de cada documento gerado nesta execução (ver
+        # agents/tools.py) — a cobrança independe da entrega do documento ter
+        # funcionado, o custo da geração já ocorreu.
         config = await get_current_pricing_config(session)
-        credits = calcular_creditos(tokens_input, tokens_output, tokens_used, config)
+        credits = (
+            calcular_creditos(tokens_input, tokens_output, tokens_used, config)
+            + len(documents) * DOCUMENT_GENERATION_CREDIT_COST
+        )
 
         # Ilimitado: assinante ativo não deve ter custo contabilizado nesta
         # execução, não só nenhum débito — sem isso, o relatório de Consumo
@@ -289,10 +301,20 @@ async def process_inbound_message(
             tenant_id,
             conversation_id,
             responses,
+            documents,
             tokens_used_persistido,
             credits_persistido,
             delivery_failures,
         )
+
+        if current_agent_id:
+            # Pra exibir "{nome do agente} respondendo" no painel em vez do
+            # texto genérico — atualiza mesmo se `responses` veio vazio.
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(current_agent_id=uuid.UUID(current_agent_id))
+            )
         if credits and first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final
             # (quando a cobrança está habilitada e havia saldo antes da
@@ -484,21 +506,30 @@ async def _persist_agent_responses(
     tenant_id: str,
     conversation_id: str,
     responses: list[str],
+    documents: list[dict] | None = None,
     tokens_used: int = 0,
     credits: Decimal | int = 0,
     delivery_failures: set[int] | None = None,
 ) -> uuid.UUID | None:
-    """Insere as respostas do agente e retorna o id da primeira.
+    """Insere as respostas de texto do agente + uma mensagem por documento
+    gerado (fazer_contrato/fazer_multa/etc, ver agents/tools.py) e retorna o
+    id da primeira mensagem inserida (texto ou documento, o que vier
+    primeiro).
 
-    O consumo da execução inteira (tokens/créditos) fica registrado na
-    primeira mensagem — é a ela que o lançamento do ledger se vincula.
-    `delivery_failures` marca, por índice, quais respostas falharam ao
-    entregar ao WhatsApp — a cobrança acontece independente disso, porque o
-    custo do LLM já ocorreu.
+    O consumo da execução inteira (tokens/créditos, já incluindo o custo
+    fixo de eventuais documentos) fica registrado só nessa primeira mensagem
+    — é a ela que o lançamento do ledger se vincula. `delivery_failures`
+    marca, por índice, quais RESPOSTAS DE TEXTO falharam ao entregar ao
+    WhatsApp; documentos carregam o próprio `delivered` (ver api/routes.py do
+    agents). A cobrança acontece independente de qualquer falha de entrega,
+    porque o custo do LLM/da geração já ocorreu.
     """
     delivery_failures = delivery_failures or set()
+    documents = documents or []
     now = datetime.now(UTC)
     first_message_id: uuid.UUID | None = None
+    index = 0
+
     for i, response in enumerate(responses):
         values: dict = {
             "conversation_id": uuid.UUID(conversation_id),
@@ -506,21 +537,44 @@ async def _persist_agent_responses(
             "sender_type": "agent",
             "content": response,
             "delivery_status": "failed" if i in delivery_failures else "sent",
-            # Mesma execução pode gerar várias respostas (ex: despedida da
-            # secretária + saudação do especialista) — sem um offset por
-            # índice, todas cravam o mesmo instante e o ORDER BY created_at
-            # não tem como desempatar a ordem real de geração.
-            "created_at": now + timedelta(microseconds=i),
+            # Mesma execução pode gerar várias respostas/documentos (ex:
+            # despedida da secretária + saudação do especialista) — sem um
+            # offset por índice, todas cravam o mesmo instante e o ORDER BY
+            # created_at não tem como desempatar a ordem real de geração.
+            "created_at": now + timedelta(microseconds=index),
         }
-        if i == 0:
+        if index == 0:
             values["tokens_used"] = tokens_used or None
             values["credits_consumed"] = credits or None
         result = await session.execute(
             insert(tables.messages).values(**values).returning(tables.messages.c.id)
         )
-        if i == 0:
+        if index == 0:
             first_message_id = result.scalar_one()
-    if responses:
+        index += 1
+
+    for doc in documents:
+        values = {
+            "conversation_id": uuid.UUID(conversation_id),
+            "tenant_id": uuid.UUID(tenant_id),
+            "sender_type": "agent",
+            "content": f"📄 {doc['filename']}",
+            "delivery_status": "sent" if doc.get("delivered") else "failed",
+            "media_url": doc["link"],
+            "media_type": "application/pdf",
+            "created_at": now + timedelta(microseconds=index),
+        }
+        if index == 0:
+            values["tokens_used"] = tokens_used or None
+            values["credits_consumed"] = credits or None
+        result = await session.execute(
+            insert(tables.messages).values(**values).returning(tables.messages.c.id)
+        )
+        if index == 0:
+            first_message_id = result.scalar_one()
+        index += 1
+
+    if responses or documents:
         await session.execute(
             update(tables.conversations)
             .where(tables.conversations.c.id == uuid.UUID(conversation_id))

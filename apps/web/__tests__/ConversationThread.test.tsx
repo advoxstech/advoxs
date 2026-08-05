@@ -24,6 +24,7 @@ function conversation(
   state: "agent" | "human",
   summary: string | null = null,
   summaryGeneratedAt: string | null = null,
+  currentAgentName: string | null = null,
 ): Conversation {
   return {
     id: "c1",
@@ -36,6 +37,7 @@ function conversation(
     summary_generated_at: summaryGeneratedAt,
     end_customer_billing_exempt: false,
     end_customer_billing_enabled: false,
+    current_agent_name: currentAgentName,
   };
 }
 
@@ -74,6 +76,34 @@ beforeEach(() => {
 });
 
 describe("ConversationThread", () => {
+  it("mostra o nome do agente ativo quando current_agent_name está presente", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent", null, null, "Condominial")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+  });
+
+  it("mostra o texto genérico quando current_agent_name é null", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+  });
+
   it("carrega e exibe as mensagens em ordem de leitura", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse(messages));
 
@@ -514,6 +544,50 @@ describe("ConversationThread", () => {
       expect(screen.getByText("Posso ajudar com o condomínio.")).toBeInTheDocument();
     });
     expect(screen.queryByText("Não entregue")).not.toBeInTheDocument();
+  });
+
+  it("mensagem com media_url renderiza como link clicável", async () => {
+    const docMessages: Message[] = [
+      {
+        id: "m4",
+        sender_type: "agent",
+        content: "📄 Aviso.pdf",
+        media_url: "https://agents.exemplo.com/generated-documents/doc-1",
+        media_type: "application/pdf",
+        delivery_status: null,
+        created_at: new Date().toISOString(),
+      },
+    ];
+    backendFetchMock.mockResolvedValue(jsonResponse(docMessages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    const link = await screen.findByRole("link", { name: "📄 Aviso.pdf" });
+    expect(link).toHaveAttribute("href", "https://agents.exemplo.com/generated-documents/doc-1");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("mensagem sem media_url continua renderizando como texto simples", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse(messages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Posso ajudar com o condomínio.")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("link", { name: "Posso ajudar com o condomínio." })).not.toBeInTheDocument();
   });
 
   it("exclui a conversa com confirmação e chama onDeleted", async () => {

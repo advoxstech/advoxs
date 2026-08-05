@@ -11,9 +11,7 @@ from services.call_agent import DB_URI
 ROLE_TO_MESSAGE = {"contact": HumanMessage, "attendant": AIMessage}
 
 
-async def add_context_messages(
-    thread_id: str, messages: list[dict], db_uri: str = DB_URI
-) -> int:
+async def add_context_messages(thread_id: str, messages: list[dict], db_uri: str = DB_URI) -> int:
     """Anexa mensagens ao checkpoint sem rodar o grafo (sem LLM, sem débito).
 
     Mantém a memória do agente durante o takeover humano — aupdate_state usa

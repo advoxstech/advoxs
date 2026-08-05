@@ -1,23 +1,37 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
-from agents.helpers import strip_messages
-from agents.tools import *
-
 from dotenv import load_dotenv
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from langgraph.types import Command
 from loguru import logger
+
+from agents.helpers import strip_messages
+from agents.tools import (
+    DOCUMENT_TOOLS,
+    bucar_base_conhecimento_usuario,
+    buscar_base_conhecimento_agente,
+    enviar_aviso,
+    enviar_edital_convocacao,
+    fazer_advertencia,
+    fazer_contrato,
+    fazer_multa,
+    fazer_oficio,
+    tools,
+    transfer_to_agent,
+)
 
 load_dotenv()
 
 model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
-# o tenant_id vive dentro dele (isolamento multi-tenant).
+# o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
+# documento (ver agents/tools.py) usam conversation_id só pra log/rastreio,
+# mas mesmo assim nunca confiam no valor que o LLM eventualmente informe.
 STATE_SCOPED_TOOLS = {
     "bucar_base_conhecimento_usuario",
     "buscar_base_conhecimento_agente",
-}
+} | DOCUMENT_TOOLS
 
 
 async def agent_node(state: dict) -> Command:
@@ -56,7 +70,17 @@ async def agent_node(state: dict) -> Command:
 
     last_messages = strip_messages(state["messages"], state["num_before_messages"])
 
-    tools_for_agent = [transfer_to_agent, buscar_base_conhecimento_agente, bucar_base_conhecimento_usuario]
+    tools_for_agent = [
+        transfer_to_agent,
+        buscar_base_conhecimento_agente,
+        bucar_base_conhecimento_usuario,
+        fazer_contrato,
+        fazer_multa,
+        fazer_advertencia,
+        fazer_oficio,
+        enviar_edital_convocacao,
+        enviar_aviso,
+    ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
     prompt = current["instructions"]
@@ -74,14 +98,17 @@ async def agent_node(state: dict) -> Command:
         prompt += (
             "\n\n---\n"
             "**Instrução:** Esta é sua primeira resposta neste atendimento. "
-            "### Se Apresente, diga sua especialidade e diga que dali para frente é responsável pelo atendimento. "
+            "### Se Apresente, diga sua especialidade e diga que dali para frente é "
+            "responsável pelo atendimento. "
             "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
         )
 
-    response = await model_with_tools.ainvoke([
-        SystemMessage(content=prompt),
-        *last_messages,
-    ])
+    response = await model_with_tools.ainvoke(
+        [
+            SystemMessage(content=prompt),
+            *last_messages,
+        ]
+    )
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
     if is_first_run:
@@ -140,7 +167,10 @@ async def tool_node(state: dict) -> dict:
 
         if isinstance(observation, Command):
             if observation.update:
-                logger.info("Atualizando estado via Command | updates={}", list(observation.update.keys()))
+                logger.info(
+                    "Atualizando estado via Command | updates={}",
+                    list(observation.update.keys()),
+                )
                 state_updates.update(observation.update)
             content = ""
         else:

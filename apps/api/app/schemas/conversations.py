@@ -21,6 +21,7 @@ class ConversationOut(BaseModel):
     end_customer_cycle_consumed: float | None = None
     end_customer_billing_exempt: bool = False
     end_customer_billing_enabled: bool = False
+    current_agent_name: str | None = None
 
 
 class MessageOut(BaseModel):

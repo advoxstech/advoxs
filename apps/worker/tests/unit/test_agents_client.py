@@ -27,6 +27,7 @@ async def test_returns_responses_and_tokens_on_200() -> None:
         "tokens_used": 1234,
         "tokens_input": 1000,
         "tokens_output": 234,
+        "current_agent_id": "a1",
     }
     http = _http_returning(response)
 
@@ -37,7 +38,9 @@ async def test_returns_responses_and_tokens_on_200() -> None:
         "tokens_used": 1234,
         "tokens_input": 1000,
         "tokens_output": 234,
+        "current_agent_id": "a1",
         "delivery_failures": [],
+        "documents": [],
     }
     body = http.post.await_args.kwargs["json"]
     assert body["tenant_id"] == "t-1"
@@ -57,7 +60,9 @@ async def test_resposta_sem_tokens_usa_zero() -> None:
         "tokens_used": 0,
         "tokens_input": 0,
         "tokens_output": 0,
+        "current_agent_id": None,
         "delivery_failures": [],
+        "documents": [],
     }
 
 
@@ -73,6 +78,38 @@ async def test_resposta_com_delivery_failures() -> None:
     result = await send_message_to_agents(http, **KWARGS)
 
     assert result["delivery_failures"] == [1]
+
+
+async def test_resposta_com_documents() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {
+        "responses": [],
+        "tokens_used": 15,
+        "documents": [
+            {
+                "link": "https://agents.exemplo.com/generated-documents/doc-1",
+                "filename": "Multa.pdf",
+                "credit_cost": 20,
+                "delivered": True,
+            }
+        ],
+    }
+    http = _http_returning(response)
+
+    result = await send_message_to_agents(http, **KWARGS)
+
+    assert result["documents"][0]["filename"] == "Multa.pdf"
+    assert result["documents"][0]["credit_cost"] == 20
+
+
+async def test_sem_documents_no_payload_devolve_lista_vazia() -> None:
+    response = MagicMock(spec=Response, status_code=200)
+    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
+    http = _http_returning(response)
+
+    result = await send_message_to_agents(http, **KWARGS)
+
+    assert result["documents"] == []
 
 
 async def test_returns_none_on_202_debounce() -> None:
