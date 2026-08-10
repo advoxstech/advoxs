@@ -61,3 +61,13 @@ jobs:
             docker compose run --rm api uv run alembic upgrade head
             docker compose up -d
             docker compose ps
+
+            # Sem isso, cada deploy deixa a imagem anterior órfã (sem tag,
+            # mas ainda ocupando disco) — some deploys depois, isso já esgotou
+            # o espaço do VPS e travou o `docker compose pull` do deploy
+            # seguinte. Só depois que os containers novos já estão de pé, pra
+            # nunca remover uma imagem ainda em uso durante a troca. Nunca
+            # `--volumes` aqui — essa flag apagaria dados de verdade
+            # (postgres_data, qdrant_data), as únicas coisas que este comando
+            # nunca deve tocar.
+            docker image prune -af
