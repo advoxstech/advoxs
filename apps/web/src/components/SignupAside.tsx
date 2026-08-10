@@ -1,3 +1,5 @@
+import { AdvoxsLogo } from "@/components/AdvoxsLogo";
+
 const BENEFITS = [
   {
     title: "Resposta imediata, sempre",
@@ -26,9 +28,7 @@ export function SignupAside() {
       />
 
       <div className="relative z-10 flex flex-col gap-7">
-        <div className="font-display text-5xl font-semibold leading-none tracking-tight">
-          Advoxs<span className="text-auth-accent">.</span>
-        </div>
+        <AdvoxsLogo className="text-5xl leading-none tracking-tight" />
         <p className="max-w-[34ch] text-lg leading-relaxed text-nav-ink-muted">
           Agentes de IA que atendem os clientes do seu escritório pelo WhatsApp — 24 horas por
           dia, com a linguagem da sua banca.
