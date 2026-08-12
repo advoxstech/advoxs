@@ -50,6 +50,15 @@ export function AdminDashboardPanel() {
           label="WhatsApp conectado"
           value={`${data.whatsapp_connected.connected} / ${data.whatsapp_connected.total}`}
         />
+        {data.pending_zapi_requests.length > 0 && (
+          <a href="#solicitacoes-zapi" className="block">
+            <StatTile
+              label="Solicitações Z-API pendentes"
+              value={String(data.pending_zapi_requests.length)}
+              tone="critical"
+            />
+          </a>
+        )}
         <StatTile
           label="Receita (30 dias)"
           value={`R$ ${Number(data.revenue_brl_last_30_days).toFixed(2)}`}
@@ -100,7 +109,7 @@ export function AdminDashboardPanel() {
       </div>
 
       {data.pending_zapi_requests.length > 0 && (
-        <div>
+        <div id="solicitacoes-zapi" className="scroll-mt-8">
           <h2 className="font-display text-lg font-semibold text-ink">
             Solicitações de conexão Z-API pendentes
           </h2>
