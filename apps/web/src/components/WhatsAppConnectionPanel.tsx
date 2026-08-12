@@ -33,6 +33,8 @@ const EMPTY_ZAPI_FORM: ZApiFormState = { instance_id: "", instance_token: "", cl
 
 type WebhookConfig = { callback_url: string; verify_token: string };
 
+type ManagedZApiRequest = { status: "pending" | "fulfilled" | "dismissed"; requested_at: string };
+
 function extractErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
@@ -61,6 +63,11 @@ export function WhatsAppConnectionPanel() {
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [providerChoice, setProviderChoice] = useState<Provider | null>(null);
+  // "form" = tenant vai colar instance_id/token da própria conta Z-API;
+  // null = ainda não escolheu entre isso e pedir pra Advoxs configurar.
+  const [zapiEntryChoice, setZapiEntryChoice] = useState<"form" | null>(null);
+  const [pendingRequest, setPendingRequest] = useState<ManagedZApiRequest | null>(null);
+  const [requestingManaged, setRequestingManaged] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [zapiForm, setZapiForm] = useState<ZApiFormState>(EMPTY_ZAPI_FORM);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -82,6 +89,10 @@ export function WhatsAppConnectionPanel() {
         if (config?.callback_url && config?.verify_token) {
           setWebhookConfig(config);
         }
+      }
+      const requestResponse = await backendFetch("whatsapp/managed-zapi-request");
+      if (requestResponse.ok) {
+        setPendingRequest(await requestResponse.json());
       }
     } finally {
       setLoaded(true);
@@ -136,6 +147,7 @@ export function WhatsAppConnectionPanel() {
 
   function backToPicker() {
     setProviderChoice(null);
+    setZapiEntryChoice(null);
     setQrcode(null);
     stopPolling();
     setFeedback(null);
@@ -157,6 +169,24 @@ export function WhatsAppConnectionPanel() {
       }
     }
     setFeedback("Falha ao gerar o QR code — tente novamente.");
+  }
+
+  async function handleRequestManagedZapi() {
+    setFeedback(null);
+    setRequestingManaged(true);
+    try {
+      const response = await backendFetch("whatsapp/request-managed-zapi", { method: "POST" });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setFeedback(extractErrorDetail(body, "Falha ao enviar a solicitação — tente novamente."));
+        return;
+      }
+      setPendingRequest(body);
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    } finally {
+      setRequestingManaged(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -267,6 +297,9 @@ export function WhatsAppConnectionPanel() {
   }
 
   const inConnectFlow = !connection || showForm;
+  // Já pediu pra Advoxs configurar e ainda não tem nenhuma conexão — evita
+  // reapresentar o seletor de provedor enquanto o pedido está em aberto.
+  const pendingManagedRequest = !connection && pendingRequest?.status === "pending";
   const activeProvider = providerChoice ?? connection?.provider ?? null;
   const isManagedZapi = connection?.provider === "zapi" && connection.managed_by_advoxs;
   const showMetaInstructions = webhookConfig && activeProvider !== "zapi";
@@ -341,6 +374,15 @@ export function WhatsAppConnectionPanel() {
                 </button>
               )}
             </div>
+          </div>
+        ) : pendingManagedRequest ? (
+          <div className="flex max-w-md flex-col gap-3">
+            <p className="text-sm text-ink">
+              Solicitação enviada em{" "}
+              {new Date(pendingRequest!.requested_at).toLocaleDateString("pt-BR")} — a Advoxs está
+              configurando sua conexão. Você vai ver o QR code aqui automaticamente quando
+              estiver pronto.
+            </p>
           </div>
         ) : providerChoice === null ? (
           <div className="flex max-w-md flex-col gap-3">
@@ -446,6 +488,39 @@ export function WhatsAppConnectionPanel() {
               )}
             </div>
           </form>
+        ) : providerChoice === "zapi" && zapiEntryChoice === null ? (
+          <div className="flex max-w-md flex-col gap-3">
+            <button
+              type="button"
+              onClick={backToPicker}
+              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+            >
+              ← Escolher outro provedor
+            </button>
+            <p className="text-sm text-ink">Como você prefere configurar a Z-API?</p>
+            <button
+              type="button"
+              onClick={() => setZapiEntryChoice("form")}
+              className="rounded border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition-colors hover:border-accent"
+            >
+              Já tenho instance_id e token
+              <span className="mt-0.5 block text-xs text-muted">
+                Você conecta com a própria conta Z-API do escritório.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRequestManagedZapi()}
+              disabled={requestingManaged}
+              className="rounded border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition-colors hover:border-accent disabled:opacity-50"
+            >
+              Não tenho — quero que a Advoxs configure pra mim
+              <span className="mt-0.5 block text-xs text-muted">
+                A Advoxs cria a instância e avisa você aqui quando estiver pronta pra escanear o
+                QR code.
+              </span>
+            </button>
+          </div>
         ) : qrcode ? (
           <div className="flex max-w-md flex-col gap-4">
             <p className="text-sm text-ink">

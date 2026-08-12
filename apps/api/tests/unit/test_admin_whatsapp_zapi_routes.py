@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -121,6 +122,42 @@ class TestProvisionTenantZApi:
 
         assert response.status_code == 502
 
+    def test_provisionar_resolve_pedido_pendente_do_tenant(
+        self, client, session, zapi_mocks
+    ) -> None:
+        """Se o tenant tinha pedido a conexão gerenciada, provisionar a
+        instância fecha esse pedido na mesma transação — sem passo manual
+        extra de "marcar como atendido"."""
+        pending_request = SimpleNamespace(
+            tenant_id=TENANT_ID,
+            status="pending",
+            requested_at=datetime(2026, 8, 12, 12, 0, tzinfo=UTC),
+            resolved_at=None,
+        )
+        # 1ª chamada a session.scalar: lookup do WhatsAppNumber existente
+        # (dentro de provision_zapi_connection). 2ª: lookup do pedido
+        # pendente (dentro de resolve_pending_request).
+        session.scalar = AsyncMock(side_effect=[None, pending_request])
+
+        response = client.post(
+            f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp/zapi",
+            json=CONNECT_ZAPI_BODY,
+        )
+
+        assert response.status_code == 200
+        assert pending_request.status == "fulfilled"
+        assert pending_request.resolved_at is not None
+
+    def test_provisionar_sem_pedido_pendente_nao_quebra(self, client, session, zapi_mocks) -> None:
+        session.scalar = AsyncMock(side_effect=[None, None])
+
+        response = client.post(
+            f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp/zapi",
+            json=CONNECT_ZAPI_BODY,
+        )
+
+        assert response.status_code == 200
+
 
 class TestGetTenantWhatsApp:
     def test_sem_token_retorna_401(self) -> None:
@@ -134,3 +171,31 @@ class TestGetTenantWhatsApp:
 
         assert response.status_code == 200
         assert response.json() is None
+
+
+class TestGetTenantWhatsAppRequest:
+    def test_sem_token_retorna_401(self) -> None:
+        response = TestClient(app).get(
+            f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp-request"
+        )
+        assert response.status_code == 401
+
+    def test_sem_pedido_retorna_null(self, client, session) -> None:
+        session.scalar.return_value = None
+
+        response = client.get(f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp-request")
+
+        assert response.status_code == 200
+        assert response.json() is None
+
+    def test_com_pedido_pendente_retorna_status_e_data(self, client, session) -> None:
+        session.scalar.return_value = SimpleNamespace(
+            tenant_id=TENANT_ID,
+            status="pending",
+            requested_at=datetime(2026, 8, 12, 12, 0, tzinfo=UTC),
+        )
+
+        response = client.get(f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp-request")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "pending"

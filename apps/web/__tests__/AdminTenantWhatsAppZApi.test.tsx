@@ -51,6 +51,48 @@ describe("AdminTenantWhatsAppZApi", () => {
     expect(screen.getByText(/gerenciada pela advoxs/i)).toBeInTheDocument();
   });
 
+  it("mostra o aviso de pedido pendente e some depois de provisionar", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "platform-admin/tenants/t1/whatsapp" && !init) {
+        return { ok: true, json: async () => null };
+      }
+      if (path === "platform-admin/tenants/t1/whatsapp-request" && !init) {
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", requested_at: "2026-08-12T12:00:00Z" }),
+        };
+      }
+      if (path === "platform-admin/tenants/t1/whatsapp/zapi") {
+        return {
+          ok: true,
+          json: async () => ({
+            provider: "zapi",
+            display_phone_number: "Aguardando pareamento",
+            status: "disconnected",
+            connected_at: "2026-08-12T12:00:00Z",
+            managed_by_advoxs: true,
+          }),
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<AdminTenantWhatsAppZApi tenantId="t1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/pediu a conexão gerenciada em/i)).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
+    fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.click(screen.getByRole("button", { name: /provisionar/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/o tenant já pode escanear o qr code/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/pediu a conexão gerenciada em/i)).not.toBeInTheDocument();
+  });
+
   it("mostra a conexão existente ao carregar", async () => {
     mockedFetch.mockResolvedValue({
       ok: true,

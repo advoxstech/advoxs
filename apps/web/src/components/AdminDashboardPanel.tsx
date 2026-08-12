@@ -98,6 +98,32 @@ export function AdminDashboardPanel() {
           ))}
         </ul>
       </div>
+
+      {data.pending_zapi_requests.length > 0 && (
+        <div>
+          <h2 className="font-display text-lg font-semibold text-ink">
+            Solicitações de conexão Z-API pendentes
+          </h2>
+          <ul className="mt-3 divide-y divide-line rounded-sm border border-line bg-surface">
+            {data.pending_zapi_requests.map((r) => (
+              <li
+                key={r.tenant_id}
+                className="flex items-center justify-between px-4 py-3 text-sm"
+              >
+                <a
+                  href={`/admin/tenants/${r.tenant_id}`}
+                  className="text-ink hover:text-accent hover:underline"
+                >
+                  {r.tenant_name}
+                </a>
+                <span className="text-muted">
+                  {new Date(r.requested_at).toLocaleDateString("pt-BR")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

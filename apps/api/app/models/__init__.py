@@ -18,6 +18,7 @@ from app.models.subscription import SubscriptionPlan, TenantSubscription
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.whatsapp_number import WhatsAppNumber
+from app.models.zapi_provisioning_request import ZApiProvisioningRequest
 
 __all__ = [
     "AdminAuditLog",
@@ -42,4 +43,5 @@ __all__ = [
     "TenantSubscription",
     "User",
     "WhatsAppNumber",
+    "ZApiProvisioningRequest",
 ]

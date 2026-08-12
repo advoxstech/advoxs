@@ -14,6 +14,7 @@ from app.models import (
     Message,
     Tenant,
     WhatsAppNumber,
+    ZApiProvisioningRequest,
 )
 from app.schemas.admin_dashboard import (
     AdminDashboardOut,
@@ -21,11 +22,13 @@ from app.schemas.admin_dashboard import (
     KnowledgeBaseUsageSummary,
     LowBalanceTenant,
     NewTenantsPerDay,
+    PendingZApiRequest,
     TenantsByStatus,
     WhatsappConnectedSummary,
 )
 
 LOW_BALANCE_LIMIT = 10
+PENDING_ZAPI_REQUESTS_LIMIT = 20
 PERIOD_DAYS = 30
 
 # Preço público da OpenAI pro gpt-5-mini, $ por 1M tokens — confirmado em
@@ -132,6 +135,24 @@ async def build_dashboard(session: AsyncSession) -> AdminDashboardOut:
         for id_, name, balance in low_balance_rows
     ]
 
+    pending_zapi_rows = (
+        await session.execute(
+            select(
+                ZApiProvisioningRequest.tenant_id,
+                Tenant.name,
+                ZApiProvisioningRequest.requested_at,
+            )
+            .join(Tenant, Tenant.id == ZApiProvisioningRequest.tenant_id)
+            .where(ZApiProvisioningRequest.status == "pending")
+            .order_by(ZApiProvisioningRequest.requested_at.asc())
+            .limit(PENDING_ZAPI_REQUESTS_LIMIT)
+        )
+    ).all()
+    pending_zapi_requests = [
+        PendingZApiRequest(tenant_id=tenant_id, tenant_name=name, requested_at=requested_at)
+        for tenant_id, name, requested_at in pending_zapi_rows
+    ]
+
     whatsapp_connected = (
         await session.scalar(
             select(func.count(WhatsAppNumber.id)).where(WhatsAppNumber.status == "connected")
@@ -159,4 +180,5 @@ async def build_dashboard(session: AsyncSession) -> AdminDashboardOut:
         low_balance_tenants=low_balance_tenants,
         whatsapp_connected=whatsapp_summary,
         knowledge_base_usage=kb_usage,
+        pending_zapi_requests=pending_zapi_requests,
     )

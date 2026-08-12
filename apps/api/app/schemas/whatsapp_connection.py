@@ -32,3 +32,8 @@ class WhatsAppConnectionOut(BaseModel):
 class WebhookConfigOut(BaseModel):
     callback_url: str
     verify_token: str
+
+
+class ZApiProvisioningRequestOut(BaseModel):
+    status: Literal["pending", "fulfilled", "dismissed"]
+    requested_at: datetime

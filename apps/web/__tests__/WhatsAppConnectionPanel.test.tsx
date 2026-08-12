@@ -68,6 +68,7 @@ describe("WhatsAppConnectionPanel", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+    fireEvent.click(screen.getByRole("button", { name: /já tenho instance_id e token/i }));
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
@@ -130,6 +131,7 @@ describe("WhatsAppConnectionPanel", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+    fireEvent.click(screen.getByRole("button", { name: /já tenho instance_id e token/i }));
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
@@ -167,6 +169,7 @@ describe("WhatsAppConnectionPanel", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+    fireEvent.click(screen.getByRole("button", { name: /já tenho instance_id e token/i }));
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
@@ -196,6 +199,58 @@ describe("WhatsAppConnectionPanel", () => {
     render(<WhatsAppConnectionPanel />);
 
     await waitFor(() => expect(screen.getByText(/conectado via z-api/i)).toBeInTheDocument());
+  });
+
+  it("pede pra Advoxs configurar a conexão e mostra a tela de espera", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "whatsapp/connection") return { ok: true, json: async () => null };
+      if (path === "whatsapp/webhook-config") return { ok: false, json: async () => null };
+      if (path === "whatsapp/managed-zapi-request" && !init) {
+        return { ok: true, json: async () => null };
+      }
+      if (path === "whatsapp/request-managed-zapi" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", requested_at: "2026-08-12T12:00:00Z" }),
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /z-api/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /z-api/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /não tenho — quero que a advoxs configure/i }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/solicitação enviada em/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByLabelText(/instance id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/como você quer conectar/i)).not.toBeInTheDocument();
+  });
+
+  it("ao carregar com um pedido pendente já existente, pula direto pra tela de espera", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/connection") return { ok: true, json: async () => null };
+      if (path === "whatsapp/webhook-config") return { ok: false, json: async () => null };
+      if (path === "whatsapp/managed-zapi-request") {
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", requested_at: "2026-08-12T12:00:00Z" }),
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/solicitação enviada em/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /whatsapp business oficial/i })).not.toBeInTheDocument();
   });
 
   it("mostra o número mascarado e o status quando conectado", async () => {
