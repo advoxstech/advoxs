@@ -22,6 +22,11 @@ class WhatsAppConnectionOut(BaseModel):
     display_phone_number: str
     status: Literal["connected", "disconnected"]
     connected_at: datetime
+    # True quando a instância Z-API foi provisionada manualmente pela Advoxs
+    # (via painel de admin) em vez do próprio tenant ter colado as
+    # credenciais — o painel do tenant usa isso pra pular o formulário e ir
+    # direto pro QR code. Sempre False pra provider="meta".
+    managed_by_advoxs: bool = False
 
 
 class WebhookConfigOut(BaseModel):

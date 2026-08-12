@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -47,6 +47,14 @@ class WhatsAppNumber(Base):
     # única camada de autenticação do endpoint, já que a Z-API não assina o
     # payload como a Meta faz.
     zapi_webhook_secret: Mapped[str | None] = mapped_column(String)
+    # True quando a instância foi criada manualmente por um funcionário da
+    # Advoxs (fora do Programa de Parceiro/Integrador da Z-API, que exigiria
+    # R$899/mês) e atribuída a este tenant via painel de admin — o tenant
+    # nunca vê instance_id/token, só escaneia o QR code. False (default) pra
+    # quem conectou a própria conta Z-API via self-service.
+    zapi_managed_by_advoxs: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     display_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'connected'"))
     connected_at: Mapped[datetime] = mapped_column(

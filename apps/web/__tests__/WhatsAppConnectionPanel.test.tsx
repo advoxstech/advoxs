@@ -336,6 +336,63 @@ describe("WhatsAppConnectionPanel", () => {
     );
   });
 
+  it("instância gerenciada pela Advoxs (admin) pula form e busca o QR code automaticamente", async () => {
+    const qrcodeFetch = vi.fn();
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/connection") {
+        return {
+          ok: true,
+          json: async () => ({
+            provider: "zapi",
+            display_phone_number: "Aguardando pareamento",
+            status: "disconnected",
+            connected_at: "2026-08-12T12:00:00Z",
+            managed_by_advoxs: true,
+          }),
+        };
+      }
+      if (path === "whatsapp/webhook-config") return { ok: false, json: async () => null };
+      if (path === "whatsapp/zapi-qrcode") {
+        qrcodeFetch();
+        return { ok: true, json: async () => ({ qrcode_base64: "data:image/png;base64,AAAA" }) };
+      }
+      if (path === "whatsapp/zapi-status") return { ok: true, json: async () => null };
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByAltText(/qr code/i)).toBeInTheDocument());
+    expect(qrcodeFetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/a advoxs já configurou seu número/i)).toBeInTheDocument();
+    expect(screen.queryByText(/como você quer conectar/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/instance id/i)).not.toBeInTheDocument();
+  });
+
+  it("instância gerenciada pela Advoxs, já conectada, não mostra o botão de reconectar", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string) => {
+      if (path === "whatsapp/connection") {
+        return {
+          ok: true,
+          json: async () => ({
+            provider: "zapi",
+            display_phone_number: "5511999998888",
+            status: "connected",
+            connected_at: "2026-08-12T12:00:00Z",
+            managed_by_advoxs: true,
+          }),
+        };
+      }
+      return { ok: false, json: async () => null };
+    });
+
+    render(<WhatsAppConnectionPanel />);
+
+    await waitFor(() => expect(screen.getByText(/conectado via z-api/i)).toBeInTheDocument());
+    expect(screen.queryByText("Trocar número")).not.toBeInTheDocument();
+    expect(screen.getByText("Desconectar")).toBeInTheDocument();
+  });
+
   it("não mostra a seção de webhook quando o endpoint falha", async () => {
     mockedBackendFetch.mockImplementation(async (path: string) => {
       if (path === "whatsapp/webhook-config") {

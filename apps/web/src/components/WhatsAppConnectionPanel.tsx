@@ -12,6 +12,10 @@ type Connection = {
   display_phone_number: string;
   status: "connected" | "disconnected";
   connected_at: string;
+  // True quando a instância Z-API foi provisionada manualmente pela Advoxs
+  // (painel de admin) em vez do próprio tenant ter colado as credenciais —
+  // nesse caso o tenant nunca vê o formulário, só o QR code.
+  managed_by_advoxs: boolean;
 };
 
 type FormState = {
@@ -91,6 +95,22 @@ export function WhatsAppConnectionPanel() {
     };
   }, []);
 
+  // Instância provisionada pela Advoxs (painel de admin, ver "Conexão via
+  // Z-API" / fluxo manual no CLAUDE.md) e ainda não pareada: o tenant nunca
+  // vê instance_id/token, então pula o formulário e o seletor de provedor
+  // inteiros — vai direto pro QR code.
+  const managedPairingPending =
+    connection?.provider === "zapi" &&
+    connection.managed_by_advoxs &&
+    connection.status === "disconnected";
+
+  useEffect(() => {
+    if (managedPairingPending && !qrcode) {
+      void fetchAndShowQrCode();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedPairingPending, qrcode]);
+
   function stopPolling() {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -124,6 +144,19 @@ export function WhatsAppConnectionPanel() {
   function startReconnect() {
     setShowForm(true);
     backToPicker();
+  }
+
+  async function fetchAndShowQrCode() {
+    const qrResponse = await backendFetch("whatsapp/zapi-qrcode");
+    if (qrResponse.ok) {
+      const qrBody = await qrResponse.json().catch(() => null);
+      if (qrBody?.qrcode_base64) {
+        setQrcode(qrBody.qrcode_base64);
+        startZApiPolling();
+        return;
+      }
+    }
+    setFeedback("Falha ao gerar o QR code — tente novamente.");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -189,18 +222,7 @@ export function WhatsAppConnectionPanel() {
         return;
       }
 
-      const qrResponse = await backendFetch("whatsapp/zapi-qrcode");
-      if (qrResponse.ok) {
-        const qrBody = await qrResponse.json().catch(() => null);
-        if (qrBody?.qrcode_base64) {
-          setQrcode(qrBody.qrcode_base64);
-          startZApiPolling();
-        } else {
-          setFeedback("Falha ao gerar o QR code — tente novamente.");
-        }
-      } else {
-        setFeedback("Falha ao gerar o QR code — tente novamente.");
-      }
+      await fetchAndShowQrCode();
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
@@ -246,8 +268,12 @@ export function WhatsAppConnectionPanel() {
 
   const inConnectFlow = !connection || showForm;
   const activeProvider = providerChoice ?? connection?.provider ?? null;
+  const isManagedZapi = connection?.provider === "zapi" && connection.managed_by_advoxs;
   const showMetaInstructions = webhookConfig && activeProvider !== "zapi";
-  const showZApiInstructions = activeProvider === "zapi";
+  // Instância provisionada pela Advoxs: não há nenhum passo manual pro
+  // tenant (nem credenciais, nem webhook) — as instruções de self-service
+  // não se aplicam.
+  const showZApiInstructions = activeProvider === "zapi" && !isManagedZapi;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
@@ -266,7 +292,22 @@ export function WhatsAppConnectionPanel() {
       )}
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        {!inConnectFlow && connection ? (
+        {managedPairingPending ? (
+          <div className="flex max-w-md flex-col gap-4">
+            <p className="text-sm text-ink">
+              A Advoxs já configurou seu número — abra o WhatsApp que vai atender, vá em{" "}
+              <span className="font-medium">Aparelhos conectados</span> e escaneie o QR code
+              abaixo.
+            </p>
+            {qrcode ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qrcode} alt="QR code de pareamento da Z-API" className="max-w-xs" />
+            ) : (
+              <p className="text-xs text-muted">Gerando QR code...</p>
+            )}
+            <p className="text-xs text-muted">Aguardando pareamento...</p>
+          </div>
+        ) : !inConnectFlow && connection ? (
           <div className="max-w-md rounded border border-line bg-surface p-6">
             <div className="flex items-center justify-between">
               <p className="font-medium text-ink">{connection.display_phone_number}</p>
@@ -290,13 +331,15 @@ export function WhatsAppConnectionPanel() {
                   Desconectar
                 </button>
               )}
-              <button
-                type="button"
-                onClick={startReconnect}
-                className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
-              >
-                {connection.status === "connected" ? "Trocar número" : "Reconectar"}
-              </button>
+              {!isManagedZapi && (
+                <button
+                  type="button"
+                  onClick={startReconnect}
+                  className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                >
+                  {connection.status === "connected" ? "Trocar número" : "Reconectar"}
+                </button>
+              )}
             </div>
           </div>
         ) : providerChoice === null ? (

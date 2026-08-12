@@ -13,7 +13,6 @@ escaneia um QR code — sem aprovação de negócio. Ver `connect_zapi`,
 """
 
 import logging
-import secrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,7 +32,6 @@ from app.clients.zapi import (
     ZApiApiError,
     ZApiNetworkError,
     check_zapi_status,
-    configure_zapi_webhook,
     disconnect_zapi_instance,
     fetch_zapi_connected_phone,
     fetch_zapi_qrcode,
@@ -47,28 +45,14 @@ from app.schemas.whatsapp_connection import (
     WebhookConfigOut,
     WhatsAppConnectionOut,
 )
+from app.services.zapi_connection import provision_zapi_connection, to_connection_out
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 _GRAPH_ERROR_DETAIL = "Falha ao comunicar com a Meta — tente novamente em instantes"
-
-
-def _mask_phone_number(value: str) -> str:
-    """Mantém DDI (3 chars) e os 4 últimos dígitos visíveis; mascara o resto."""
-    if len(value) <= 7:
-        return value
-    return f"{value[:3]} **** {value[-4:]}"
-
-
-def _to_out(number: WhatsAppNumber) -> WhatsAppConnectionOut:
-    return WhatsAppConnectionOut(
-        provider=number.provider,
-        display_phone_number=_mask_phone_number(number.display_phone_number),
-        status=number.status,
-        connected_at=number.connected_at,
-    )
+_ZAPI_ERROR_DETAIL = "Falha ao comunicar com a Z-API — tente novamente em instantes"
 
 
 @router.post("/connect")
@@ -121,6 +105,7 @@ async def connect(
         existing.zapi_instance_token_encrypted = None
         existing.zapi_client_token_encrypted = None
         existing.zapi_webhook_secret = None
+        existing.zapi_managed_by_advoxs = False
         existing.status = "connected"
         existing.connected_at = now
         number = existing
@@ -133,6 +118,7 @@ async def connect(
             display_phone_number=display_phone_number,
             access_token_encrypted=encrypted,
             status="connected",
+            zapi_managed_by_advoxs=False,
         )
         session.add(number)
 
@@ -145,7 +131,7 @@ async def connect(
             detail="Este número já está conectado a outro escritório",
         )
     await session.refresh(number)
-    return _to_out(number)
+    return to_connection_out(number)
 
 
 @router.post("/connect-zapi")
@@ -155,92 +141,22 @@ async def connect_zapi(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> WhatsAppConnectionOut:
     try:
-        live_status = await check_zapi_status(
-            body.instance_id, body.instance_token, body.client_token
+        number = await provision_zapi_connection(
+            session,
+            ctx.tenant_id,
+            body.instance_id,
+            body.instance_token,
+            body.client_token,
+            # O tenant está colando a própria conta Z-API — mesmo que esta
+            # linha estivesse antes marcada como gerenciada pela Advoxs
+            # (provisionada via admin), o tenant assumindo com credenciais
+            # próprias sempre volta pro modelo self-service.
+            managed_by_advoxs=False,
         )
-    except ZApiNetworkError as exc:
-        logger.error("Falha de rede ao validar credenciais Z-API | erro=%s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Falha ao comunicar com a Z-API — tente novamente em instantes",
-        )
+    except ZApiNetworkError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_ZAPI_ERROR_DETAIL)
     except ZApiApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-
-    webhook_secret = secrets.token_urlsafe(32)
-    base = settings.api_public_url.rstrip("/")
-    webhook_url = f"{base}/api/v1/webhooks/zapi/{webhook_secret}"
-
-    try:
-        await configure_zapi_webhook(
-            body.instance_id, body.instance_token, body.client_token, webhook_url
-        )
-    except ZApiNetworkError as exc:
-        logger.error("Falha de rede ao configurar webhook Z-API | erro=%s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Falha ao comunicar com a Z-API — tente novamente em instantes",
-        )
-    except ZApiApiError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-
-    # Cobre o tenant que cola credenciais de uma instância já pareada fora do
-    # nosso fluxo (ex: testada direto no painel da Z-API antes de conectar
-    # aqui) — sem isso, o front recebe status="disconnected" e tenta buscar
-    # um QR code que a Z-API se recusa a gerar pra instância já conectada
-    # (ver fetch_zapi_qrcode em app/clients/zapi.py).
-    zapi_status = "disconnected"
-    zapi_display_phone = "Aguardando pareamento"
-    if live_status.get("connected"):
-        zapi_status = "connected"
-        try:
-            phone = await fetch_zapi_connected_phone(
-                body.instance_id, body.instance_token, body.client_token
-            )
-        except (ZApiNetworkError, ZApiApiError) as exc:
-            logger.warning(
-                "Falha ao buscar telefone de instância Z-API já conectada (best-effort) | erro=%s",
-                exc,
-            )
-            phone = None
-        if phone:
-            zapi_display_phone = phone
-
-    existing = await session.scalar(
-        select(WhatsAppNumber).where(WhatsAppNumber.tenant_id == ctx.tenant_id)
-    )
-    encrypted_token = encrypt_access_token(body.instance_token)
-    encrypted_client_token = encrypt_access_token(body.client_token) if body.client_token else None
-    now = datetime.now(UTC)
-
-    if existing is not None:
-        existing.provider = "zapi"
-        existing.zapi_instance_id = body.instance_id
-        existing.zapi_instance_token_encrypted = encrypted_token
-        existing.zapi_client_token_encrypted = encrypted_client_token
-        existing.zapi_webhook_secret = webhook_secret
-        existing.phone_number_id = None
-        existing.waba_id = None
-        existing.access_token_encrypted = None
-        existing.display_phone_number = zapi_display_phone
-        existing.status = zapi_status
-        # Simétrico ao branch Meta de connect() acima — reconectar (mesmo
-        # trocando de provedor) sempre reseta connected_at pro instante atual.
-        existing.connected_at = now
-        number = existing
-    else:
-        number = WhatsAppNumber(
-            tenant_id=ctx.tenant_id,
-            provider="zapi",
-            zapi_instance_id=body.instance_id,
-            zapi_instance_token_encrypted=encrypted_token,
-            zapi_client_token_encrypted=encrypted_client_token,
-            zapi_webhook_secret=webhook_secret,
-            display_phone_number=zapi_display_phone,
-            status=zapi_status,
-            connected_at=now,
-        )
-        session.add(number)
 
     try:
         await session.commit()
@@ -251,7 +167,7 @@ async def connect_zapi(
             detail="Esta instância já está conectada a outro escritório",
         )
     await session.refresh(number)
-    return _to_out(number)
+    return to_connection_out(number)
 
 
 @router.get("/zapi-qrcode")
@@ -345,7 +261,7 @@ async def get_zapi_status(
         return None
 
     number = await _self_heal_zapi_status(number, session)
-    return _to_out(number)
+    return to_connection_out(number)
 
 
 @router.get("/connection")
@@ -362,7 +278,7 @@ async def get_connection(
         # Mesmo self-heal do polling dedicado (ver docstring) — sem isso, o
         # status só se corrige enquanto a tela do QR code está aberta.
         number = await _self_heal_zapi_status(number, session)
-    return _to_out(number)
+    return to_connection_out(number)
 
 
 @router.get("/webhook-config")
@@ -411,4 +327,4 @@ async def disconnect(
     number.status = "disconnected"
     await session.commit()
     await session.refresh(number)
-    return _to_out(number)
+    return to_connection_out(number)
