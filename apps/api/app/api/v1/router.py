@@ -14,6 +14,7 @@ from app.api.v1.platform_admin.auth import router as platform_admin_auth_router
 from app.api.v1.platform_admin.dashboard import router as platform_admin_dashboard_router
 from app.api.v1.platform_admin.playground import router as platform_admin_playground_router
 from app.api.v1.platform_admin.tenants import router as platform_admin_tenants_router
+from app.api.v1.platform_admin.whatsapp import router as platform_admin_whatsapp_router
 from app.api.v1.profile import router as profile_router
 from app.api.v1.signup import router as signup_router
 from app.api.v1.test_conversations import router as test_conversations_router
@@ -40,6 +41,7 @@ api_router.include_router(platform_admin_auth_router)
 api_router.include_router(platform_admin_dashboard_router)
 api_router.include_router(platform_admin_playground_router)
 api_router.include_router(platform_admin_tenants_router)
+api_router.include_router(platform_admin_whatsapp_router)
 api_router.include_router(profile_router)
 api_router.include_router(signup_router)
 api_router.include_router(test_conversations_router)

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { AdminTenantWhatsAppZApi } from "@/components/AdminTenantWhatsAppZApi";
 import { adminBackendFetch } from "@/lib/admin-client-api";
 import { formatCredits } from "@/lib/format";
 
@@ -72,6 +73,8 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
           {new Date(tenant.created_at).toLocaleDateString("pt-BR")}
         </p>
       </div>
+
+      <AdminTenantWhatsAppZApi tenantId={tenantId} />
 
       <div>
         <h2 className="font-display text-lg font-semibold text-ink">Transações recentes</h2>

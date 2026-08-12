@@ -31,6 +31,7 @@ def _number(status: str = "connected", provider: str = "meta") -> SimpleNamespac
         zapi_instance_id=None,
         zapi_instance_token_encrypted=None,
         zapi_client_token_encrypted=None,
+        zapi_managed_by_advoxs=False,
         display_phone_number="+5511987654321",
         access_token_encrypted="cifrado",
         status=status,

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.api.v1.whatsapp as whatsapp_module
+import app.services.zapi_connection as zapi_connection_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.zapi import ZApiApiError, ZApiNetworkError
 from app.main import app
@@ -48,10 +49,14 @@ def zapi_mocks(monkeypatch):
         "configure_webhook": AsyncMock(return_value=None),
         "encrypt": MagicMock(side_effect=lambda v: f"cifrado:{v}"),
     }
-    monkeypatch.setattr(whatsapp_module, "check_zapi_status", mocks["check_status"])
-    monkeypatch.setattr(whatsapp_module, "configure_zapi_webhook", mocks["configure_webhook"])
-    monkeypatch.setattr(whatsapp_module, "encrypt_access_token", mocks["encrypt"])
-    monkeypatch.setattr(whatsapp_module.settings, "api_public_url", "https://api.exemplo.com.br")
+    monkeypatch.setattr(zapi_connection_module, "check_zapi_status", mocks["check_status"])
+    monkeypatch.setattr(
+        zapi_connection_module, "configure_zapi_webhook", mocks["configure_webhook"]
+    )
+    monkeypatch.setattr(zapi_connection_module, "encrypt_access_token", mocks["encrypt"])
+    monkeypatch.setattr(
+        zapi_connection_module.settings, "api_public_url", "https://api.exemplo.com.br"
+    )
     return mocks
 
 
@@ -65,6 +70,7 @@ class TestConnectZApi:
         body = response.json()
         assert body["provider"] == "zapi"
         assert body["status"] == "disconnected"
+        assert body["managed_by_advoxs"] is False
         session.add.assert_called_once()
         zapi_mocks["check_status"].assert_awaited_once_with(
             "inst-123", "token-claro", "client-token-claro"
@@ -72,6 +78,21 @@ class TestConnectZApi:
         zapi_mocks["configure_webhook"].assert_awaited_once()
         webhook_url_arg = zapi_mocks["configure_webhook"].await_args.args[3]
         assert webhook_url_arg.startswith("https://api.exemplo.com.br/api/v1/webhooks/zapi/")
+
+    def test_reconexao_self_service_reseta_managed_by_advoxs(
+        self, client, session, zapi_mocks
+    ) -> None:
+        """O tenant colando a própria conta Z-API sempre volta pro modelo
+        self-service — mesmo que a linha estivesse antes marcada como
+        gerenciada pela Advoxs (fluxo manual do admin)."""
+        existing = _zapi_number(status="disconnected", managed_by_advoxs=True)
+        session.scalar.return_value = existing
+
+        response = client.post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
+
+        assert response.status_code == 200
+        assert response.json()["managed_by_advoxs"] is False
+        assert existing.zapi_managed_by_advoxs is False
 
     def test_credenciais_invalidas_retorna_400_sem_persistir(
         self, client, session, zapi_mocks
@@ -116,7 +137,7 @@ class TestConnectZApi:
         em test_zapi_client.py)."""
         zapi_mocks["check_status"].return_value = {"connected": True}
         fetch_phone = AsyncMock(return_value="5511999998888")
-        monkeypatch.setattr(whatsapp_module, "fetch_zapi_connected_phone", fetch_phone)
+        monkeypatch.setattr(zapi_connection_module, "fetch_zapi_connected_phone", fetch_phone)
         session.scalar.return_value = None
 
         response = client.post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
@@ -131,7 +152,7 @@ class TestConnectZApi:
     ) -> None:
         zapi_mocks["check_status"].return_value = {"connected": True}
         fetch_phone = AsyncMock(side_effect=ZApiApiError("instância indisponível"))
-        monkeypatch.setattr(whatsapp_module, "fetch_zapi_connected_phone", fetch_phone)
+        monkeypatch.setattr(zapi_connection_module, "fetch_zapi_connected_phone", fetch_phone)
         session.scalar.return_value = None
 
         response = client.post("/api/v1/whatsapp/connect-zapi", json=CONNECT_ZAPI_BODY)
@@ -140,13 +161,14 @@ class TestConnectZApi:
         assert response.json()["status"] == "connected"
 
 
-def _zapi_number(status: str = "disconnected") -> SimpleNamespace:
+def _zapi_number(status: str = "disconnected", managed_by_advoxs: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         tenant_id=TENANT_ID,
         provider="zapi",
         zapi_instance_id="inst-123",
         zapi_instance_token_encrypted="cifrado:token-claro",
         zapi_client_token_encrypted="cifrado:client-token-claro",
+        zapi_managed_by_advoxs=managed_by_advoxs,
         display_phone_number="Aguardando pareamento",
         status=status,
         connected_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
@@ -220,6 +242,7 @@ class TestGetConnectionSelfHeal:
         number = SimpleNamespace(
             tenant_id=TENANT_ID,
             provider="meta",
+            zapi_managed_by_advoxs=False,
             display_phone_number="+5511987654321",
             status="connected",
             connected_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
