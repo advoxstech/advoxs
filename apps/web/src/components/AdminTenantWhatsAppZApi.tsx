@@ -13,6 +13,8 @@ type Connection = {
   managed_by_advoxs: boolean;
 };
 
+type PendingRequest = { status: "pending" | "fulfilled" | "dismissed"; requested_at: string };
+
 type FormState = { instance_id: string; instance_token: string; client_token: string };
 
 const EMPTY_FORM: FormState = { instance_id: "", instance_token: "", client_token: "" };
@@ -32,6 +34,7 @@ function extractErrorDetail(body: unknown, fallback: string): string {
  * code de dentro do próprio painel (`/configuracoes/whatsapp`). */
 export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
   const [connection, setConnection] = useState<Connection | null>(null);
+  const [pendingRequest, setPendingRequest] = useState<PendingRequest | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +46,12 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
         const response = await adminBackendFetch(`platform-admin/tenants/${tenantId}/whatsapp`);
         if (response.ok) {
           setConnection(await response.json());
+        }
+        const requestResponse = await adminBackendFetch(
+          `platform-admin/tenants/${tenantId}/whatsapp-request`,
+        );
+        if (requestResponse.ok) {
+          setPendingRequest(await requestResponse.json());
         }
       } finally {
         setLoaded(true);
@@ -74,6 +83,9 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
       }
       setConnection(body);
       setForm(EMPTY_FORM);
+      // O backend já fecha o pedido pendente (se houver) na mesma
+      // transação do provisionamento — reflete isso aqui sem novo fetch.
+      setPendingRequest(null);
       setFeedback("Provisionado — o tenant já pode escanear o QR code no próprio painel.");
     } catch {
       setFeedback("Falha de conexão — tente novamente.");
@@ -111,6 +123,13 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
             </p>
           )}
         </div>
+      )}
+
+      {pendingRequest?.status === "pending" && (
+        <p className="mt-3 rounded-sm border border-brass/40 bg-brass-soft px-4 py-3 text-sm text-ink">
+          Este escritório pediu a conexão gerenciada em{" "}
+          {new Date(pendingRequest.requested_at).toLocaleDateString("pt-BR")}.
+        </p>
       )}
 
       {feedback && (

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -44,6 +44,9 @@ class TestBuildDashboard:
                 _execute_result([("active", 40), ("suspended", 2)]),
                 _execute_result([(date(2026, 7, 1), 2), (date(2026, 7, 2), 1)]),
                 _execute_result([(TENANT_ID, "Escritório Baixo", 10)]),
+                _execute_result(
+                    [(TENANT_ID, "Escritório Pendente", datetime(2026, 8, 12, 12, 0, tzinfo=UTC))]
+                ),
             ]
         )
 
@@ -66,6 +69,8 @@ class TestBuildDashboard:
         assert result.whatsapp_connected.total == 42
         assert result.knowledge_base_usage.total_files == 12
         assert result.knowledge_base_usage.total_size_bytes == 204800
+        assert len(result.pending_zapi_requests) == 1
+        assert result.pending_zapi_requests[0].tenant_name == "Escritório Pendente"
 
     async def test_sem_consumo_estimativa_de_custo_e_zero(self, session) -> None:
         session.scalar = AsyncMock(
@@ -85,7 +90,12 @@ class TestBuildDashboard:
             ]
         )
         session.execute = AsyncMock(
-            side_effect=[_execute_result([]), _execute_result([]), _execute_result([])]
+            side_effect=[
+                _execute_result([]),
+                _execute_result([]),
+                _execute_result([]),
+                _execute_result([]),
+            ]
         )
 
         result = await build_dashboard(session)

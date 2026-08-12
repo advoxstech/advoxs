@@ -21,8 +21,13 @@ from app.api.deps import PlatformAdminContext, get_current_platform_admin
 from app.clients.zapi import ZApiApiError, ZApiNetworkError
 from app.core.db import get_system_session
 from app.models import AdminAuditLog, Tenant, WhatsAppNumber
-from app.schemas.whatsapp_connection import ConnectZApiRequest, WhatsAppConnectionOut
+from app.schemas.whatsapp_connection import (
+    ConnectZApiRequest,
+    WhatsAppConnectionOut,
+    ZApiProvisioningRequestOut,
+)
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
+from app.services.zapi_provisioning_requests import get_pending_request, resolve_pending_request
 
 router = APIRouter(prefix="/platform-admin/tenants", tags=["platform-admin"])
 
@@ -41,6 +46,20 @@ async def get_tenant_whatsapp_route(
     if number is None:
         return None
     return to_connection_out(number)
+
+
+@router.get("/{tenant_id}/whatsapp-request")
+async def get_tenant_whatsapp_request_route(
+    tenant_id: uuid.UUID,
+    admin: PlatformAdminContext = Depends(get_current_platform_admin),
+    session: AsyncSession = Depends(get_system_session),
+) -> ZApiProvisioningRequestOut | None:
+    """Pedido pendente do tenant pra Advoxs configurar a conexão Z-API —
+    alimenta o aviso na tela de provisionamento (ver AdminTenantWhatsAppZApi.tsx)."""
+    request = await get_pending_request(session, tenant_id)
+    if request is None:
+        return None
+    return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
 
 
 @router.post("/{tenant_id}/whatsapp/zapi")
@@ -72,6 +91,10 @@ async def provision_tenant_zapi_route(
     # atribuir credenciais em nome de um tenant também atravessa o
     # isolamento normal por tenant_id.
     session.add(AdminAuditLog(platform_admin_id=admin.admin_id, tenant_id=tenant_id))
+
+    # Fecha o pedido do tenant (se houver) na mesma transação — sem exigir
+    # nenhum passo manual extra de "marcar como atendido".
+    await resolve_pending_request(session, tenant_id)
 
     try:
         await session.commit()

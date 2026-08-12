@@ -49,6 +49,7 @@ export interface AdminDashboard {
   low_balance_tenants: { id: string; name: string; credit_balance: number }[];
   whatsapp_connected: { connected: number; total: number };
   knowledge_base_usage: { total_files: number; total_size_bytes: number };
+  pending_zapi_requests: { tenant_id: string; tenant_name: string; requested_at: string }[];
 }
 
 export interface TenantDashboard {

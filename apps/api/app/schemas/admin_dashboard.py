@@ -1,8 +1,8 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TenantsByStatus(BaseModel):
@@ -36,6 +36,12 @@ class KnowledgeBaseUsageSummary(BaseModel):
     total_size_bytes: int
 
 
+class PendingZApiRequest(BaseModel):
+    tenant_id: uuid.UUID
+    tenant_name: str
+    requested_at: datetime
+
+
 class AdminDashboardOut(BaseModel):
     tenants_total: int
     tenants_by_status: TenantsByStatus
@@ -49,3 +55,4 @@ class AdminDashboardOut(BaseModel):
     low_balance_tenants: list[LowBalanceTenant]
     whatsapp_connected: WhatsappConnectedSummary
     knowledge_base_usage: KnowledgeBaseUsageSummary
+    pending_zapi_requests: list[PendingZApiRequest] = Field(default_factory=list)

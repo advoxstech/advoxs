@@ -27,6 +27,9 @@ const DASHBOARD = {
   low_balance_tenants: [{ id: "t1", name: "Escritório Baixo", credit_balance: 5 }],
   whatsapp_connected: { connected: 8, total: 12 },
   knowledge_base_usage: { total_files: 30, total_size_bytes: 1048576 },
+  pending_zapi_requests: [
+    { tenant_id: "t2", tenant_name: "Escritório Pendente", requested_at: "2026-08-12T12:00:00Z" },
+  ],
 };
 
 describe("AdminDashboardPanel", () => {
@@ -40,6 +43,21 @@ describe("AdminDashboardPanel", () => {
     expect(screen.getByText("Escritório Baixo")).toBeInTheDocument();
     expect(screen.getByText("8 / 12")).toBeInTheDocument();
     expect(screen.getByText("US$ 12.35")).toBeInTheDocument();
+    expect(screen.getByText("Escritório Pendente")).toBeInTheDocument();
+  });
+
+  it("não mostra a seção de solicitações pendentes quando não há nenhuma", async () => {
+    mockedFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...DASHBOARD, pending_zapi_requests: [] }),
+    });
+
+    render(<AdminDashboardPanel />);
+
+    await waitFor(() => expect(screen.getByText("12")).toBeInTheDocument());
+    expect(
+      screen.queryByText("Solicitações de conexão Z-API pendentes"),
+    ).not.toBeInTheDocument();
   });
 
   it("mostra mensagem de erro quando o dashboard falha ao carregar", async () => {

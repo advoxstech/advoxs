@@ -44,8 +44,13 @@ from app.schemas.whatsapp_connection import (
     ConnectZApiRequest,
     WebhookConfigOut,
     WhatsAppConnectionOut,
+    ZApiProvisioningRequestOut,
 )
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
+from app.services.zapi_provisioning_requests import (
+    create_or_get_pending_request,
+    get_pending_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +207,30 @@ async def get_zapi_qrcode(
     except ZApiApiError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     return {"qrcode_base64": qrcode_base64}
+
+
+@router.post("/request-managed-zapi")
+async def request_managed_zapi(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ZApiProvisioningRequestOut:
+    """Pedido do tenant pra Advoxs configurar a conexão Z-API por ele — sem
+    instance_id/token nenhum, só o pedido em si. Idempotente: repetir a
+    chamada com um pedido já pendente devolve o mesmo, sem duplicar. Ver
+    app/services/zapi_provisioning_requests.py."""
+    request = await create_or_get_pending_request(session, ctx.tenant_id)
+    return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
+
+
+@router.get("/managed-zapi-request")
+async def get_managed_zapi_request(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ZApiProvisioningRequestOut | None:
+    request = await get_pending_request(session, ctx.tenant_id)
+    if request is None:
+        return None
+    return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
 
 
 async def _self_heal_zapi_status(number: WhatsAppNumber, session: AsyncSession) -> WhatsAppNumber:
