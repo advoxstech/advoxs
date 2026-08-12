@@ -44,9 +44,12 @@ describe("AdminDashboardPanel", () => {
     expect(screen.getByText("8 / 12")).toBeInTheDocument();
     expect(screen.getByText("US$ 12.35")).toBeInTheDocument();
     expect(screen.getByText("Escritório Pendente")).toBeInTheDocument();
+
+    const link = screen.getByRole("link", { name: /solicitações z-api pendentes/i });
+    expect(link).toHaveAttribute("href", "#solicitacoes-zapi");
   });
 
-  it("não mostra a seção de solicitações pendentes quando não há nenhuma", async () => {
+  it("não mostra o card nem a seção de solicitações pendentes quando não há nenhuma", async () => {
     mockedFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ ...DASHBOARD, pending_zapi_requests: [] }),
@@ -57,6 +60,9 @@ describe("AdminDashboardPanel", () => {
     await waitFor(() => expect(screen.getByText("12")).toBeInTheDocument());
     expect(
       screen.queryByText("Solicitações de conexão Z-API pendentes"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /solicitações z-api pendentes/i }),
     ).not.toBeInTheDocument();
   });
 
