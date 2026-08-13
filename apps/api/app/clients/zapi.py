@@ -14,8 +14,15 @@ nem contradizer o padrão de path já observado. Diante da ambiguidade,
 adotamos `instanceId`/`token` no PATH da URL para todos os endpoints deste
 arquivo — consistente com send-text, mais fácil de testar (sem precisar
 inspecionar headers da request) e values já validados em produção por outros
-consumidores da Z-API. `Client-Token` (opcional, só quando a conta usa Client
-por conta na Z-API) continua sendo um header, nunca faz parte do path.
+consumidores da Z-API. `Client-Token` continua sendo um header, nunca faz
+parte do path.
+
+`Client-Token` é obrigatório em toda conexão nova (ver ConnectZApiRequest em
+app/schemas/whatsapp_connection.py) — descoberto em produção que a Z-API
+exige em todas as contas, não só nas com "Client-Token por conta" ativado
+(suposição anterior, incorreta). `_headers()` abaixo ainda aceita `None`
+pra continuar funcionando com linhas de `whatsapp_numbers` gravadas antes
+dessa correção, sem esse campo.
 """
 
 import logging

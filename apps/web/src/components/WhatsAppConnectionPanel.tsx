@@ -229,7 +229,7 @@ export function WhatsAppConnectionPanel() {
         body: JSON.stringify({
           instance_id: zapiForm.instance_id,
           instance_token: zapiForm.instance_token,
-          client_token: zapiForm.client_token || null,
+          client_token: zapiForm.client_token,
         }),
       });
       const body = await response.json().catch(() => null);
@@ -571,8 +571,9 @@ export function WhatsAppConnectionPanel() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm text-ink">
-              Client-Token (opcional)
+              Client-Token
               <input
+                required
                 type="password"
                 value={zapiForm.client_token}
                 onChange={(event) =>
@@ -784,10 +785,9 @@ export function WhatsAppConnectionPanel() {
                 </span>
               </li>
               <li>
-                O campo <span className="font-medium">Client-Token</span> é opcional — só
-                preencha se você ativou a camada extra de segurança da sua conta (aba{" "}
-                <span className="font-medium">Segurança → Token de Segurança da Conta</span> no
-                painel da Z-API). Se nunca configurou isso, deixe em branco.
+                Também copie o <span className="font-medium">Client-Token</span>, na aba{" "}
+                <span className="font-medium">Segurança → Token de Segurança da Conta</span> do
+                painel da Z-API — obrigatório, gere um se ainda não tiver.
               </li>
               <li>
                 Clique em <span className="font-medium">Conectar</span>: o QR code aparece na

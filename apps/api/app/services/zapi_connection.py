@@ -57,7 +57,7 @@ async def provision_zapi_connection(
     tenant_id: uuid.UUID,
     instance_id: str,
     instance_token: str,
-    client_token: str | None,
+    client_token: str,
     *,
     managed_by_advoxs: bool,
 ) -> WhatsAppNumber:
@@ -109,7 +109,7 @@ async def provision_zapi_connection(
         select(WhatsAppNumber).where(WhatsAppNumber.tenant_id == tenant_id)
     )
     encrypted_token = encrypt_access_token(instance_token)
-    encrypted_client_token = encrypt_access_token(client_token) if client_token else None
+    encrypted_client_token = encrypt_access_token(client_token)
     now = datetime.now(UTC)
 
     number = existing if existing is not None else WhatsAppNumber(tenant_id=tenant_id)

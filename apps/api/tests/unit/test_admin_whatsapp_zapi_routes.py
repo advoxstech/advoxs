@@ -17,7 +17,7 @@ TENANT_ID = uuid.uuid4()
 CONNECT_ZAPI_BODY = {
     "instance_id": "inst-123",
     "instance_token": "token-claro",
-    "client_token": None,
+    "client_token": "client-token-claro",
 }
 
 
@@ -85,6 +85,17 @@ class TestProvisionTenantZApi:
         assert body["status"] == "disconnected"
         assert body["managed_by_advoxs"] is True
         session.add.assert_called()  # WhatsAppNumber novo + AdminAuditLog
+
+    def test_sem_client_token_retorna_422(self, client, session, zapi_mocks) -> None:
+        body = {**CONNECT_ZAPI_BODY, "client_token": ""}
+
+        response = client.post(
+            f"/api/v1/platform-admin/tenants/{TENANT_ID}/whatsapp/zapi",
+            json=body,
+        )
+
+        assert response.status_code == 422
+        zapi_mocks["check_status"].assert_not_awaited()
 
     def test_tenant_inexistente_retorna_404_sem_chamar_z_api(
         self, client, session, zapi_mocks

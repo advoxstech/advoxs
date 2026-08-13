@@ -43,6 +43,9 @@ describe("AdminTenantWhatsAppZApi", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /provisionar/i }));
 
     await waitFor(() =>
@@ -85,6 +88,9 @@ describe("AdminTenantWhatsAppZApi", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /provisionar/i }));
 
     await waitFor(() =>
@@ -126,6 +132,9 @@ describe("AdminTenantWhatsAppZApi", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /provisionar/i }));
 
     await waitFor(() => expect(screen.getByText(/credenciais inválidas/i)).toBeInTheDocument());

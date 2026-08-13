@@ -79,6 +79,17 @@ class TestConnectZApi:
         webhook_url_arg = zapi_mocks["configure_webhook"].await_args.args[3]
         assert webhook_url_arg.startswith("https://api.exemplo.com.br/api/v1/webhooks/zapi/")
 
+    def test_sem_client_token_retorna_422(self, client, session, zapi_mocks) -> None:
+        """Client-Token é obrigatório — descoberto em produção que a Z-API
+        exige em toda conta, não só nas com "Client-Token por conta"
+        ativado (suposição anterior, incorreta)."""
+        body = {**CONNECT_ZAPI_BODY, "client_token": ""}
+
+        response = client.post("/api/v1/whatsapp/connect-zapi", json=body)
+
+        assert response.status_code == 422
+        zapi_mocks["check_status"].assert_not_awaited()
+
     def test_reconexao_self_service_reseta_managed_by_advoxs(
         self, client, session, zapi_mocks
     ) -> None:

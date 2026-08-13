@@ -14,7 +14,11 @@ class ConnectWhatsAppRequest(BaseModel):
 class ConnectZApiRequest(BaseModel):
     instance_id: str = Field(min_length=1)
     instance_token: str = Field(min_length=1)
-    client_token: str | None = None
+    # Obrigatório em toda conexão nova — descoberto que a Z-API exige em
+    # todas as contas, não só nas que ativaram "Client-Token por conta"
+    # (suposição anterior, incorreta). Linhas antigas gravadas sem esse
+    # campo continuam funcionando (ver app/clients/zapi.py::_headers).
+    client_token: str = Field(min_length=1)
 
 
 class WhatsAppConnectionOut(BaseModel):
