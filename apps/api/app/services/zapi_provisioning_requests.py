@@ -26,17 +26,20 @@ async def get_pending_request(
 
 async def create_or_get_pending_request(
     session: AsyncSession, tenant_id: uuid.UUID
-) -> ZApiProvisioningRequest:
+) -> tuple[ZApiProvisioningRequest, bool]:
     """Idempotente — pedir de novo enquanto já existe um pendente devolve o
-    mesmo pedido, sem criar duplicado."""
+    mesmo pedido, sem criar duplicado. O segundo valor devolvido (`is_new`)
+    distingue os dois casos — usado pelo chamador pra só disparar a
+    notificação por e-mail (ver app/services/email_notifications.py) na
+    criação de verdade, nunca num pedido repetido."""
     existing = await get_pending_request(session, tenant_id)
     if existing is not None:
-        return existing
+        return existing, False
     request = ZApiProvisioningRequest(tenant_id=tenant_id)
     session.add(request)
     await session.commit()
     await session.refresh(request)
-    return request
+    return request, True
 
 
 async def resolve_pending_request(session: AsyncSession, tenant_id: uuid.UUID) -> None:

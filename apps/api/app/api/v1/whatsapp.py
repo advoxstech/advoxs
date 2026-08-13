@@ -38,7 +38,7 @@ from app.clients.zapi import (
 )
 from app.core.config import settings
 from app.core.crypto import decrypt_access_token, encrypt_access_token
-from app.models import WhatsAppNumber
+from app.models import Tenant, WhatsAppNumber
 from app.schemas.whatsapp_connection import (
     ConnectWhatsAppRequest,
     ConnectZApiRequest,
@@ -46,6 +46,7 @@ from app.schemas.whatsapp_connection import (
     WhatsAppConnectionOut,
     ZApiProvisioningRequestOut,
 )
+from app.services.email_notifications import send_zapi_request_notification
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
 from app.services.zapi_provisioning_requests import (
     create_or_get_pending_request,
@@ -218,7 +219,14 @@ async def request_managed_zapi(
     instance_id/token nenhum, só o pedido em si. Idempotente: repetir a
     chamada com um pedido já pendente devolve o mesmo, sem duplicar. Ver
     app/services/zapi_provisioning_requests.py."""
-    request = await create_or_get_pending_request(session, ctx.tenant_id)
+    request, is_new = await create_or_get_pending_request(session, ctx.tenant_id)
+    if is_new:
+        # Best-effort — nunca deve impedir o pedido de ser registrado (ver
+        # app/services/email_notifications.py). Só na criação de verdade,
+        # nunca num pedido repetido (idempotente).
+        tenant = await session.get(Tenant, ctx.tenant_id)
+        if tenant is not None:
+            await send_zapi_request_notification(tenant.name, request.requested_at)
     return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
 
 
