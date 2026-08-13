@@ -72,6 +72,9 @@ describe("WhatsAppConnectionPanel", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /conectar/i }));
 
     await waitFor(() => expect(screen.getByAltText(/qr code/i)).toBeInTheDocument());
@@ -135,6 +138,9 @@ describe("WhatsAppConnectionPanel", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /conectar/i }));
 
     await waitFor(() =>
@@ -173,6 +179,9 @@ describe("WhatsAppConnectionPanel", () => {
 
     fireEvent.change(screen.getByLabelText(/instance id/i), { target: { value: "inst-123" } });
     fireEvent.change(screen.getByLabelText(/^token$/i), { target: { value: "token-abc" } });
+    fireEvent.change(screen.getByLabelText(/client-token/i), {
+      target: { value: "client-token-abc" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /conectar/i }));
 
     await waitFor(() => expect(screen.getByText(/conectado via z-api/i)).toBeInTheDocument());

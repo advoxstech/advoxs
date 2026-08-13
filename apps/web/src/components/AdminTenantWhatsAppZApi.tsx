@@ -72,7 +72,7 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
           body: JSON.stringify({
             instance_id: form.instance_id,
             instance_token: form.instance_token,
-            client_token: form.client_token || null,
+            client_token: form.client_token,
           }),
         },
       );
@@ -159,8 +159,9 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink">
-          Client-Token (opcional)
+          Client-Token
           <input
+            required
             type="password"
             value={form.client_token}
             onChange={(event) => setForm({ ...form, client_token: event.target.value })}
