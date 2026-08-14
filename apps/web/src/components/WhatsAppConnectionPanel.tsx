@@ -612,8 +612,8 @@ export function WhatsAppConnectionPanel() {
               Conectar o WhatsApp Business
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — dá um pouco
-              de trabalho, mas só precisa ser feita uma única vez.
+              Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — só precisa
+              ser feita uma única vez.
             </p>
             <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
               <li>
