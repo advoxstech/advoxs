@@ -68,6 +68,7 @@ export function WhatsAppConnectionPanel() {
   const [zapiEntryChoice, setZapiEntryChoice] = useState<"form" | null>(null);
   const [pendingRequest, setPendingRequest] = useState<ManagedZApiRequest | null>(null);
   const [requestingManaged, setRequestingManaged] = useState(false);
+  const [cancellingRequest, setCancellingRequest] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [zapiForm, setZapiForm] = useState<ZApiFormState>(EMPTY_ZAPI_FORM);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -186,6 +187,25 @@ export function WhatsAppConnectionPanel() {
       setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setRequestingManaged(false);
+    }
+  }
+
+  async function handleCancelManagedRequest() {
+    setFeedback(null);
+    setCancellingRequest(true);
+    try {
+      const response = await backendFetch("whatsapp/managed-zapi-request/cancel", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        setFeedback("Falha ao cancelar a solicitação — tente novamente.");
+        return;
+      }
+      setPendingRequest(null);
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    } finally {
+      setCancellingRequest(false);
     }
   }
 
@@ -383,6 +403,14 @@ export function WhatsAppConnectionPanel() {
               configurando sua conexão. Você vai ver o QR code aqui automaticamente quando
               estiver pronto.
             </p>
+            <button
+              type="button"
+              onClick={() => void handleCancelManagedRequest()}
+              disabled={cancellingRequest}
+              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-50"
+            >
+              {cancellingRequest ? "Cancelando..." : "Cancelar solicitação"}
+            </button>
           </div>
         ) : providerChoice === null ? (
           <div className="flex max-w-md flex-col gap-3">

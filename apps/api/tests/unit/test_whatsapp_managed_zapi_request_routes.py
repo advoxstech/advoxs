@@ -60,6 +60,13 @@ def notify_mock(monkeypatch):
     return mock
 
 
+@pytest.fixture
+def cancel_notify_mock(monkeypatch):
+    mock = AsyncMock()
+    monkeypatch.setattr(whatsapp_module, "send_zapi_request_cancelled_notification", mock)
+    return mock
+
+
 class TestRequestManagedZApi:
     def test_sem_token_retorna_401(self) -> None:
         response = TestClient(app).post("/api/v1/whatsapp/request-managed-zapi")
@@ -131,3 +138,34 @@ class TestGetManagedZApiRequest:
         body = response.json()
         assert body["status"] == "pending"
         assert body["requested_at"] == "2026-08-12T12:00:00Z"
+
+
+class TestCancelManagedZApiRequest:
+    def test_sem_token_retorna_401(self) -> None:
+        response = TestClient(app).post("/api/v1/whatsapp/managed-zapi-request/cancel")
+        assert response.status_code == 401
+
+    def test_cancela_pedido_pendente_e_notifica(self, client, session, cancel_notify_mock) -> None:
+        session.scalar.return_value = _request(status="pending")
+        session.get = AsyncMock(return_value=SimpleNamespace(name="Escritório X"))
+
+        response = client.post("/api/v1/whatsapp/managed-zapi-request/cancel")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "dismissed"
+        session.commit.assert_awaited_once()
+        cancel_notify_mock.assert_awaited_once()
+        assert cancel_notify_mock.await_args.args[0] == "Escritório X"
+
+    def test_sem_pedido_pendente_retorna_null_sem_notificar(
+        self, client, session, cancel_notify_mock
+    ) -> None:
+        session.scalar.return_value = None
+
+        response = client.post("/api/v1/whatsapp/managed-zapi-request/cancel")
+
+        assert response.status_code == 200
+        assert response.json() is None
+        session.commit.assert_not_awaited()
+        cancel_notify_mock.assert_not_awaited()
