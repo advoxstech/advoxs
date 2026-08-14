@@ -1,6 +1,7 @@
 """Notificação por e-mail (Gmail SMTP) — hoje só usada pra avisar a Advoxs
-quando um tenant pede a conexão Z-API gerenciada (ver app/services/
-zapi_provisioning_requests.py e POST /whatsapp/request-managed-zapi).
+quando um tenant pede ou cancela o pedido da conexão Z-API gerenciada (ver
+app/services/zapi_provisioning_requests.py e POST /whatsapp/{request-managed-
+zapi,managed-zapi-request/cancel}).
 
 Best-effort, igual a toda integração externa deste código-base: uma falha
 de envio (Gmail fora do ar, credencial errada) nunca deve impedir o pedido
@@ -41,19 +42,29 @@ def _send_email_sync(to_address: str, subject: str, body: str) -> None:
         server.send_message(message)
 
 
-_GMAIL_NOT_CONFIGURED = "Notificação de pedido Z-API pulada — Gmail SMTP não configurado"
+_GMAIL_NOT_CONFIGURED = "Notificação Z-API pulada — Gmail SMTP não configurado"
 
 
-async def send_zapi_request_notification(tenant_name: str, requested_at: datetime) -> None:
-    gmail_configured = bool(
+def _gmail_configured() -> bool:
+    return bool(
         settings.gmail_smtp_user
         and settings.gmail_smtp_app_password
         and settings.admin_notification_email
     )
-    if not gmail_configured:
+
+
+async def _dispatch(subject: str, body: str, *, tenant_name: str) -> None:
+    if not _gmail_configured():
         logger.debug("%s | tenant=%s", _GMAIL_NOT_CONFIGURED, tenant_name)
         return
 
+    try:
+        await asyncio.to_thread(_send_email_sync, settings.admin_notification_email, subject, body)
+    except Exception as exc:  # noqa: BLE001 — best-effort, nunca deve propagar
+        logger.warning("Falha ao enviar notificação Z-API por e-mail (best-effort) | erro=%s", exc)
+
+
+async def send_zapi_request_notification(tenant_name: str, requested_at: datetime) -> None:
     subject = f"Advoxs — {tenant_name} pediu conexão Z-API gerenciada"
     when = requested_at.strftime("%d/%m/%Y %H:%M")
     body = (
@@ -61,10 +72,18 @@ async def send_zapi_request_notification(tenant_name: str, requested_at: datetim
         "de WhatsApp via Z-API por ele.\n\n"
         "Provisione a instância no painel de administração (/admin/tenants) quando puder."
     )
+    await _dispatch(subject, body, tenant_name=tenant_name)
 
-    try:
-        await asyncio.to_thread(_send_email_sync, settings.admin_notification_email, subject, body)
-    except Exception as exc:  # noqa: BLE001 — best-effort, nunca deve propagar
-        logger.warning(
-            "Falha ao enviar notificação de pedido Z-API por e-mail (best-effort) | erro=%s", exc
-        )
+
+async def send_zapi_request_cancelled_notification(
+    tenant_name: str, cancelled_at: datetime
+) -> None:
+    subject = f"Advoxs — {tenant_name} cancelou o pedido de conexão Z-API gerenciada"
+    when = cancelled_at.strftime("%d/%m/%Y %H:%M")
+    body = (
+        f"O escritório {tenant_name} cancelou, em {when}, o pedido de conexão Z-API "
+        "gerenciada pela Advoxs.\n\n"
+        "Se você já tinha começado a provisionar a instância manualmente, não precisa "
+        "mais continuar."
+    )
+    await _dispatch(subject, body, tenant_name=tenant_name)

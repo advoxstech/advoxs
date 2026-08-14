@@ -46,9 +46,13 @@ from app.schemas.whatsapp_connection import (
     WhatsAppConnectionOut,
     ZApiProvisioningRequestOut,
 )
-from app.services.email_notifications import send_zapi_request_notification
+from app.services.email_notifications import (
+    send_zapi_request_cancelled_notification,
+    send_zapi_request_notification,
+)
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
 from app.services.zapi_provisioning_requests import (
+    cancel_pending_request,
     create_or_get_pending_request,
     get_pending_request,
 )
@@ -238,6 +242,25 @@ async def get_managed_zapi_request(
     request = await get_pending_request(session, ctx.tenant_id)
     if request is None:
         return None
+    return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
+
+
+@router.post("/managed-zapi-request/cancel")
+async def cancel_managed_zapi_request(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ZApiProvisioningRequestOut | None:
+    """O tenant desiste do pedido — idempotente, cancelar sem nada pendente
+    não é erro, só devolve null. Ver app/services/zapi_provisioning_requests.py."""
+    request = await cancel_pending_request(session, ctx.tenant_id)
+    if request is None:
+        return None
+
+    # Best-effort — nunca deve impedir o cancelamento de ser registrado (ver
+    # app/services/email_notifications.py).
+    tenant = await session.get(Tenant, ctx.tenant_id)
+    if tenant is not None:
+        await send_zapi_request_cancelled_notification(tenant.name, request.resolved_at)
     return ZApiProvisioningRequestOut(status=request.status, requested_at=request.requested_at)
 
 

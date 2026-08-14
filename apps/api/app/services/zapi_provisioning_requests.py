@@ -52,3 +52,20 @@ async def resolve_pending_request(session: AsyncSession, tenant_id: uuid.UUID) -
         return
     request.status = "fulfilled"
     request.resolved_at = datetime.now(UTC)
+
+
+async def cancel_pending_request(
+    session: AsyncSession, tenant_id: uuid.UUID
+) -> ZApiProvisioningRequest | None:
+    """O próprio tenant desiste do pedido — ação isolada (nenhuma outra
+    escrita acontece na mesma chamada), por isso commita sozinha, diferente
+    de resolve_pending_request. Devolve None se não havia nada pendente
+    (idempotente — cancelar de novo não é erro)."""
+    request = await get_pending_request(session, tenant_id)
+    if request is None:
+        return None
+    request.status = "dismissed"
+    request.resolved_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(request)
+    return request
