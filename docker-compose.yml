@@ -75,6 +75,8 @@ services:
       # api/worker). Sem isso, POST /messages falha com 503 (Redis indisponível).
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+    ports:
+      - "${AGENTS_PORT:-8001}:8001"
     volumes:
       - generated_documents:/data/generated_documents
     depends_on:
