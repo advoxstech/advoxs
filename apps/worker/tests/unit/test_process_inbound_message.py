@@ -76,10 +76,14 @@ def patched(monkeypatch):
             }
         ),
         "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
-        "debitar": AsyncMock(),
+        # False por padrão: nenhum teste existente representa um débito que
+        # zera o saldo — sem isso, o valor default de um AsyncMock (um
+        # MagicMock truthy) faria toda mensagem parecer ter zerado o saldo.
+        "debitar": AsyncMock(return_value=False),
         "debitar_cliente_final": AsyncMock(),
         "pricing": AsyncMock(return_value=PRICING_CONFIG),
         "sync": AsyncMock(),
+        "notify_sem_creditos": AsyncMock(),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
@@ -91,6 +95,9 @@ def patched(monkeypatch):
     )
     monkeypatch.setattr(messages_task, "get_current_pricing_config", mocks["pricing"])
     monkeypatch.setattr(messages_task, "sync_context_to_agents", mocks["sync"])
+    monkeypatch.setattr(
+        messages_task, "send_tenant_out_of_credits_notification", mocks["notify_sem_creditos"]
+    )
     return mocks
 
 
@@ -218,6 +225,34 @@ async def test_saldo_positivo_chama_agente_normalmente(patched) -> None:
     patched["load"].return_value = _inbound(credit_balance=1)
 
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+
+async def test_debito_zera_saldo_notifica_a_advoxs(patched) -> None:
+    """_debitar_creditos devolvendo True (transição pra <=0) precisa
+    disparar a notificação por e-mail, buscando o nome do tenant na mesma
+    sessão já aberta (best-effort, depois do commit)."""
+    patched["debitar"].return_value = True
+    ctx = _ctx()
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    # session é um AsyncMock — sem isso, .scalar_one_or_none (herdando a
+    # "async-ness" do mock pai) viraria uma corrotina, não o valor de verdade
+    # que o SQLAlchemy devolve de forma síncrona num Result real.
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = "Escritório Teste"
+    session.execute.return_value = result_mock
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["notify_sem_creditos"].assert_awaited_once()
+    assert patched["notify_sem_creditos"].await_args.args[0] == "Escritório Teste"
+
+
+async def test_debito_nao_zera_saldo_nao_notifica(patched) -> None:
+    patched["debitar"].return_value = False
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["notify_sem_creditos"].assert_not_awaited()
 
     patched["send"].assert_awaited_once()
 

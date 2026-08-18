@@ -81,6 +81,14 @@ def graph_mocks(monkeypatch):
     return mocks
 
 
+@pytest.fixture
+def disconnect_notify_mock(monkeypatch, session):
+    mock = AsyncMock()
+    monkeypatch.setattr(whatsapp_module, "send_whatsapp_disconnected_notification", mock)
+    session.get = AsyncMock(return_value=SimpleNamespace(name="Escritório X"))
+    return mock
+
+
 def test_connect_sem_token_retorna_401() -> None:
     response = TestClient(app).post("/api/v1/whatsapp/connect", json=CONNECT_BODY)
     assert response.status_code == 401
@@ -217,7 +225,7 @@ class TestGetConnection:
 
 
 class TestDisconnect:
-    def test_desconecta_com_sucesso(self, client, session) -> None:
+    def test_desconecta_com_sucesso(self, client, session, disconnect_notify_mock) -> None:
         existing = _number(status="connected")
         session.scalar.return_value = existing
 
@@ -226,6 +234,22 @@ class TestDisconnect:
         assert response.status_code == 200
         assert existing.status == "disconnected"
         assert response.json()["status"] == "disconnected"
+        disconnect_notify_mock.assert_awaited_once()
+        assert disconnect_notify_mock.await_args.args[0] == "Escritório X"
+        assert disconnect_notify_mock.await_args.args[1] == "meta"
+
+    def test_desconectar_de_novo_ja_desconectado_nao_notifica(
+        self, client, session, disconnect_notify_mock
+    ) -> None:
+        """Clicar em "Desconectar" numa instância já desconectada (ex: dois
+        cliques, ou aba duplicada) não deve gerar um segundo aviso."""
+        existing = _number(status="disconnected")
+        session.scalar.return_value = existing
+
+        response = client.post("/api/v1/whatsapp/disconnect")
+
+        assert response.status_code == 200
+        disconnect_notify_mock.assert_not_awaited()
 
     def test_desconectar_sem_conexao_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None

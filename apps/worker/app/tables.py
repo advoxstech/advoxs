@@ -34,6 +34,7 @@ tenants = Table(
     "tenants",
     metadata,
     Column("id", Uuid, primary_key=True),
+    Column("name", String),
     Column("credit_balance", Numeric(12, 4)),
 )
 

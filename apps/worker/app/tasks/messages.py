@@ -14,6 +14,7 @@ from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_tenant_session
+from app.email_notifications import send_tenant_out_of_credits_notification
 from app.pricing import (
     DOCUMENT_GENERATION_CREDIT_COST,
     calcular_creditos,
@@ -315,6 +316,7 @@ async def process_inbound_message(
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
                 .values(current_agent_id=uuid.UUID(current_agent_id))
             )
+        saldo_tenant_zerou = False
         if credits and first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final
             # (quando a cobrança está habilitada e havia saldo antes da
@@ -338,7 +340,7 @@ async def process_inbound_message(
                     config.id,
                 )
             else:
-                await _debitar_creditos(
+                saldo_tenant_zerou = await _debitar_creditos(
                     session,
                     tenant_id,
                     first_message_id,
@@ -350,6 +352,17 @@ async def process_inbound_message(
                 )
 
         await session.commit()
+
+        if saldo_tenant_zerou:
+            # Best-effort, depois do commit — nunca deve atrapalhar o
+            # processamento da mensagem (ver email_notifications.py).
+            tenant_name = (
+                await session.execute(
+                    select(tables.tenants.c.name).where(tables.tenants.c.id == uuid.UUID(tenant_id))
+                )
+            ).scalar_one_or_none()
+            if tenant_name:
+                await send_tenant_out_of_credits_notification(tenant_name, datetime.now(UTC))
 
 
 async def _load_context(
@@ -592,17 +605,24 @@ async def _debitar_creditos(
     tokens_input: int = 0,
     tokens_output: int = 0,
     pricing_config_id: uuid.UUID | None = None,
-) -> None:
+) -> bool:
     """Lança o consumo no ledger e atualiza o cache de saldo do tenant.
 
     O SELECT ... FOR UPDATE serializa débitos concorrentes do mesmo tenant
     (várias mensagens simultâneas) — o update relativo em seguida nunca perde
-    escrita nem lê saldo obsoleto."""
-    await session.execute(
-        select(tables.tenants.c.credit_balance)
-        .where(tables.tenants.c.id == uuid.UUID(tenant_id))
-        .with_for_update()
-    )
+    escrita nem lê saldo obsoleto.
+
+    Devolve True quando esse débito específico zerou o saldo (transição de
+    positivo pra <=0) — usado pra notificar a Advoxs uma única vez por
+    "episódio" de saldo esgotado, nunca a cada mensagem enquanto já
+    está zerado (ver send_tenant_out_of_credits_notification)."""
+    saldo_antes = (
+        await session.execute(
+            select(tables.tenants.c.credit_balance)
+            .where(tables.tenants.c.id == uuid.UUID(tenant_id))
+            .with_for_update()
+        )
+    ).scalar_one()
     await session.execute(
         insert(tables.credit_transactions).values(
             tenant_id=uuid.UUID(tenant_id),
@@ -621,6 +641,7 @@ async def _debitar_creditos(
         .where(tables.tenants.c.id == uuid.UUID(tenant_id))
         .values(credit_balance=tables.tenants.c.credit_balance - credits)
     )
+    return saldo_antes > 0 and (saldo_antes - credits) <= 0
 
 
 async def _debitar_creditos_cliente_final(

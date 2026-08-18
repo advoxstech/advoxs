@@ -24,6 +24,7 @@ from app.models import CreditPackage, CreditTransaction, Tenant, User
 from app.schemas.billing import SpendingByMonthOut, SpendingReportOut
 from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
+from app.services.email_notifications import send_new_tenant_notification
 from app.services.signup_tokens import store_login_token
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,10 @@ async def _process_signup(session: AsyncSession, session_id: str, metadata: dict
             email,
         )
         return
+
+    # Best-effort — a conta já foi criada, uma falha aqui nunca deve
+    # atrapalhar o cadastro do escritório.
+    await send_new_tenant_notification(tenant.name, package.name, datetime.now(UTC))
 
     # Auto-login pós-pagamento: token one-time, best-effort — se o Redis
     # falhar, a conta já existe e o usuário entra pelo /login normal.
