@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 
 from app.tasks import messages as messages_task
 
@@ -10,14 +11,22 @@ PRICING_CONFIG_ID = uuid.uuid4()
 
 
 class FakeSession:
-    """Captura os params de cada statement executado (SELECT do lock incluso)."""
+    """Captura os params de cada statement executado (SELECT do lock incluso).
 
-    def __init__(self):
+    `saldo_antes` é o valor devolvido pelo SELECT ... FOR UPDATE do lock —
+    usado por _debitar_creditos (tenant) pra decidir se esse débito zerou o
+    saldo (ver test_debitar_creditos_zera_saldo* abaixo). Não é lido por
+    _debitar_creditos_cliente_final (cliente final não tem essa notificação
+    ainda), mas configurar um default alto não afeta esses testes."""
+
+    def __init__(self, saldo_antes: Decimal = Decimal("1000")):
         self.executed: list[dict] = []
+        self._saldo_antes = saldo_antes
 
     async def execute(self, stmt):
         params = dict(stmt.compile().params)
         self.executed.append(params)
+        return SimpleNamespace(scalar_one=lambda: self._saldo_antes)
 
     def insert_params(self) -> dict:
         return next(p for p in self.executed if "amount_credits" in p)
@@ -87,3 +96,35 @@ async def test_sem_breakdown_grava_null_em_tokens() -> None:
     assert transaction["tokens_input"] is None
     assert transaction["tokens_output"] is None
     assert transaction["pricing_config_id"] is None
+
+
+async def test_debito_que_zera_o_saldo_retorna_true() -> None:
+    session = FakeSession(saldo_antes=Decimal("1.5"))
+
+    zerou = await messages_task._debitar_creditos(
+        session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
+    )
+
+    assert zerou is True
+
+
+async def test_debito_que_nao_zera_o_saldo_retorna_false() -> None:
+    session = FakeSession(saldo_antes=Decimal("100"))
+
+    zerou = await messages_task._debitar_creditos(
+        session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
+    )
+
+    assert zerou is False
+
+
+async def test_debito_quando_saldo_ja_estava_zerado_nao_conta_como_nova_transicao() -> None:
+    """Saldo já era <=0 antes deste débito — não é um "episódio" novo, não
+    deve gerar notificação de novo (ver process_inbound_message)."""
+    session = FakeSession(saldo_antes=Decimal("0"))
+
+    zerou = await messages_task._debitar_creditos(
+        session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
+    )
+
+    assert zerou is False

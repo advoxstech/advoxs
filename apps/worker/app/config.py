@@ -36,5 +36,13 @@ class Settings(BaseSettings):
     rag_api_key: str = ""
     kb_upload_dir: str = "/data/kb_uploads"
 
+    # Notificação por e-mail (Gmail SMTP) quando o saldo de créditos de um
+    # tenant zera — ver app/email_notifications.py. Mesmas 3 variáveis já
+    # configuradas no apps/api (mesma conta Gmail, serviço diferente lendo
+    # o próprio .env). Sem as 3, o envio é pulado em silêncio.
+    gmail_smtp_user: str = ""
+    gmail_smtp_app_password: str = ""
+    admin_notification_email: str = ""
+
 
 settings = Settings()

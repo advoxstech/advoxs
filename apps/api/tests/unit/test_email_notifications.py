@@ -3,6 +3,8 @@ from unittest.mock import MagicMock
 
 import app.services.email_notifications as email_notifications_module
 from app.services.email_notifications import (
+    send_new_tenant_notification,
+    send_whatsapp_disconnected_notification,
     send_zapi_request_cancelled_notification,
     send_zapi_request_notification,
 )
@@ -92,3 +94,65 @@ class TestSendZApiRequestCancelledNotification:
         )
 
         await send_zapi_request_cancelled_notification("Escritório X", REQUESTED_AT)
+
+
+class TestSendWhatsappDisconnectedNotification:
+    async def test_envia_com_o_provedor_certo_quando_configurado(self, monkeypatch) -> None:
+        _configure_gmail(monkeypatch)
+        send_mock = MagicMock()
+        monkeypatch.setattr(email_notifications_module, "_send_email_sync", send_mock)
+
+        await send_whatsapp_disconnected_notification("Escritório X", "zapi", REQUESTED_AT)
+
+        send_mock.assert_called_once()
+        to_address, subject, body = send_mock.call_args.args
+        assert to_address == "advoxs@gmail.com"
+        assert "Escritório X" in subject
+        assert "Z-API" in body
+
+    async def test_provider_meta_aparece_com_o_nome_completo(self, monkeypatch) -> None:
+        _configure_gmail(monkeypatch)
+        send_mock = MagicMock()
+        monkeypatch.setattr(email_notifications_module, "_send_email_sync", send_mock)
+
+        await send_whatsapp_disconnected_notification("Escritório X", "meta", REQUESTED_AT)
+
+        body = send_mock.call_args.args[2]
+        assert "WhatsApp Business oficial" in body
+
+    async def test_pula_envio_quando_gmail_nao_configurado(self, monkeypatch) -> None:
+        monkeypatch.setattr(email_notifications_module.settings, "gmail_smtp_user", "")
+        monkeypatch.setattr(email_notifications_module.settings, "gmail_smtp_app_password", "")
+        monkeypatch.setattr(email_notifications_module.settings, "admin_notification_email", "")
+        send_mock = MagicMock()
+        monkeypatch.setattr(email_notifications_module, "_send_email_sync", send_mock)
+
+        await send_whatsapp_disconnected_notification("Escritório X", "meta", REQUESTED_AT)
+
+        send_mock.assert_not_called()
+
+
+class TestSendNewTenantNotification:
+    async def test_envia_com_os_dados_certos_quando_configurado(self, monkeypatch) -> None:
+        _configure_gmail(monkeypatch)
+        send_mock = MagicMock()
+        monkeypatch.setattr(email_notifications_module, "_send_email_sync", send_mock)
+
+        await send_new_tenant_notification("Escritório X", "Starter", REQUESTED_AT)
+
+        send_mock.assert_called_once()
+        to_address, subject, body = send_mock.call_args.args
+        assert to_address == "advoxs@gmail.com"
+        assert "Escritório X" in subject
+        assert "Starter" in body
+
+    async def test_pula_envio_quando_gmail_nao_configurado(self, monkeypatch) -> None:
+        monkeypatch.setattr(email_notifications_module.settings, "gmail_smtp_user", "")
+        monkeypatch.setattr(email_notifications_module.settings, "gmail_smtp_app_password", "")
+        monkeypatch.setattr(email_notifications_module.settings, "admin_notification_email", "")
+        send_mock = MagicMock()
+        monkeypatch.setattr(email_notifications_module, "_send_email_sync", send_mock)
+
+        await send_new_tenant_notification("Escritório X", "Starter", REQUESTED_AT)
+
+        send_mock.assert_not_called()

@@ -47,6 +47,7 @@ from app.schemas.whatsapp_connection import (
     ZApiProvisioningRequestOut,
 )
 from app.services.email_notifications import (
+    send_whatsapp_disconnected_notification,
     send_zapi_request_cancelled_notification,
     send_zapi_request_notification,
 )
@@ -384,7 +385,17 @@ async def disconnect(
         except (ZApiNetworkError, ZApiApiError) as exc:
             logger.warning("Falha ao desconectar na Z-API (best-effort) | erro=%s", exc)
 
+    # Só notifica numa desconexão de verdade — clicar em "Desconectar" de
+    # novo numa instância já desconectada não deve gerar aviso repetido.
+    was_connected = number.status != "disconnected"
+    provider = number.provider
     number.status = "disconnected"
     await session.commit()
     await session.refresh(number)
+
+    if was_connected:
+        tenant = await session.get(Tenant, ctx.tenant_id)
+        if tenant is not None:
+            await send_whatsapp_disconnected_notification(tenant.name, provider, datetime.now(UTC))
+
     return to_connection_out(number)
