@@ -453,10 +453,15 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 | `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
 | `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. |
 | `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
-| `enviar_documento(url, conversation_id)`                        | sync   | Baixa um documento de uma URL e faz upload para endpoint de inserção.  |
+| `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
 
 A lista `tools` exportada (usada pelo `tool_node`) contém as 3 primeiras da
-tabela (`enviar_documento` não está bindada a nenhum agente — ver §11).
+tabela. As 6 tools de documento não entram nela — são bindadas por
+`agent_node` (`agents/nodes.py`) direto no `tools_for_agent` de cada
+execução, condicionadas a `not is_entry_point`: o ponto de entrada (a
+"secretária", por padrão) só faz triagem/transferência; gerar documento é
+só pros demais agentes, por ora — decisão de produto, não limitação
+técnica.
 
 `transfer_to_agent`/`buscar_base_conhecimento_agente` substituem, respectivamente,
 a antiga `transfer_to_specialist` (valores fixos `agente_condominial`/
@@ -476,13 +481,6 @@ tenant/conversa/base de conhecimento é consultada, nem qual agente é um
 destino válido de transferência.
 
 > ⚠️ **Pontos de atenção para integração:**
-> - `enviar_documento` **não está na lista `tools`** nem é bindada aos nós no
->   código atual (os prompts mencionam ferramentas de documento como
->   `enviar_arquivo`, `fazer_contrato` etc., mas elas **não estão implementadas**
->   como tools reais). Trata-se de funcionalidade parcial/em desenvolvimento.
-> - `ENDPOINT_URL`, `API_KEY` e `CONVERSATION_ID` em `tools.py` estão
->   **hardcoded** (`http://localhost:8000/...`, chave placeholder). Devem ser
->   parametrizados via env antes de uso em produção.
 > - Há **typos intencionais** mantidos por compatibilidade: `bucar_...` (função)
 >   e `convesation_id` (campo do form no upload).
 
@@ -686,11 +684,6 @@ Requisitos mínimos para a Opção B:
 
 ## 11. Débitos técnicos / atenção (para o integrador)
 
-- `agents/tools.py`: `ENDPOINT_URL`, `API_KEY`, `CONVERSATION_ID` **hardcoded**;
-  parametrizar via env.
-- Tools de geração de documento citadas nos prompts (`fazer_contrato`,
-  `enviar_arquivo`, `fazer_multa`, etc.) **não estão implementadas** — só o
-  `enviar_documento` existe, e ele não está bindado a nenhum agente.
 - Nomes com typo preservados por compatibilidade: `bucar_base_conhecimento_*`,
   `convesation_id`.
 - `retrieval_sistema` (`clients/retrieval.py`) ficou sem chamador desde que os
