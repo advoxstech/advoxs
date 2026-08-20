@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { logout } from "@/app/conversas/actions";
+import { AdvoxsIcon } from "@/components/AdvoxsLogo";
 import { backendFetch } from "@/lib/client-api";
 
 type TenantNavItem =
@@ -144,11 +145,8 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
       }`}
     >
       <div className="flex h-8 items-center justify-between px-[22px]">
-        <span
-          className="font-display text-2xl font-semibold text-nav-ink"
-          aria-label="Advoxs"
-        >
-          A.
+        <span aria-label="Advoxs" className="text-nav-ink">
+          <AdvoxsIcon className="h-7 w-7" />
         </span>
         {hasLogo && (
           <img

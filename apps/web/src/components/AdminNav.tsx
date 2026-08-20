@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 import { adminLogout } from "@/app/admin/actions";
+import { AdvoxsIcon } from "@/components/AdvoxsLogo";
 
 type AdminNavItem = "dashboard" | "tenants" | "playground";
 
@@ -73,8 +74,8 @@ export function AdminNav({ active }: { active?: AdminNavItem | null }) {
       }`}
     >
       <div className="flex h-8 items-center px-[22px]">
-        <span className="font-display text-2xl font-semibold text-nav-ink" aria-label="Admin">
-          A.
+        <span aria-label="Advoxs" className="text-nav-ink">
+          <AdvoxsIcon className="h-7 w-7" />
         </span>
       </div>
 
