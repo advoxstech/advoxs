@@ -74,13 +74,20 @@ async def agent_node(state: dict) -> Command:
         transfer_to_agent,
         buscar_base_conhecimento_agente,
         bucar_base_conhecimento_usuario,
-        fazer_contrato,
-        fazer_multa,
-        fazer_advertencia,
-        fazer_oficio,
-        enviar_edital_convocacao,
-        enviar_aviso,
     ]
+    if not is_entry_point:
+        # Ponto de entrada (secretária, por padrão) só faz triagem/transferência
+        # — gerar documento fica com os especialistas, por enquanto. Decisão
+        # deliberada, não uma limitação técnica; revisitar se algum tenant
+        # precisar do ponto de entrada gerando documento direto.
+        tools_for_agent += [
+            fazer_contrato,
+            fazer_multa,
+            fazer_advertencia,
+            fazer_oficio,
+            enviar_edital_convocacao,
+            enviar_aviso,
+        ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
     prompt = current["instructions"]

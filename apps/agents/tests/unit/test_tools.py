@@ -1,7 +1,6 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-import requests
 from langgraph.types import Command
 
 from agents.tools import (
@@ -9,7 +8,6 @@ from agents.tools import (
     bucar_base_conhecimento_usuario,
     buscar_base_conhecimento_agente,
     enviar_aviso,
-    enviar_documento,
     enviar_edital_convocacao,
     fazer_advertencia,
     fazer_contrato,
@@ -130,135 +128,6 @@ async def test_buscar_base_usuario_repassa_conversation_id():
             }
         )
         assert mock_fn.call_args[0][0] == "conv-especifica-123"
-
-
-# ──────────────────────────────────────────────
-# enviar_documento
-# ──────────────────────────────────────────────
-
-
-def test_enviar_documento_url_invalida():
-    result = enviar_documento.invoke({"url": "nao-e-uma-url", "conversation_id": "conv-1"})
-    assert "Falha" in result
-    assert "URL inválida" in result
-
-
-def test_enviar_documento_conexao_falha():
-    with patch("agents.tools.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.ConnectionError()
-        result = enviar_documento.invoke(
-            {"url": "http://host-inexistente.test/doc.pdf", "conversation_id": "conv-1"}
-        )
-        assert "Falha" in result
-        assert "conectar" in result.lower()
-
-
-def test_enviar_documento_timeout():
-    with patch("agents.tools.requests.get") as mock_get:
-        mock_get.side_effect = requests.exceptions.Timeout()
-        result = enviar_documento.invoke(
-            {"url": "http://lento.test/doc.pdf", "conversation_id": "conv-1"}
-        )
-        assert "Falha" in result
-        assert "tempo" in result.lower() or "limite" in result.lower()
-
-
-def test_enviar_documento_http_error():
-    with patch("agents.tools.requests.get") as mock_get:
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError()
-        mock_get.return_value = mock_response
-        result = enviar_documento.invoke(
-            {"url": "http://example.com/inexistente.pdf", "conversation_id": "conv-1"}
-        )
-        assert "Falha" in result
-
-
-def test_enviar_documento_sucesso_200():
-    with (
-        patch("agents.tools.requests.get") as mock_get,
-        patch("agents.tools.requests.post") as mock_post,
-    ):
-        download = MagicMock()
-        download.raise_for_status.return_value = None
-        download.content = b"conteudo do pdf"
-        download.headers = {"Content-Type": "application/pdf"}
-        mock_get.return_value = download
-
-        insert = MagicMock()
-        insert.status_code = 200
-        insert.json.return_value = {"message": "inserido com sucesso"}
-        mock_post.return_value = insert
-
-        result = enviar_documento.invoke(
-            {"url": "http://example.com/contrato.pdf", "conversation_id": "conv-1"}
-        )
-        assert "sucesso" in result.lower()
-
-
-def test_enviar_documento_servidor_retorna_401():
-    with (
-        patch("agents.tools.requests.get") as mock_get,
-        patch("agents.tools.requests.post") as mock_post,
-    ):
-        download = MagicMock()
-        download.raise_for_status.return_value = None
-        download.content = b"arquivo"
-        download.headers = {"Content-Type": "application/pdf"}
-        mock_get.return_value = download
-
-        insert = MagicMock()
-        insert.status_code = 401
-        mock_post.return_value = insert
-
-        result = enviar_documento.invoke(
-            {"url": "http://example.com/doc.pdf", "conversation_id": "conv-1"}
-        )
-        assert "autorizado" in result.lower() or "Falha" in result
-
-
-def test_enviar_documento_servidor_retorna_500():
-    with (
-        patch("agents.tools.requests.get") as mock_get,
-        patch("agents.tools.requests.post") as mock_post,
-    ):
-        download = MagicMock()
-        download.raise_for_status.return_value = None
-        download.content = b"arquivo"
-        download.headers = {"Content-Type": "application/pdf"}
-        mock_get.return_value = download
-
-        insert = MagicMock()
-        insert.status_code = 500
-        mock_post.return_value = insert
-
-        result = enviar_documento.invoke(
-            {"url": "http://example.com/doc.pdf", "conversation_id": "conv-1"}
-        )
-        assert "500" in result or "interno" in result.lower()
-
-
-def test_enviar_documento_infere_extensao_pelo_content_type():
-    with (
-        patch("agents.tools.requests.get") as mock_get,
-        patch("agents.tools.requests.post") as mock_post,
-    ):
-        download = MagicMock()
-        download.raise_for_status.return_value = None
-        download.content = b"arquivo"
-        download.headers = {"Content-Type": "image/png"}
-        mock_get.return_value = download
-
-        insert = MagicMock()
-        insert.status_code = 200
-        insert.json.return_value = {"message": "ok"}
-        mock_post.return_value = insert
-
-        enviar_documento.invoke({"url": "http://example.com/imagem", "conversation_id": "conv-1"})
-
-        filename = mock_post.call_args[1]["files"]["file"][0]
-        assert filename.endswith(".png")
 
 
 # ──────────────────────────────────────────────
