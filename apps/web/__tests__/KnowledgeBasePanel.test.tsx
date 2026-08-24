@@ -144,6 +144,74 @@ describe("KnowledgeBasePanel", () => {
     expect(capturedForm!.get("agent_id")).toBe("a2");
   });
 
+  it("envia múltiplos arquivos selecionados de uma vez, um upload por arquivo", async () => {
+    const capturedForms: FormData[] = [];
+    mockRouting((_path, init) => {
+      capturedForms.push(init.body as FormData);
+      return { ok: true, status: 202, json: async () => files[0] };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    const file1 = new File(["a"], "um.pdf", { type: "application/pdf" });
+    const file2 = new File(["b"], "dois.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Enviar arquivo para Secretária"), {
+      target: { files: [file1, file2] },
+    });
+
+    await waitFor(() => expect(capturedForms).toHaveLength(2));
+    expect((capturedForms[0].get("file") as File).name).toBe("um.pdf");
+    expect((capturedForms[1].get("file") as File).name).toBe("dois.pdf");
+  });
+
+  it("mostra erro por arquivo quando parte do lote falha, sem interromper os demais", async () => {
+    let call = 0;
+    mockRouting((_path, _init) => {
+      call += 1;
+      if (call === 1) {
+        return { ok: false, status: 409, json: async () => ({ detail: "Nome já existe" }) };
+      }
+      return { ok: true, status: 202, json: async () => files[0] };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    const duplicado = new File(["a"], "duplicado.pdf", { type: "application/pdf" });
+    const novo = new File(["b"], "novo.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Enviar arquivo para Secretária"), {
+      target: { files: [duplicado, novo] },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/duplicado\.pdf: Nome já existe/)).toBeInTheDocument(),
+    );
+  });
+
+  it("recusa arquivo de formato inválido no lote sem bloquear os arquivos válidos", async () => {
+    const capturedForms: FormData[] = [];
+    mockRouting((_path, init) => {
+      capturedForms.push(init.body as FormData);
+      return { ok: true, status: 202, json: async () => files[0] };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    const invalido = new File(["a"], "planilha.xlsx", { type: "application/vnd.ms-excel" });
+    const valido = new File(["b"], "novo.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Enviar arquivo para Secretária"), {
+      target: { files: [invalido, valido] },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/planilha\.xlsx: formato não suportado/)).toBeInTheDocument(),
+    );
+    expect(capturedForms).toHaveLength(1);
+    expect((capturedForms[0].get("file") as File).name).toBe("novo.pdf");
+  });
+
   it("anexa um arquivo já existente a outro agente pelo seletor inline", async () => {
     let capturedPath = "";
     let capturedBody = "";
