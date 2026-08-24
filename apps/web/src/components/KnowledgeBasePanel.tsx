@@ -58,34 +58,48 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     return () => clearInterval(interval);
   }, [load, pollMs, hasProcessing]);
 
-  async function handleUpload(agentId: string, selected: File, category: string) {
+  async function handleUpload(agentId: string, selectedFiles: File[], category: string) {
     setFeedback(null);
-    const extension = selected.name.slice(selected.name.lastIndexOf(".")).toLowerCase();
-    if (![".pdf", ".docx", ".txt"].includes(extension)) {
-      setFeedback("Formato não suportado — envie PDF, DOCX ou TXT.");
-      return;
-    }
-    if (selected.size > MAX_FILE_BYTES) {
-      setFeedback("Arquivo excede o limite de 20 MB.");
-      return;
-    }
-    const form = new FormData();
-    form.append("file", selected);
-    form.append("agent_id", agentId);
-    if (category) form.append("category", category);
+    const errors: string[] = [];
     setUploading(true);
     try {
-      const response = await backendFetch("knowledge-base/files", { method: "POST", body: form });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        setFeedback(body?.detail ?? "Falha no upload — tente novamente.");
-        return;
+      // Sequencial, não em paralelo — evita corrida no unique constraint
+      // (tenant_id, filename) do backend quando 2 arquivos do lote têm o
+      // mesmo nome, e mantém a lista de erros na ordem em que os arquivos
+      // foram selecionados.
+      for (const file of selectedFiles) {
+        const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+        if (![".pdf", ".docx", ".txt"].includes(extension)) {
+          errors.push(`${file.name}: formato não suportado`);
+          continue;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          errors.push(`${file.name}: excede o limite de 20 MB`);
+          continue;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        form.append("agent_id", agentId);
+        if (category) form.append("category", category);
+        try {
+          const response = await backendFetch("knowledge-base/files", {
+            method: "POST",
+            body: form,
+          });
+          if (!response.ok) {
+            const body = await response.json().catch(() => null);
+            errors.push(`${file.name}: ${body?.detail ?? "falha no upload"}`);
+          }
+        } catch {
+          errors.push(`${file.name}: falha de conexão`);
+        }
       }
-      await load();
-    } catch {
-      setFeedback("Falha de conexão — tente novamente.");
     } finally {
       setUploading(false);
+      await load();
+    }
+    if (errors.length > 0) {
+      setFeedback(errors.join(" · "));
     }
   }
 
@@ -178,8 +192,9 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
         <p className="text-sm text-muted">
-          PDF, DOCX ou TXT, até 20 MB — organizada por agente e, dentro de cada agente, por
-          categoria. Um arquivo pode ser anexado a mais de um agente.
+          PDF, DOCX ou TXT, até 20 MB por arquivo — organizada por agente e, dentro de cada
+          agente, por categoria. Selecione vários arquivos de uma vez pra enviar em lote. Um
+          arquivo pode ser anexado a mais de um agente.
         </p>
       </header>
 

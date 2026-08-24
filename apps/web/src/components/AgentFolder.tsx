@@ -79,7 +79,7 @@ export function AgentFolder({
   allAgents: Agent[];
   defaultExpanded: boolean;
   uploading: boolean;
-  onUpload: (agentId: string, file: File, category: string) => void;
+  onUpload: (agentId: string, files: File[], category: string) => void;
   onAttach: (fileId: string, agentId: string) => void;
   onDetach: (agentId: string, fileId: string) => void;
   onDelete: (file: KbFile) => void;
@@ -126,16 +126,17 @@ export function AgentFolder({
         <label
           className={`cursor-pointer whitespace-nowrap rounded border border-line bg-surface px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
         >
-          + Enviar arquivo
+          + Enviar arquivos
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept={ACCEPTED}
             aria-label={`Enviar arquivo para ${agent.name}`}
             className="hidden"
             onChange={(event) => {
-              const selected = event.target.files?.[0];
-              if (selected) onUpload(agent.id, selected, uploadCategory);
+              const selected = event.target.files;
+              if (selected && selected.length > 0) onUpload(agent.id, Array.from(selected), uploadCategory);
               if (inputRef.current) inputRef.current.value = "";
             }}
           />
