@@ -14,7 +14,7 @@ class TestInsertUserDocument:
 
         await insert_user_document(
             tenant_id="tenant-1",
-            conversation_id="tenant-1:teste-abc123",
+            conversation_id="teste-abc123",
             doc_id="msg-1",
             filename="laudo.pdf",
             file_bytes=b"%PDF-1.4",
@@ -25,7 +25,7 @@ class TestInsertUserDocument:
         assert args[0] == "/documents/users/insert"
         assert kwargs["data"] == {
             "tenant_id": "tenant-1",
-            "conversation_id": "tenant-1:teste-abc123",
+            "conversation_id": "teste-abc123",
             "doc_id": "msg-1",
         }
         assert kwargs["files"]["file"][0] == "laudo.pdf"
@@ -38,7 +38,7 @@ class TestInsertUserDocument:
         with pytest.raises(RagApiError):
             await insert_user_document(
                 tenant_id="tenant-1",
-                conversation_id="tenant-1:teste-abc123",
+                conversation_id="teste-abc123",
                 doc_id="msg-1",
                 filename="laudo.pdf",
                 file_bytes=b"%PDF-1.4",
@@ -52,7 +52,7 @@ class TestInsertUserDocument:
         with pytest.raises(RagApiError):
             await insert_user_document(
                 tenant_id="tenant-1",
-                conversation_id="tenant-1:teste-abc123",
+                conversation_id="teste-abc123",
                 doc_id="msg-1",
                 filename="laudo.pdf",
                 file_bytes=b"%PDF-1.4",

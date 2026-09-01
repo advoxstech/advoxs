@@ -20,7 +20,10 @@ async def ingest_document(
 ) -> None:
     """Envia o arquivo ao api_rag. doc_id = id de knowledge_base_files (base
     do escritório, conversation_id="kb" default) ou o id da própria mensagem
-    (anexo do contato, conversation_id=thread_id — ver app/tasks/attachments.py).
+    (anexo do contato, conversation_id=contact_phone_number — NUNCA o thread_id
+    composto "{tenant_id}:{contact_phone_number}", que o agents
+    (clients/retrieval.py::retrieval_usuario) divide em tenant_id+contato
+    antes de consultar o api_rag; ver app/tasks/attachments.py).
 
     Levanta httpx.HTTPStatusError em resposta de erro (raise_for_status).
     """

@@ -8,8 +8,11 @@ from app.clients.media import MediaDownloadError
 from app.config import settings
 from app.tasks.attachments import process_inbound_attachment
 
+# conversation_id passado a process_inbound_attachment é só o contato (ver
+# comentário em app/tasks/messages.py sobre por que NUNCA pode ser o
+# thread_id composto "{tenant_id}:{contact_phone_number}").
 TENANT_ID = "tenant-1"
-CONVERSATION_ID = "tenant-1:5511999998888"
+CONVERSATION_ID = "5511999998888"
 MESSAGE_ID = "msg-1"
 
 

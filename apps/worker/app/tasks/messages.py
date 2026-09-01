@@ -217,10 +217,19 @@ async def process_inbound_message(
     # pessoal do contato ANTES de chamar o agents — só assim o documento já
     # fica pesquisável na mesma resposta (ver app/tasks/attachments.py).
     # Best-effort: nunca levanta, só devolve uma nota anexada à mensagem.
+    #
+    # conversation_id aqui precisa ser só o contact_phone_number, NUNCA o
+    # `conversation_id` (uuid de `conversations`, parâmetro desta função) nem
+    # o thread_id composto do checkpoint — retrieval_usuario, do lado do
+    # agents (apps/agents/clients/retrieval.py), recebe o thread_id completo
+    # "{tenant_id}:{contact_phone_number}" e faz .partition(":") ele mesmo
+    # antes de consultar o api_rag, então a ingestão precisa gravar sob a
+    # MESMA metade (o contato) que sobra depois desse split, senão a busca
+    # nunca encontra o documento (bug real encontrado em teste manual).
     attachment_note = await process_inbound_attachment(
         rag_http,
         tenant_id=tenant_id,
-        conversation_id=conversation_id,
+        conversation_id=inbound.contact_phone_number,
         message_id=message_id,
         media_ref=inbound.media_url,
         media_type=inbound.media_type,

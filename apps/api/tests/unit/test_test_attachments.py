@@ -8,8 +8,11 @@ import app.services.test_attachments as test_attachments_module
 from app.clients.rag import RagApiError
 from app.services.test_attachments import process_test_attachment
 
+# conversation_id passado a process_test_attachment é só o contato (ver
+# comentário em app/services/test_conversations.py sobre por que NUNCA pode
+# ser o thread_id composto "{tenant_id}:{contact_phone_number}").
 TENANT_ID = "tenant-1"
-CONVERSATION_ID = "tenant-1:teste-abc123"
+CONVERSATION_ID = "teste-abc123"
 MESSAGE_ID = "msg-1"
 
 
