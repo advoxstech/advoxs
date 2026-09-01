@@ -32,7 +32,12 @@ def _ctx() -> dict:
     factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     factory.return_value.__aexit__ = AsyncMock(return_value=False)
-    return {"session_factory": factory, "http": AsyncMock(), "job_try": 1}
+    return {
+        "session_factory": factory,
+        "http": AsyncMock(),
+        "rag_http": AsyncMock(),
+        "job_try": 1,
+    }
 
 
 def _inbound(
@@ -84,6 +89,9 @@ def patched(monkeypatch):
         "pricing": AsyncMock(return_value=PRICING_CONFIG),
         "sync": AsyncMock(),
         "notify_sem_creditos": AsyncMock(),
+        # None por padrão: sem anexo, não deve mudar a mensagem mandada ao
+        # agents em nenhum teste existente.
+        "attachment": AsyncMock(return_value=None),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
@@ -98,6 +106,7 @@ def patched(monkeypatch):
     monkeypatch.setattr(
         messages_task, "send_tenant_out_of_credits_notification", mocks["notify_sem_creditos"]
     )
+    monkeypatch.setattr(messages_task, "process_inbound_attachment", mocks["attachment"])
     return mocks
 
 
@@ -110,6 +119,75 @@ async def test_agent_flow_persists_responses(patched) -> None:
     assert patched["send"].await_args.kwargs["message"] == "Olá"
     patched["persist"].assert_awaited_once()
     assert patched["persist"].await_args.args[3] == ["resposta 1", "resposta 2"]
+
+
+async def test_sem_anexo_nao_altera_a_mensagem(patched) -> None:
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["attachment"].assert_awaited_once()
+    kwargs = patched["attachment"].await_args.kwargs
+    assert kwargs["media_ref"] is None
+    assert kwargs["access_token"] == "token-claro"
+    assert patched["send"].await_args.kwargs["message"] == "Olá"
+
+
+async def test_anexo_ingerido_com_sucesso_anexa_nota_a_mensagem(patched) -> None:
+    patched["attachment"].return_value = "[Documento recebido e processado: anexo-x.pdf]"
+    patched["load"].return_value = InboundContext(
+        conversation_state="agent",
+        contact_phone_number="5511888888888",
+        message_content="segue o contrato",
+        whatsapp_provider="meta",
+        phone_number_id="PNID",
+        access_token_encrypted="token-cifrado",
+        zapi_instance_id=None,
+        zapi_instance_token_encrypted=None,
+        zapi_client_token_encrypted=None,
+        credit_balance=Decimal(1000),
+        end_customer_billing_enabled=False,
+        end_customer_balance=Decimal(0),
+        end_customer_packages=[],
+        agents=[],
+        media_url="1234567890",
+        media_type="application/pdf",
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["attachment"].assert_awaited_once()
+    kwargs = patched["attachment"].await_args.kwargs
+    assert kwargs["media_ref"] == "1234567890"
+    assert kwargs["media_type"] == "application/pdf"
+    assert kwargs["whatsapp_provider"] == "meta"
+    sent_message = patched["send"].await_args.kwargs["message"]
+    assert sent_message == "segue o contrato\n[Documento recebido e processado: anexo-x.pdf]"
+
+
+async def test_anexo_processado_no_provider_zapi_nao_passa_access_token_meta(patched) -> None:
+    patched["load"].return_value = InboundContext(
+        conversation_state="agent",
+        contact_phone_number="5511888888888",
+        message_content="oi",
+        whatsapp_provider="zapi",
+        phone_number_id=None,
+        access_token_encrypted=None,
+        zapi_instance_id="inst-1",
+        zapi_instance_token_encrypted="cifrado",
+        zapi_client_token_encrypted=None,
+        credit_balance=Decimal(1000),
+        end_customer_billing_enabled=False,
+        end_customer_balance=Decimal(0),
+        end_customer_packages=[],
+        agents=[],
+        media_url="https://z-api.example/media/x.pdf",
+        media_type="application/pdf",
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    kwargs = patched["attachment"].await_args.kwargs
+    assert kwargs["whatsapp_provider"] == "zapi"
+    assert kwargs["access_token"] is None
 
 
 async def test_consumo_ponderado_arredonda_pro_inteiro(patched) -> None:

@@ -21,6 +21,8 @@ def _session_with(
     agents_rows=None,
     agent_kb_links=None,
     active_subscription=None,
+    media_url=None,
+    media_type=None,
 ):
     session = AsyncMock()
 
@@ -33,10 +35,11 @@ def _session_with(
         result.__iter__ = lambda self: iter(rows or [])
         return result
 
+    message_row = SimpleNamespace(content=content, media_url=media_url, media_type=media_type)
     session.execute = AsyncMock(
         side_effect=[
             _result(value=conversation),
-            _result(scalar=content),
+            _result(value=message_row),
             _result(value=number),
             _result(scalar=credit_balance),
             _result(value=billing_settings),
@@ -383,6 +386,42 @@ async def test_load_context_carrega_credenciais_zapi_quando_provider_e_zapi() ->
     assert context.zapi_client_token_encrypted == "cifrado-client-token"
     assert context.phone_number_id is None
     assert context.access_token_encrypted is None
+
+
+async def test_carrega_media_url_e_media_type_da_mensagem() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+        media_url="1234567890",
+        media_type="application/pdf",
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.media_url == "1234567890"
+    assert context.media_type == "application/pdf"
+
+
+async def test_sem_anexo_media_url_e_media_type_ficam_none() -> None:
+    session = _session_with(
+        conversation=_conversation(),
+        content="Olá",
+        number=_number(),
+        credit_balance=1000,
+        billing_settings=None,
+        balance=None,
+        packages=[],
+    )
+
+    context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert context.media_url is None
+    assert context.media_type is None
 
 
 async def test_load_context_provider_meta_por_padrao() -> None:
