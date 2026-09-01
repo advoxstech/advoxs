@@ -8,6 +8,7 @@ token real de LLM.
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from fastapi import UploadFile
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from app.services.pricing import (
     calcular_creditos,
     get_current_pricing_config,
 )
+from app.services.test_attachments import process_test_attachment
 
 
 async def send_test_message(
@@ -26,15 +28,23 @@ async def send_test_message(
     tenant_id: uuid.UUID,
     conversation: Conversation,
     content: str,
+    file: UploadFile | None = None,
 ) -> tuple[list[Message], bool]:
     """Persiste a mensagem do usuário (como contato), roda o agente síncrono e
-    persiste/debita as respostas. Retorna (mensagens novas, grouped)."""
+    persiste/debita as respostas. Retorna (mensagens novas, grouped).
+
+    `file`: anexo opcional (PDF/DOCX/TXT) — simula, na conversa de teste, o
+    que o worker faz numa conversa real via WhatsApp (ver
+    apps/worker/app/tasks/attachments.py): ingere na base de conhecimento
+    pessoal da conversa ANTES de chamar o agents, e anexa uma nota de
+    sucesso/falha à mensagem mandada pro agente (nunca ao texto persistido
+    do contato, que reflete só o que ele de fato escreveu/anexou)."""
     now = datetime.now(UTC)
     contact_message = Message(
         conversation_id=conversation.id,
         tenant_id=tenant_id,
         sender_type="contact",
-        content=content,
+        content=content or (f"📎 {file.filename}" if file is not None else ""),
         created_at=now,
     )
     session.add(contact_message)
@@ -44,10 +54,21 @@ async def send_test_message(
     await session.commit()
     await session.refresh(contact_message)
 
+    message_for_agent = content
+    if file is not None:
+        thread_id = f"{tenant_id}:{conversation.contact_phone_number}"
+        note = await process_test_attachment(
+            file,
+            tenant_id=str(tenant_id),
+            conversation_id=thread_id,
+            message_id=str(contact_message.id),
+        )
+        message_for_agent = f"{content}\n{note}".strip() if content else note
+
     result = await send_playground_message(
         tenant_id=str(tenant_id),
         contact_phone_number=conversation.contact_phone_number,
-        message=content,
+        message=message_for_agent,
         agents=await load_agents_for_engine(session, tenant_id),
     )
     if result is None:
