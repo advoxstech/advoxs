@@ -12,6 +12,8 @@ interface TestConversationThreadProps {
   pollMs?: number;
 }
 
+const ACCEPTED_ATTACHMENT = ".pdf,.docx,.txt";
+
 export function TestConversationThread({
   conversation,
   onDeleted,
@@ -19,10 +21,12 @@ export function TestConversationThread({
 }: TestConversationThreadProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = useCallback(async () => {
     try {
@@ -58,16 +62,19 @@ export function TestConversationThread({
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || sending) {
+    if ((!content && !attachment) || sending) {
       return;
     }
     setSending(true);
     setError(null);
     setGrouped(false);
     try {
+      const form = new FormData();
+      form.append("content", content);
+      if (attachment) form.append("file", attachment);
       const response = await backendFetch(`conversations/${conversation.id}/test-messages`, {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: form,
       });
       if (response.ok) {
         const body: { messages: Message[]; grouped: boolean } = await response.json();
@@ -80,6 +87,8 @@ export function TestConversationThread({
         });
         setGrouped(body.grouped);
         setDraft("");
+        setAttachment(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       } else if (response.status === 402) {
         setError("Saldo de créditos esgotado — compre créditos para testar os agentes.");
       } else {
@@ -164,7 +173,36 @@ export function TestConversationThread({
             Mensagem agrupada com a anterior — a resposta chega em instantes.
           </p>
         ) : null}
+        {attachment ? (
+          <p className="mb-2 flex items-center gap-2 text-xs text-muted">
+            📎 {attachment.name}
+            <button
+              type="button"
+              onClick={() => {
+                setAttachment(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className="text-danger hover:underline"
+            >
+              remover
+            </button>
+          </p>
+        ) : null}
         <form onSubmit={sendMessage} className="flex items-end gap-3">
+          <label
+            className={`cursor-pointer rounded-sm border border-line bg-ground px-3 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent ${sending ? "pointer-events-none opacity-60" : ""}`}
+            title="Anexar arquivo (PDF, DOCX ou TXT)"
+          >
+            📎
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_ATTACHMENT}
+              aria-label="Anexar arquivo à mensagem de teste"
+              className="hidden"
+              onChange={(event) => setAttachment(event.target.files?.[0] ?? null)}
+            />
+          </label>
           <input
             type="text"
             value={draft}
@@ -176,14 +214,15 @@ export function TestConversationThread({
           />
           <button
             type="submit"
-            disabled={sending || !draft.trim()}
+            disabled={sending || (!draft.trim() && !attachment)}
             className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
           >
             {sending ? "Enviando…" : "Enviar"}
           </button>
         </form>
         <p className="mt-2 text-xs text-muted">
-          Você escreve como o cliente; o agente responde de verdade (consome créditos).
+          Você escreve como o cliente; o agente responde de verdade (consome créditos). Anexe um
+          PDF, DOCX ou TXT para testar a leitura de documentos.
         </p>
       </footer>
     </div>

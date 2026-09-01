@@ -125,7 +125,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "olá, quero saber sobre condomínio"},
+            data={"content": "olá, quero saber sobre condomínio"},
         )
 
         assert response.status_code == 201
@@ -150,7 +150,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert response.status_code == 409
@@ -161,7 +161,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert response.status_code == 402
@@ -173,7 +173,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert response.status_code == 201
@@ -187,7 +187,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert response.status_code == 502
@@ -215,7 +215,7 @@ class TestSendTestMessage:
 
         client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert playground_mock.await_args.kwargs["agents"] == agents_payload
@@ -232,7 +232,7 @@ class TestSendTestMessage:
 
         client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert conversation.current_agent_id == agent_id
@@ -259,7 +259,7 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "quero uma multa"},
+            data={"content": "quero uma multa"},
         )
 
         assert response.status_code == 201
@@ -284,7 +284,7 @@ class TestSendTestMessage:
 
         client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert getattr(conversation, "current_agent_id", None) is None
@@ -294,7 +294,82 @@ class TestSendTestMessage:
 
         response = client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
-            json={"content": "oi"},
+            data={"content": "oi"},
         )
 
         assert response.status_code == 404
+
+    def test_sem_conteudo_e_sem_anexo_retorna_400(self, client, session) -> None:
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            data={"content": "   "},
+        )
+
+        assert response.status_code == 400
+
+    def test_anexo_processado_tem_nota_anexada_a_mensagem_do_agente(
+        self, client, session, playground_mock, monkeypatch
+    ) -> None:
+        attachment_mock = AsyncMock(
+            return_value="[Documento recebido e processado: laudo.pdf — disponível para busca.]"
+        )
+        monkeypatch.setattr(
+            test_conversations_module.service, "process_test_attachment", attachment_mock
+        )
+        self._arm_session(session, _conversation())
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            data={"content": "segue o laudo"},
+            files={"file": ("laudo.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+
+        assert response.status_code == 201
+        attachment_mock.assert_awaited_once()
+        kwargs = attachment_mock.await_args.kwargs
+        assert kwargs["tenant_id"] == str(TENANT_ID)
+        assert kwargs["conversation_id"] == f"{TENANT_ID}:teste-abc123def456"
+        assert playground_mock.await_args.kwargs["message"] == (
+            "segue o laudo\n[Documento recebido e processado: laudo.pdf — disponível para busca.]"
+        )
+
+    def test_anexo_sem_legenda_usa_nome_do_arquivo_no_historico(
+        self, client, session, playground_mock, monkeypatch
+    ) -> None:
+        attachment_mock = AsyncMock(
+            return_value="[Documento recebido e processado: laudo.pdf — disponível para busca.]"
+        )
+        monkeypatch.setattr(
+            test_conversations_module.service, "process_test_attachment", attachment_mock
+        )
+        self._arm_session(session, _conversation())
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            data={"content": ""},
+            files={"file": ("laudo.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+
+        assert response.status_code == 201
+        contact_message = session.add.call_args_list[0].args[0]
+        assert contact_message.content == "📎 laudo.pdf"
+        assert playground_mock.await_args.kwargs["message"] == (
+            "[Documento recebido e processado: laudo.pdf — disponível para busca.]"
+        )
+
+    def test_sem_anexo_nao_chama_process_test_attachment(
+        self, client, session, playground_mock, monkeypatch
+    ) -> None:
+        attachment_mock = AsyncMock()
+        monkeypatch.setattr(
+            test_conversations_module.service, "process_test_attachment", attachment_mock
+        )
+        self._arm_session(session, _conversation())
+
+        client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            data={"content": "oi"},
+        )
+
+        attachment_mock.assert_not_awaited()
+        assert playground_mock.await_args.kwargs["message"] == "oi"

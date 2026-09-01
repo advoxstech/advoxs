@@ -2,19 +2,14 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.agents import AgentsApiError, AgentsNetworkError
 from app.models import Conversation, Tenant
-from app.schemas.conversations import (
-    ConversationOut,
-    MessageOut,
-    SendMessageRequest,
-    TestMessagesOut,
-)
+from app.schemas.conversations import ConversationOut, MessageOut, TestMessagesOut
 from app.services import test_conversations as service
 
 router = APIRouter(tags=["test-conversations"])
@@ -44,10 +39,18 @@ async def create_test_conversation(
 )
 async def send_test_message(
     conversation_id: uuid.UUID,
-    body: SendMessageRequest,
+    content: str = Form(default=""),
+    file: UploadFile | None = File(default=None),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> TestMessagesOut:
+    content = content.strip()
+    if not content and file is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mensagem vazia — escreva algo ou anexe um arquivo",
+        )
+
     conversation = await _get_test_conversation(conversation_id, ctx, session)
 
     tenant = await session.get(Tenant, ctx.tenant_id)
@@ -59,7 +62,7 @@ async def send_test_message(
 
     try:
         messages, grouped = await service.send_test_message(
-            session, ctx.tenant_id, conversation, body.content
+            session, ctx.tenant_id, conversation, content, file
         )
     except (AgentsNetworkError, AgentsApiError):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_AGENTS_ERROR_DETAIL)

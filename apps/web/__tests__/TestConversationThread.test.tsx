@@ -186,4 +186,75 @@ describe("TestConversationThread", () => {
     );
     expect(screen.getAllByText("olá")).toHaveLength(1);
   });
+
+  it("envia o anexo selecionado junto com a mensagem, via FormData", async () => {
+    let capturedBody: FormData | null = null;
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).endsWith("/test-messages") && init?.method === "POST") {
+        capturedBody = init.body as FormData;
+        return jsonResponse(
+          { messages: [message("m1", "contact", "segue o laudo")], grouped: false },
+          201,
+        );
+      }
+      return jsonResponse([]);
+    });
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} pollMs={0} />);
+
+    const file = new File(["conteudo"], "laudo.pdf", { type: "application/pdf" });
+    fireEvent.change(await screen.findByLabelText("Anexar arquivo à mensagem de teste"), {
+      target: { files: [file] },
+    });
+    fireEvent.change(screen.getByLabelText("Mensagem de teste"), {
+      target: { value: "segue o laudo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect(capturedBody!.get("content")).toBe("segue o laudo");
+    expect((capturedBody!.get("file") as File).name).toBe("laudo.pdf");
+  });
+
+  it("permite enviar só o anexo, sem texto", async () => {
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (String(path).endsWith("/test-messages") && init?.method === "POST") {
+        return jsonResponse(
+          { messages: [message("m1", "contact", "📎 laudo.pdf")], grouped: false },
+          201,
+        );
+      }
+      return jsonResponse([]);
+    });
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} pollMs={0} />);
+
+    const file = new File(["conteudo"], "laudo.pdf", { type: "application/pdf" });
+    fireEvent.change(await screen.findByLabelText("Anexar arquivo à mensagem de teste"), {
+      target: { files: [file] },
+    });
+    const sendButton = screen.getByRole("button", { name: "Enviar" });
+    expect(sendButton).not.toBeDisabled();
+
+    fireEvent.click(sendButton);
+
+    await waitFor(() => expect(screen.getByText("📎 laudo.pdf")).toBeInTheDocument());
+  });
+
+  it("remove o anexo selecionado antes de enviar", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(<TestConversationThread conversation={conversation} onDeleted={vi.fn()} pollMs={0} />);
+
+    const file = new File(["conteudo"], "laudo.pdf", { type: "application/pdf" });
+    fireEvent.change(await screen.findByLabelText("Anexar arquivo à mensagem de teste"), {
+      target: { files: [file] },
+    });
+    expect(await screen.findByText(/laudo\.pdf/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "remover" }));
+
+    expect(screen.queryByText(/laudo\.pdf/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
+  });
 });
