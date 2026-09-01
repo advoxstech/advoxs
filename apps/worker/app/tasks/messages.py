@@ -20,6 +20,7 @@ from app.pricing import (
     calcular_creditos,
     get_current_pricing_config,
 )
+from app.tasks.attachments import process_inbound_attachment
 from app.tasks.inbound_context import InboundContext
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,7 @@ async def process_inbound_message(
     """
     session_factory = ctx["session_factory"]
     http: httpx.AsyncClient = ctx["http"]
+    rag_http: httpx.AsyncClient = ctx["rag_http"]
 
     async with open_tenant_session(session_factory, tenant_id) as session:
         inbound = await _load_context(session, tenant_id, conversation_id, message_id)
@@ -189,6 +191,7 @@ async def process_inbound_message(
         await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
         return
 
+    meta_access_token: str | None = None
     if inbound.whatsapp_provider == "zapi":
         zapi_token = decrypt_access_token(inbound.zapi_instance_token_encrypted)
         zapi_client_token = (
@@ -203,19 +206,37 @@ async def process_inbound_message(
             "zapi_client_token": zapi_client_token,
         }
     else:
-        access_token = decrypt_access_token(inbound.access_token_encrypted)
+        meta_access_token = decrypt_access_token(inbound.access_token_encrypted)
         agents_kwargs = {
             "whatsapp_provider": "meta",
             "phone_number_id": inbound.phone_number_id,
-            "access_token": access_token,
+            "access_token": meta_access_token,
         }
+
+    # Baixa e ingere um eventual anexo (PDF/DOCX/TXT) na base de conhecimento
+    # pessoal do contato ANTES de chamar o agents — só assim o documento já
+    # fica pesquisável na mesma resposta (ver app/tasks/attachments.py).
+    # Best-effort: nunca levanta, só devolve uma nota anexada à mensagem.
+    attachment_note = await process_inbound_attachment(
+        rag_http,
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
+        media_ref=inbound.media_url,
+        media_type=inbound.media_type,
+        whatsapp_provider=inbound.whatsapp_provider,
+        access_token=meta_access_token,
+    )
+    message_content = inbound.message_content
+    if attachment_note:
+        message_content = f"{message_content}\n{attachment_note}".strip()
 
     try:
         result = await send_message_to_agents(
             http,
             tenant_id=tenant_id,
             contact_phone_number=inbound.contact_phone_number,
-            message=inbound.message_content,
+            message=message_content,
             agents=inbound.agents,
             **agents_kwargs,
         )
@@ -385,14 +406,19 @@ async def _load_context(
         logger.warning("Conversa não encontrada | conversation=%s", conversation_id)
         return None
 
-    content = (
+    message_row = (
         await session.execute(
-            select(tables.messages.c.content).where(tables.messages.c.id == uuid.UUID(message_id))
+            select(
+                tables.messages.c.content,
+                tables.messages.c.media_url,
+                tables.messages.c.media_type,
+            ).where(tables.messages.c.id == uuid.UUID(message_id))
         )
-    ).scalar_one_or_none()
-    if content is None:
+    ).one_or_none()
+    if message_row is None:
         logger.warning("Mensagem não encontrada | message=%s", message_id)
         return None
+    content = message_row.content
 
     number = (
         await session.execute(
@@ -511,6 +537,8 @@ async def _load_context(
         ),
         end_customer_billing_exempt=conversation.end_customer_billing_exempt,
         end_customer_has_active_subscription=active_subscription is not None,
+        media_url=message_row.media_url,
+        media_type=message_row.media_type,
     )
 
 

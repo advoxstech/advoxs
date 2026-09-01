@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     rag_api_key: str = ""
     kb_upload_dir: str = "/data/kb_uploads"
 
+    # Anexo (PDF/DOCX/TXT) recebido do contato via WhatsApp e ingerido na
+    # base de conhecimento pessoal dele — mesmo teto já usado na base de
+    # conhecimento do escritório (ver apps/api/app/core/config.py,
+    # kb_max_file_size_bytes).
+    attachment_max_bytes: int = 20 * 1024 * 1024
+
     # Notificação por e-mail (Gmail SMTP) quando o saldo de créditos de um
     # tenant zera — ver app/email_notifications.py. Mesmas 3 variáveis já
     # configuradas no apps/api (mesma conta Gmail, serviço diferente lendo

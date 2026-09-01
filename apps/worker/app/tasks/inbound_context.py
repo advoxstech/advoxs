@@ -33,3 +33,7 @@ class InboundContext:
     billing_gate_welcome_text: str | None = None
     end_customer_billing_exempt: bool = False
     end_customer_has_active_subscription: bool = False
+    # Anexo (PDF/DOCX/TXT) recebido do contato — media_url guarda o media_id
+    # opaco da Meta ou a URL final da Z-API (ver app/tasks/attachments.py).
+    media_url: str | None = None
+    media_type: str | None = None
