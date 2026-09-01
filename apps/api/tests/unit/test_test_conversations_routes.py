@@ -328,7 +328,7 @@ class TestSendTestMessage:
         attachment_mock.assert_awaited_once()
         kwargs = attachment_mock.await_args.kwargs
         assert kwargs["tenant_id"] == str(TENANT_ID)
-        assert kwargs["conversation_id"] == f"{TENANT_ID}:teste-abc123def456"
+        assert kwargs["conversation_id"] == "teste-abc123def456"
         assert playground_mock.await_args.kwargs["message"] == (
             "segue o laudo\n[Documento recebido e processado: laudo.pdf — disponível para busca.]"
         )

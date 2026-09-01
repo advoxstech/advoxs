@@ -17,10 +17,14 @@ async def insert_user_document(
     filename: str,
     file_bytes: bytes,
 ) -> None:
-    """Ingere um documento na base pessoal de um contato (conversation_id =
-    thread_id do agents, "{tenant_id}:{contact_phone_number}") — usado pelo
-    anexo de conversa de TESTE (app/services/test_attachments.py), que roda
-    síncrono aqui no `api` em vez de assíncrono no `worker` (ver
+    """Ingere um documento na base pessoal de um contato. `conversation_id`
+    precisa ser só o contact_phone_number — NUNCA o thread_id composto
+    "{tenant_id}:{contact_phone_number}" do checkpoint do agents, que
+    `clients/retrieval.py::retrieval_usuario` (apps/agents) divide em
+    tenant_id+contato antes de consultar o api_rag; passar o composto aqui
+    grava o documento sob uma chave que a busca nunca vai encontrar. Usado
+    pelo anexo de conversa de TESTE (app/services/test_attachments.py), que
+    roda síncrono aqui no `api` em vez de assíncrono no `worker` (ver
     apps/worker/app/tasks/attachments.py, o caminho equivalente pra
     conversas reais via WhatsApp)."""
     try:

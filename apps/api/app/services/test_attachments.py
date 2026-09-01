@@ -35,9 +35,12 @@ async def process_test_attachment(
     conversation_id: str,
     message_id: str,
 ) -> str:
-    """Valida e ingere o anexo na base pessoal da conversa de teste
-    (conversation_id = thread_id do agents). Devolve uma nota em texto pra
-    anexar à mensagem mandada ao agents (sucesso ou falha). Nunca levanta."""
+    """Valida e ingere o anexo na base pessoal da conversa de teste.
+    `conversation_id` precisa ser só o contact_phone_number da conversa —
+    NUNCA o thread_id composto "{tenant_id}:{contact_phone_number}" (ver
+    app/clients/rag.py::insert_user_document pro porquê). Devolve uma nota em
+    texto pra anexar à mensagem mandada ao agents (sucesso ou falha). Nunca
+    levanta."""
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
     if extension not in _ALLOWED_EXTENSIONS:

@@ -56,11 +56,17 @@ async def send_test_message(
 
     message_for_agent = content
     if file is not None:
-        thread_id = f"{tenant_id}:{conversation.contact_phone_number}"
+        # conversation_id aqui precisa ser só o contact_phone_number, NUNCA o
+        # thread_id composto "{tenant_id}:{contact_phone_number}" — o agents
+        # (apps/agents/clients/retrieval.py::retrieval_usuario) recebe esse
+        # thread_id completo e faz .partition(":") ele mesmo antes de
+        # consultar o api_rag; a ingestão precisa gravar sob a MESMA metade
+        # (o contato) que sobra depois desse split, senão a busca nunca
+        # encontra o documento (bug real encontrado em teste manual).
         note = await process_test_attachment(
             file,
             tenant_id=str(tenant_id),
-            conversation_id=thread_id,
+            conversation_id=conversation.contact_phone_number,
             message_id=str(contact_message.id),
         )
         message_for_agent = f"{content}\n{note}".strip() if content else note

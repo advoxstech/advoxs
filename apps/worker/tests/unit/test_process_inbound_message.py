@@ -159,6 +159,12 @@ async def test_anexo_ingerido_com_sucesso_anexa_nota_a_mensagem(patched) -> None
     assert kwargs["media_ref"] == "1234567890"
     assert kwargs["media_type"] == "application/pdf"
     assert kwargs["whatsapp_provider"] == "meta"
+    # Regressão: precisa ser só o contact_phone_number — nunca o
+    # conversation_id (uuid de `conversations`) nem o thread_id composto,
+    # senão a busca via bucar_base_conhecimento_usuario nunca encontra o
+    # documento (retrieval_usuario faz .partition(":") no thread_id do lado
+    # do agents e espera achar só o contato do outro lado).
+    assert kwargs["conversation_id"] == "5511888888888"
     sent_message = patched["send"].await_args.kwargs["message"]
     assert sent_message == "segue o contrato\n[Documento recebido e processado: anexo-x.pdf]"
 
