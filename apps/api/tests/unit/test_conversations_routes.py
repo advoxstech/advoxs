@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import app.api.v1.conversations as conversations_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.agents import AgentsApiError, AgentsNetworkError
+from app.clients.rag import RagApiError
 from app.clients.whatsapp import WhatsAppSendError
 from app.main import app
 
@@ -561,6 +562,67 @@ class TestDeleteConversation:
 
         assert response.status_code == 204
         checkpoint_mock.assert_awaited_once()
+
+    def test_limpa_anexos_do_contato_no_api_rag(self, client, session, monkeypatch) -> None:
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        rag_mock = AsyncMock()
+        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
+        session.scalar.return_value = _conversation()
+        msg_id_1, msg_id_2 = uuid.uuid4(), uuid.uuid4()
+        session.execute.return_value = _execute_returning([msg_id_1, msg_id_2])
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        rag_mock.assert_awaited_once()
+        args = rag_mock.await_args.args
+        assert args[0] == str(TENANT_ID)
+        assert sorted(args[1]) == sorted([str(msg_id_1), str(msg_id_2)])
+
+    def test_sem_anexos_nao_chama_delete_documents(self, client, session, monkeypatch) -> None:
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        rag_mock = AsyncMock()
+        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
+        session.scalar.return_value = _conversation()
+        session.execute.return_value = _execute_returning([])
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        rag_mock.assert_not_awaited()
+
+    def test_falha_ao_limpar_anexos_no_api_rag_nao_impede_a_exclusao(
+        self, client, session, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        rag_mock = AsyncMock(side_effect=RagApiError("api_rag fora do ar"))
+        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
+        session.scalar.return_value = _conversation()
+        session.execute.return_value = _execute_returning([uuid.uuid4()])
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        rag_mock.assert_awaited_once()
+
+    def test_consulta_de_anexos_filtra_por_contato_e_media_url(
+        self, client, session, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
+        monkeypatch.setattr(conversations_module, "delete_documents", AsyncMock())
+        session.scalar.return_value = _conversation()
+        session.execute.return_value = _execute_returning([])
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 204
+        first_statement = str(
+            session.execute.await_args_list[0]
+            .args[0]
+            .compile(compile_kwargs={"literal_binds": True})
+        )
+        assert "sender_type" in first_statement
+        assert "media_url IS NOT NULL" in first_statement
 
 
 class TestEndCustomerBalance:

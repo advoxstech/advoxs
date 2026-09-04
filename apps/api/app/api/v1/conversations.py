@@ -19,6 +19,7 @@ from app.clients.agents import (
     generate_conversation_summary,
     sync_conversation_context,
 )
+from app.clients.rag import RagApiError, delete_documents
 from app.clients.whatsapp import WhatsAppSendError
 from app.models import (
     Agent,
@@ -429,7 +430,9 @@ async def delete_conversation(
 ) -> None:
     """Apaga mensagens + conversa (real ou de teste); ledger fica (related_message_id
     vira NULL nas duas tabelas — tenant e cliente final —, o consumo continua
-    auditável). Checkpoint no agents é limpado best-effort. Irreversível."""
+    auditável). Checkpoint no agents e anexos do contato ingeridos no api_rag
+    (ver app/services/test_attachments.py e apps/worker/app/tasks/attachments.py
+    — o caminho real via WhatsApp) são limpos best-effort. Irreversível."""
     conversation = await _get_conversation(conversation_id, ctx, session)
     thread_id = f"{ctx.tenant_id}:{conversation.contact_phone_number}"
     logger.info(
@@ -437,6 +440,26 @@ async def delete_conversation(
         ctx.tenant_id,
         conversation.id,
         conversation.contact_phone_number,
+    )
+
+    # doc_id de cada anexo ingerido é sempre o id da própria mensagem do
+    # contato que carregou o arquivo (ver process_inbound_attachment/
+    # process_test_attachment) — precisa ser lido ANTES do delete abaixo.
+    # Inclui candidatos que nunca chegaram a existir no api_rag (formato não
+    # suportado, falha de ingestão) — sem problema, a exclusão de lá é
+    # idempotente pra id inexistente.
+    attachment_message_ids = (
+        (
+            await session.execute(
+                select(Message.id).where(
+                    Message.conversation_id == conversation.id,
+                    Message.sender_type == "contact",
+                    Message.media_url.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
     )
 
     message_ids = select(Message.id).where(Message.conversation_id == conversation.id)
@@ -455,6 +478,22 @@ async def delete_conversation(
     await session.commit()
 
     await delete_agent_checkpoint(thread_id)
+
+    if attachment_message_ids:
+        try:
+            await delete_documents(str(ctx.tenant_id), [str(mid) for mid in attachment_message_ids])
+        except RagApiError as exc:
+            # Best-effort, mesmo espírito de delete_agent_checkpoint acima: a
+            # conversa já foi apagada (mensagens+registro commitados antes) —
+            # uma falha aqui não pode bloquear a exclusão, só fica registrada
+            # pra eventual limpeza manual.
+            logger.warning(
+                "Falha ao limpar anexos do contato no api_rag (best-effort) | "
+                "tenant_id=%s conversation_id=%s erro=%s",
+                ctx.tenant_id,
+                conversation.id,
+                exc,
+            )
 
 
 async def _end_customer_balances_by_phone(

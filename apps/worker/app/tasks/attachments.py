@@ -52,12 +52,14 @@ async def process_inbound_attachment(
     media_type: str | None,
     whatsapp_provider: str,
     access_token: str | None,
+    zapi_client_token: str | None = None,
 ) -> str | None:
     """Baixa e ingere o anexo, se houver e o formato for suportado.
 
     `media_ref` é o que está gravado em messages.media_url — pra Meta, o
     media_id opaco (exige download autenticado com `access_token`); pra
-    Z-API, a própria URL final do arquivo (sem autenticação).
+    Z-API, a própria URL final do arquivo (exige o `zapi_client_token` da
+    conta no header, ver app/clients/media.py::download_zapi_media).
 
     Devolve uma nota em texto pra anexar à mensagem mandada ao agents
     (sucesso ou falha), ou None quando não havia anexo nenhum pra processar.
@@ -75,7 +77,7 @@ async def process_inbound_attachment(
 
     try:
         if whatsapp_provider == "zapi":
-            file_bytes = await download_zapi_media(media_ref)
+            file_bytes = await download_zapi_media(media_ref, zapi_client_token)
         else:
             file_bytes = await download_meta_media(media_ref, access_token or "")
     except MediaDownloadError as exc:

@@ -77,15 +77,38 @@ class TestDownloadMetaMedia:
 
 
 class TestDownloadZApiMedia:
-    async def test_baixa_direto_sem_autenticacao(self, monkeypatch) -> None:
+    async def test_baixa_com_client_token_no_header(self, monkeypatch) -> None:
         client = AsyncMock()
         client.get.return_value = _response(content=b"conteudo")
         _mock_async_client(monkeypatch, client)
 
-        result = await download_zapi_media("https://z-api.example/media/x.pdf")
+        result = await download_zapi_media("https://z-api.example/media/x.pdf", "client-token-abc")
 
         assert result == b"conteudo"
-        client.get.assert_awaited_once_with("https://z-api.example/media/x.pdf")
+        client.get.assert_awaited_once_with(
+            "https://z-api.example/media/x.pdf", headers={"Client-Token": "client-token-abc"}
+        )
+
+    async def test_sem_client_token_manda_sem_header_de_auth(self, monkeypatch) -> None:
+        # Tenant sem Client-Token configurado (linha legada) — não quebra,
+        # só não manda o header.
+        client = AsyncMock()
+        client.get.return_value = _response(content=b"conteudo")
+        _mock_async_client(monkeypatch, client)
+
+        result = await download_zapi_media("https://z-api.example/media/x.pdf", None)
+
+        assert result == b"conteudo"
+        client.get.assert_awaited_once_with("https://z-api.example/media/x.pdf", headers={})
+
+    async def test_client_token_default_e_none(self, monkeypatch) -> None:
+        client = AsyncMock()
+        client.get.return_value = _response(content=b"conteudo")
+        _mock_async_client(monkeypatch, client)
+
+        await download_zapi_media("https://z-api.example/media/x.pdf")
+
+        client.get.assert_awaited_once_with("https://z-api.example/media/x.pdf", headers={})
 
     async def test_erro_http_levanta_media_download_error(self, monkeypatch) -> None:
         client = AsyncMock()
@@ -93,4 +116,4 @@ class TestDownloadZApiMedia:
         _mock_async_client(monkeypatch, client)
 
         with pytest.raises(MediaDownloadError):
-            await download_zapi_media("https://z-api.example/media/x.pdf")
+            await download_zapi_media("https://z-api.example/media/x.pdf", "client-token-abc")
