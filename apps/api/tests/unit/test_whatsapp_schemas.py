@@ -62,6 +62,35 @@ def test_extract_media_message_with_caption() -> None:
     assert msg.media_type == "image/jpeg"
 
 
+def test_extract_media_message_com_caption_null_nao_quebra() -> None:
+    # Mesmo padrão de bug real corrigido do lado da Z-API — defensivo aqui
+    # também, caso a Meta em algum payload mande "caption": null em vez de
+    # omitir a chave.
+    payload = _payload(
+        {
+            "metadata": {"phone_number_id": "PNID"},
+            "messages": [
+                {
+                    "from": "5511888888888",
+                    "id": "wamid.MEDIA2",
+                    "type": "document",
+                    "document": {
+                        "id": "MEDIA_ID",
+                        "mime_type": "application/pdf",
+                        "caption": None,
+                    },
+                }
+            ],
+        }
+    )
+
+    messages = extract_inbound_messages(payload)
+
+    assert len(messages) == 1
+    assert messages[0].content == ""
+    assert messages[0].media_id == "MEDIA_ID"
+
+
 def test_extract_interactive_reply() -> None:
     payload = _payload(
         {
@@ -190,6 +219,30 @@ def test_extract_zapi_audio_sem_legenda_ainda_persiste() -> None:
     assert result.content == ""
     assert result.media_url == "https://z-api.example/media/audio.ogg"
     assert result.media_type == "audio/ogg; codecs=opus"
+
+
+def test_extract_zapi_documento_sem_legenda_com_caption_null_nao_quebra() -> None:
+    # Regressão real (confirmado em produção): a Z-API manda "caption": null
+    # (chave presente, valor None) quando o documento não tem legenda — não
+    # omite a chave. media.get("caption", "") só cai no default quando a
+    # chave NÃO existe, então isso virava content=None e quebrava a
+    # validação do Pydantic (content exige str) com 500, descartando a
+    # mensagem inteira antes de persistir.
+    payload = _zapi_payload(
+        text=None,
+        document={
+            "documentUrl": "https://z-api.example/media/curriculo.pdf",
+            "mimeType": "application/pdf",
+            "fileName": "curriculo.pdf",
+            "caption": None,
+        },
+    )
+
+    result = extract_inbound_zapi_message(payload)
+
+    assert result is not None
+    assert result.content == ""
+    assert result.media_url == "https://z-api.example/media/curriculo.pdf"
 
 
 def test_extract_zapi_documento_usa_mime_type() -> None:
