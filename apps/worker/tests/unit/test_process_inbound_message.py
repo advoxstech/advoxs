@@ -128,6 +128,7 @@ async def test_sem_anexo_nao_altera_a_mensagem(patched) -> None:
     kwargs = patched["attachment"].await_args.kwargs
     assert kwargs["media_ref"] is None
     assert kwargs["access_token"] == "token-claro"
+    assert kwargs["zapi_client_token"] is None
     assert patched["send"].await_args.kwargs["message"] == "Olá"
 
 
@@ -194,6 +195,38 @@ async def test_anexo_processado_no_provider_zapi_nao_passa_access_token_meta(pat
     kwargs = patched["attachment"].await_args.kwargs
     assert kwargs["whatsapp_provider"] == "zapi"
     assert kwargs["access_token"] is None
+    assert kwargs["zapi_client_token"] == ""
+
+
+async def test_anexo_processado_no_provider_zapi_repassa_client_token_descriptografado(
+    patched,
+) -> None:
+    # Regressão: o download de mídia via Z-API exige o Client-Token da conta
+    # no header (ver app/clients/media.py::download_zapi_media) — sem
+    # repassar o valor descriptografado aqui, o anexo nunca é baixado.
+    patched["load"].return_value = InboundContext(
+        conversation_state="agent",
+        contact_phone_number="5511888888888",
+        message_content="oi",
+        whatsapp_provider="zapi",
+        phone_number_id=None,
+        access_token_encrypted=None,
+        zapi_instance_id="inst-1",
+        zapi_instance_token_encrypted="cifrado",
+        zapi_client_token_encrypted="cifrado-client-token",
+        credit_balance=Decimal(1000),
+        end_customer_billing_enabled=False,
+        end_customer_balance=Decimal(0),
+        end_customer_packages=[],
+        agents=[],
+        media_url="https://z-api.example/media/x.pdf",
+        media_type="application/pdf",
+    )
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    kwargs = patched["attachment"].await_args.kwargs
+    assert kwargs["zapi_client_token"] == "token-claro"
 
 
 async def test_consumo_ponderado_arredonda_pro_inteiro(patched) -> None:

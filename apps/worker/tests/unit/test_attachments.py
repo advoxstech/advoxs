@@ -98,9 +98,12 @@ async def test_docx_via_zapi_usa_download_zapi(patched) -> None:
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         whatsapp_provider="zapi",
         access_token=None,
+        zapi_client_token="client-token-abc",
     )
 
-    patched["download_zapi"].assert_awaited_once_with("https://z-api.example/media/x.docx")
+    patched["download_zapi"].assert_awaited_once_with(
+        "https://z-api.example/media/x.docx", "client-token-abc"
+    )
     patched["download_meta"].assert_not_awaited()
     kwargs = patched["ingest"].await_args.kwargs
     assert kwargs["filename"] == f"anexo-{MESSAGE_ID}.docx"

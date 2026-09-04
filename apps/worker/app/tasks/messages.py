@@ -192,6 +192,7 @@ async def process_inbound_message(
         return
 
     meta_access_token: str | None = None
+    zapi_client_token: str | None = None
     if inbound.whatsapp_provider == "zapi":
         zapi_token = decrypt_access_token(inbound.zapi_instance_token_encrypted)
         zapi_client_token = (
@@ -235,6 +236,7 @@ async def process_inbound_message(
         media_type=inbound.media_type,
         whatsapp_provider=inbound.whatsapp_provider,
         access_token=meta_access_token,
+        zapi_client_token=zapi_client_token,
     )
     message_content = inbound.message_content
     if attachment_note:
