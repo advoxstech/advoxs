@@ -53,18 +53,24 @@ def extract_inbound_messages(payload: dict) -> list[InboundWhatsAppMessage]:
                 media_id = None
                 media_type = None
                 if message_type == "text":
-                    content = message.get("text", {}).get("body", "")
+                    content = message.get("text", {}).get("body") or ""
                 elif message_type in MEDIA_TYPES:
                     body = message.get(message_type, {})
-                    content = body.get("caption", "")
+                    # .get("caption", "") só cai no default quando a chave
+                    # não existe — se o payload mandar "caption": null (chave
+                    # presente, valor None, mesmo bug real confirmado do lado
+                    # da Z-API pra documento sem legenda), content quebraria
+                    # a validação do Pydantic (exige str) e o webhook inteiro
+                    # cairia com 500 antes de persistir a mensagem.
+                    content = body.get("caption") or ""
                     media_id = body.get("id")
                     media_type = body.get("mime_type") or message_type
                 elif message_type == "interactive":
                     interactive = message.get("interactive", {})
                     reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
-                    content = reply.get("title", "")
+                    content = reply.get("title") or ""
                 elif message_type == "button":
-                    content = message.get("button", {}).get("text", "")
+                    content = message.get("button", {}).get("text") or ""
                 # Outros tipos (location, contacts, reaction...): persiste sem
                 # conteúdo textual, só o tipo — evita perder o evento.
 
@@ -146,7 +152,14 @@ def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
                 if isinstance(media, dict) and media.get(url_field):
                     media_url = media[url_field]
                     media_type = media.get("mimeType") or kind
-                    content = media.get("caption", "")
+                    # .get("caption", "") só cai no default quando a chave
+                    # não existe — a Z-API manda "caption": null (chave
+                    # presente, valor None) quando o anexo não tem legenda,
+                    # o que quebrava a validação do Pydantic (content exige
+                    # str) com 500 antes mesmo de persistir a mensagem (bug
+                    # real, confirmado em produção: PDF sem legenda nunca
+                    # chegava a ser processado).
+                    content = media.get("caption") or ""
                     break
 
     if not instance_id or not message_id or not sender:
