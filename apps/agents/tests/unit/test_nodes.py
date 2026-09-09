@@ -157,6 +157,37 @@ async def test_sem_outros_agentes_nao_inclui_bloco_de_roster(monkeypatch) -> Non
 
 
 # ──────────────────────────────────────────────
+# agent_node — regra de continuidade (não repetir pergunta já respondida)
+# ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_prompt_inclui_regra_de_continuidade_no_ponto_de_entrada(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state())
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Regra de continuidade de atendimento" in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_prompt_inclui_regra_de_continuidade_no_especialista(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(current_agent_id="other-1"))
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Regra de continuidade de atendimento" in prompt_arg.content
+
+
+# ──────────────────────────────────────────────
 # agent_node — agente não-entry-point (equivalente aos especialistas de antes)
 # ──────────────────────────────────────────────
 

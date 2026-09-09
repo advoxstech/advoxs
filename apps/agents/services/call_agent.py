@@ -49,7 +49,7 @@ async def run_agent(
     attachments: list = [],
     number_whatsapp: str | None = None,
     db_uri: str = DB_URI,
-    num_before_messages: int = 35,
+    num_before_messages: int = 60,
     extra_data: dict = {},
     agents: list[dict] | None = None,
 ) -> tuple[list[str], dict, str | None, str | None, list[dict]]:

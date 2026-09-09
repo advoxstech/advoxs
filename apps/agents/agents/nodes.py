@@ -24,6 +24,21 @@ load_dotenv()
 
 model = ChatOpenAI(model="gpt-5-mini-2025-08-07", temperature=0)
 
+# Injetada incondicionalmente no prompt de todo agente (agent_node), nunca
+# dependendo do texto de instructions do tenant — evita que um especialista
+# reabra a triagem do zero depois de uma transferência (bug real: os prompts
+# padrão de Condominial/Contratos/Consumidor tinham "peça uma descrição breve
+# do problema" como primeiro passo, repetindo o que a secretária já perguntou).
+_CONTINUITY_RULE = (
+    "\n\n---\n"
+    "**Regra de continuidade de atendimento:** antes de fazer qualquer "
+    "pergunta, releia o histórico da conversa. Se a informação já foi dada — "
+    "pelo cliente, por você, ou por outro colega que atendeu antes de você — "
+    "NUNCA pergunte de novo, nem reformulada. Isso vale também ao assumir um "
+    "atendimento que já estava em andamento: não reabra a triagem do zero, "
+    "use o que já foi contado."
+)
+
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
 # o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
 # documento (ver agents/tools.py) usam conversation_id só pra log/rastreio,
@@ -90,7 +105,7 @@ async def agent_node(state: dict) -> Command:
         ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
-    prompt = current["instructions"]
+    prompt = current["instructions"] + _CONTINUITY_RULE
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
     if other_agents:
         roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)
