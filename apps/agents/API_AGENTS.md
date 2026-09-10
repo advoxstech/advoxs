@@ -258,7 +258,7 @@ async def run_agent(
     attachments: list = [],
     number_whatsapp: str | None = None,
     db_uri: str = DB_URI,
-    num_before_messages: int = 35,   # nº de mensagens de histórico enviadas ao LLM
+    num_before_messages: int = 60,   # nº de mensagens de histórico enviadas ao LLM
     extra_data: dict = {},
 ) -> tuple[list[str], int, str]:
 ```
@@ -383,6 +383,20 @@ agente), o `agent_node` devolve uma mensagem de erro genérica sem chamar o LLM.
 instrução extra pedindo que o agente se apresente e assuma o atendimento;
 depois a flag é zerada. O ponto de entrada nunca recebe essa instrução, mesmo
 que a flag venha `True` por engano no estado.
+
+**Injeção da regra de continuidade (`_CONTINUITY_RULE`):** diferente das
+injeções acima (condicionais), esta é concatenada **incondicionalmente** a
+`prompt = current["instructions"]`, pra todo agente, em toda execução —
+instrui a nunca repetir uma pergunta cuja resposta já esteja no histórico
+(pelo cliente, pelo próprio agente, ou por outro agente antes de uma
+transferência). Corrige um bug real de produto: os prompts padrão dos 3
+especialistas tinham "peça uma descrição breve do problema" como primeiro
+passo da própria triagem, repetindo o que a secretária já tinha perguntado
+antes de transferir (ver `app/services/default_agents.py` no `apps/api`,
+corrigido à parte, e a migration `0029` que faz o backfill nos tenants já
+provisionados). Por estar no código do `agents` (não no `instructions` do
+tenant), vale pra todo tenant automaticamente, sem depender de nenhum
+backfill de dado.
 
 **Despedida de transferência:** quando o modelo chama `transfer_to_agent` sem
 texto próprio, injeta-se uma `AIMessage` do tipo _"um momento... vou te
@@ -655,7 +669,7 @@ respostas: list[str] = await run_agent(
     message="texto do usuário",
     conversation_id="id-unico-da-conversa",  # vira o thread_id do checkpoint
     attachments=[],
-    num_before_messages=35,
+    num_before_messages=60,
 )
 ```
 
