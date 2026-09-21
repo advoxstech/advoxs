@@ -10,6 +10,8 @@ from app.core.config import settings
 
 async def verify_internal_service_key(authorization: str | None = Header(default=None)) -> None:
     if not settings.internal_service_key:
+        if settings.app_env == "production":
+            raise HTTPException(status_code=503, detail="Autenticação interna indisponível")
         return
     if not authorization or not secrets.compare_digest(
         authorization, settings.internal_service_key

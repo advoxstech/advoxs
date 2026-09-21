@@ -6,6 +6,13 @@ Guia de contexto e convenções do projeto para o Claude Code e demais colaborad
 
 ## Estado atual do repositório
 
+**Configuração de produção:** os quatro serviços Python validam os segredos
+na inicialização quando `APP_ENV=production`. O Compose base fixa esse ambiente;
+o override local usa development. Integrações Meta, Stripe e Stripe Connect
+podem ser desabilitadas explicitamente, bloqueando suas rotas. O deploy valida
+as novas imagens antes de parar os serviços. Consulte
+`docs/configuracao-producao.md` para a matriz de chaves e preparação do servidor.
+
 O núcleo da plataforma está **implementado**. Os cinco serviços do monorepo participam do fluxo operacional e os serviços `agents` e `api_rag` já operam com isolamento por tenant.
 
 | Serviço | Estado | Responsabilidade atual |

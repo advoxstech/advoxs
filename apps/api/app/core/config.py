@@ -1,8 +1,17 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from config_validation import validate_environment
+
+validate_environment("api")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
+
+    app_env: str = "development"
+    meta_enabled: bool = True
+    stripe_enabled: bool = True
+    stripe_connect_enabled: bool = True
 
     # Owner das tabelas — usada só pelo Alembic (DDL); a app não conecta
     # mais com esse papel em runtime.

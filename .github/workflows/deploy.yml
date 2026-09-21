@@ -42,6 +42,12 @@ jobs:
 
             docker compose pull
 
+            # Offline: valida as novas imagens antes de interromper os serviços.
+            # --no-deps evita iniciar dependências; não exibe valores de segredos.
+            for service in api worker agents api_rag; do
+              docker compose run --rm --no-deps --entrypoint /app/.venv/bin/python "$service" -m config_validation "$service"
+            done
+
             # Derruba tudo (containers + rede do compose) antes de recriar —
             # evita containers presos numa rede antiga/desanexada (visto em
             # produção: postgres/redis sem nenhuma rede Docker anexada depois

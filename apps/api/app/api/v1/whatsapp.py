@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.api.integration_deps import require_meta
 from app.clients.whatsapp import (
     WhatsAppApiError,
     WhatsAppNetworkError,
@@ -66,7 +67,7 @@ _GRAPH_ERROR_DETAIL = "Falha ao comunicar com a Meta — tente novamente em inst
 _ZAPI_ERROR_DETAIL = "Falha ao comunicar com a Z-API — tente novamente em instantes"
 
 
-@router.post("/connect")
+@router.post("/connect", dependencies=[Depends(require_meta)])
 async def connect(
     body: ConnectWhatsAppRequest,
     ctx: TenantContext = Depends(get_current_tenant),
@@ -342,7 +343,7 @@ async def get_connection(
     return to_connection_out(number)
 
 
-@router.get("/webhook-config")
+@router.get("/webhook-config", dependencies=[Depends(require_meta)])
 async def get_webhook_config(
     ctx: TenantContext = Depends(get_current_tenant),
 ) -> WebhookConfigOut:

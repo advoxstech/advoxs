@@ -67,6 +67,8 @@ async def create_end_customer_checkout_session(
     )
     if billing_settings is None or not billing_settings.enabled:
         raise BillingNotConfiguredError("Cobrança do cliente final não configurada pelo tenant")
+    if billing_settings.billing_provider == "connect" and not settings.stripe_connect_enabled:
+        raise BillingNotConfiguredError("Integração Stripe Connect desabilitada")
     if (
         billing_settings.billing_provider == "standalone"
         and billing_settings.stripe_secret_key_encrypted is None

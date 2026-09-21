@@ -111,8 +111,9 @@ A aplicação FastAPI expõe 6 endpoints. O objeto exportado é `app`.
 /conversations/{thread_id}/context` e `POST /summaries` exigem o header
 `Authorization: <AGENTS_API_KEY>` (valor cru, sem `Bearer`; comparação com
 `secrets.compare_digest`). `GET /agents` e `GET /generated-documents/{doc_id}`
-não usam essa dependência. Com a env vazia, a autenticação interna é ignorada;
-essa configuração permissiva deve ficar restrita ao desenvolvimento local.
+não usam essa dependência. Em development/test, a chave vazia permite o modo
+local. Em production, a inicialização rejeita a ausência ou valor de exemplo
+da chave. Consulte ../../docs/configuracao-producao.md.
 
 ### 3.1 `POST /messages` — Recebimento de mensagens (contrato interno)
 

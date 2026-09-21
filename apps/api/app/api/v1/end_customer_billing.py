@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.api.integration_deps import require_stripe_connect
 from app.core.config import settings
 from app.core.crypto import encrypt_tenant_secret
 from app.models import (
@@ -170,7 +171,7 @@ async def update_settings(
     return _to_settings_out(ctx.tenant_id, row)
 
 
-@router.post("/connect-account")
+@router.post("/connect-account", dependencies=[Depends(require_stripe_connect)])
 async def connect_account(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
@@ -182,7 +183,7 @@ async def connect_account(
     return ConnectAccountSessionOut(client_secret=client_secret)
 
 
-@router.get("/connect-account/earnings")
+@router.get("/connect-account/earnings", dependencies=[Depends(require_stripe_connect)])
 async def connect_account_earnings(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),

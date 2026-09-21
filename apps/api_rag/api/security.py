@@ -5,7 +5,10 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
+from config_validation import validate_environment
+
 load_dotenv()
+validate_environment("api_rag")
 
 
 API_KEY = os.getenv("API_KEY")  # na prática, vem de variável de ambiente

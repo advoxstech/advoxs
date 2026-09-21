@@ -14,17 +14,23 @@ services:
   # (e exporia a .venv do host, incompatível) — o volume anônimo /app/.venv
   # preserva a venv construída no build.
   api:
+    environment:
+      APP_ENV: development
     command: ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
       - ./apps/api:/app
       - /app/.venv
 
   agents:
+    environment:
+      APP_ENV: development
     volumes:
       - ./apps/agents:/app
       - /app/.venv
 
   api_rag:
+    environment:
+      APP_ENV: development
     ports:
       - "8002:8000"
     volumes:
@@ -32,6 +38,8 @@ services:
       - /app/.venv
 
   worker:
+    environment:
+      APP_ENV: development
     volumes:
       - ./apps/worker:/app
       - /app/.venv

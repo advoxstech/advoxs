@@ -45,6 +45,7 @@ services:
     env_file: *default-env-file
     environment:
       RAG_API_URL: http://api_rag:8000
+      APP_ENV: production
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -64,6 +65,7 @@ services:
     env_file: *default-env-file
     environment:
       # Checkpoint do LangGraph em database dedicado (init 002-databases.sh)
+      APP_ENV: production
       DATABASE_HOST: postgres
       DATABASE_PORT: "5432"
       DATABASE_USER: advoxs_agents
@@ -93,6 +95,7 @@ services:
     env_file: *default-env-file
     environment:
       # Metadados de documentos em database dedicado (init 002-databases.sh)
+      APP_ENV: production
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_USER: advoxs_rag
@@ -121,6 +124,7 @@ services:
     environment:
       RAG_API_URL: http://api_rag:8000
       API_URL: http://api:8000
+      APP_ENV: production
     volumes:
       - kb_uploads:/data/kb_uploads
     depends_on:
