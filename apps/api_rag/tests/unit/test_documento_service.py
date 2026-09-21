@@ -9,7 +9,9 @@ from services.documents.main import DocumentoService
 
 @pytest.fixture
 def qdrant():
-    return AsyncMock()
+    client = AsyncMock()
+    client.upsert_points.return_value = {"success": True, "data": "ok", "error": None}
+    return client
 
 
 @pytest.fixture
@@ -55,6 +57,23 @@ class TestSalvarQdrant:
             await service._salvar_qdrant(["chunk"], [[0.1]], [{}], {"conversation_id": "c1"})
 
         qdrant.upsert_points.assert_not_awaited()
+
+    async def test_falha_no_upsert_aborta_a_ingestao(self, service, qdrant) -> None:
+        qdrant.upsert_points.return_value = {
+            "success": False,
+            "data": None,
+            "error": "Qdrant indisponível",
+        }
+
+        with pytest.raises(RuntimeError, match="Qdrant indisponível"):
+            await service._salvar_qdrant(
+                ["chunk"],
+                [[0.1]],
+                [{"indices": [1], "values": [0.5]}],
+                {"tenant_id": "t1", "conversation_id": "c1"},
+            )
+
+        qdrant.upsert_points.assert_awaited_once()
 
 
 class TestDeletarDocumentoUsuario:

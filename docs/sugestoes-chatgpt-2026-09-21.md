@@ -29,7 +29,7 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 | 7 | Alta | Consumo das assinaturas | Registrar tokens e custo real mesmo quando o uso estiver incluído na assinatura, separando consumo operacional de cobrança por mensagem. |
 | 8 | Alta | Atendimento humano | Impedir que a IA reassuma apenas porque o atendente fechou a aba ou perdeu conexão. Conferir novamente o estado da conversa antes do envio automático. |
 | 9 | Alta | Autenticação | Tornar a renovação de sessão atômica, revogar sessões após troca de senha e limitar tentativas de login. |
-| 10 | Alta | Indexação dos arquivos | Marcar um documento como pronto somente após confirmar a indexação; preservar o arquivo para reprocessamento quando houver falha. |
+| 10 | Alta — **Implementada em 21/09/2026** | Indexação dos arquivos | O serviço de RAG agora interrompe a ingestão quando o Qdrant não confirma a gravação. O worker só marca o documento como pronto e remove o arquivo temporário após o sucesso; falhas temporárias são repetidas e, após a última tentativa, o arquivo fica preservado com status de erro para reprocessamento. |
 | 11 | Alta | Busca na base de conhecimento | Diferenciar ausência de informação de indisponibilidade do serviço, evitando que uma falha técnica seja tratada como busca sem resultados. |
 | 12 | Alta | Limites de arquivos | Aplicar limites durante a leitura e o download, interrompendo arquivos grandes antes de carregá-los inteiramente na memória. |
 | 13 | Alta | Documentos gerados | Proteger o armazenamento, usar links temporários para entrega e melhorar a recuperação entre geração, registro e envio do PDF. |
