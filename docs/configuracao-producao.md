@@ -35,18 +35,22 @@ para a chave do RAG. O Compose da raiz usa um único `.env`.
 
 ## Integrações
 
-As três opções abaixo são `true` por padrão e aceitam `true/false` ou `1/0`.
-Em produção, integrações habilitadas exigem:
+As duas opções de Stripe abaixo são `true` por padrão e aceitam `true/false`
+ou `1/0`. Em produção, integrações habilitadas exigem:
 
 | Opção | Segredos adicionais na API |
 | --- | --- |
-| `META_ENABLED` | `META_APP_SECRET`, `META_VERIFY_TOKEN` |
 | `STRIPE_ENABLED` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | `STRIPE_CONNECT_ENABLED` | `STRIPE_CONNECT_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET` |
 
-Desabilitar Meta bloqueia seu webhook e as rotas de conexão/configuração do
-webhook, preservando a configuração independente da Z-API. Desabilitar Stripe
-bloqueia o cadastro, a compra de créditos da plataforma e seu webhook.
+Meta não é pré-requisito global do deploy: o provedor de WhatsApp é escolhido
+por escritório, e tenants Z-API podem operar sem uma configuração Meta na
+plataforma. Ao conectar pela Meta, o escritório informa o App Secret do
+próprio aplicativo; ele é cifrado e recebe uma URL exclusiva de webhook.
+Sua ausência não impede a plataforma de iniciar.
+Desabilitar Meta bloqueia seu webhook e as rotas de
+conexão/configuração do webhook, preservando a configuração independente da
+Z-API. Desabilitar Stripe bloqueia o cadastro, a compra de créditos da plataforma e seu webhook.
 Desabilitar Connect bloqueia onboarding, consulta de repasses, webhook e a
 criação de checkout de clientes com esse provedor. As rotas bloqueadas retornam
 503; o checkout interno sem Connect disponível segue o tratamento existente

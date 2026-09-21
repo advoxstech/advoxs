@@ -34,8 +34,6 @@ class ProductionConfigTests(unittest.TestCase):
             "TENANT_STRIPE_KEY_ENCRYPTION_KEY": base64.urlsafe_b64encode(
                 b"g" * 32
             ).decode(),
-            "META_APP_SECRET": "h" * 32,
-            "META_VERIFY_TOKEN": "i" * 32,
             "STRIPE_SECRET_KEY": "sk_live_" + "j" * 32,
             "STRIPE_WEBHOOK_SECRET": "whsec_" + "k" * 32,
             "STRIPE_CONNECT_SECRET_KEY": "rk_live_" + "l" * 32,
@@ -86,14 +84,23 @@ class ProductionConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 policy.validate_config(values, "api")
 
+    def test_meta_nao_exige_credencial_global(self):
+        """A escolha Meta/Z-API é feita pelo tenant; uma integração não
+        configurada não pode bloquear os tenants que usam Z-API."""
+        values = {
+            **self.values,
+            "META_ENABLED": "true",
+            "META_APP_SECRET": "",
+            "META_VERIFY_TOKEN": "",
+        }
+        load_policy("api").validate_config(values, "api")
+
     def test_bad_environment_and_flags_rejected(self):
         for service in SERVICES:
             policy = load_policy(service)
             for bad in ("prod", "", " production", "PRODUCTION"):
                 with self.assertRaisesRegex(RuntimeError, "APP_ENV"):
                     policy.validate_config({**self.values, "APP_ENV": bad}, service)
-            with self.assertRaisesRegex(RuntimeError, "META_ENABLED"):
-                policy.validate_config({**self.values, "META_ENABLED": "typo"}, service)
 
     def test_dev_and_test_allow_missing_security_secrets(self):
         for service in SERVICES:

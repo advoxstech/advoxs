@@ -37,6 +37,10 @@ class WhatsAppNumber(Base):
     phone_number_id: Mapped[str | None] = mapped_column(String, unique=True)
     waba_id: Mapped[str | None] = mapped_column(String)
     access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Meta — segredo do app que assina os webhooks e token aleatório do
+    # endpoint de verificação. Cada escritório pode usar seu próprio app.
+    meta_app_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    meta_webhook_secret: Mapped[str | None] = mapped_column(String, unique=True)
     # Z-API — nullable, só preenchido quando provider="zapi".
     # zapi_instance_id é a chave de resolução do webhook, equivalente ao
     # phone_number_id da Meta.

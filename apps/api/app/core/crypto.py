@@ -22,6 +22,15 @@ def decrypt_access_token(access_token_encrypted: str) -> str:
     return _fernet().decrypt(access_token_encrypted.encode()).decode()
 
 
+def encrypt_whatsapp_secret(value: str) -> str:
+    """Cifra segredos do app Meta com a mesma chave dos tokens do WhatsApp."""
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def decrypt_whatsapp_secret(value_encrypted: str) -> str:
+    return _fernet().decrypt(value_encrypted.encode()).decode()
+
+
 def _tenant_fernet() -> Fernet:
     if not settings.tenant_stripe_key_encryption_key:
         raise RuntimeError("TENANT_STRIPE_KEY_ENCRYPTION_KEY não configurada")
