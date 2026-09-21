@@ -1,6 +1,6 @@
 # API Agent — Documentação Técnica Completa
 
-> Serviço de atendimento jurídico automatizado via WhatsApp (Meta Cloud API),
+> Serviço de atendimento jurídico automatizado via WhatsApp (Meta Cloud API ou Z-API),
 > construído sobre **LangGraph** (multi-agente) + **FastAPI**. Este documento
 > descreve a arquitetura, o fluxo de execução, os contratos de entrada/saída e
 > as dependências externas. É a **fonte da verdade** sobre o comportamento
@@ -12,12 +12,12 @@
 
 O serviço é um **microserviço interno** da plataforma: recebe mensagens já
 resolvidas pelo backend geral (`api`), que identificou o tenant a partir do
-`phone_number_id` do webhook da Meta e descriptografou as credenciais do
-WhatsApp do tenant. O serviço agrupa mensagens em rajada (debounce via
+webhook e descriptografou as credenciais do provedor do tenant. O serviço
+agrupa mensagens em rajada (debounce via
 **Redis**), encaminha para um grafo de agentes de IA (**LangGraph**), persiste
 o estado da conversa (**PostgreSQL**) e envia a(s) resposta(s) ao cliente
-diretamente pela **WhatsApp Cloud API** (Graph API), usando as credenciais do
-tenant recebidas na request.
+diretamente pela **Meta Cloud API** ou pela **Z-API**, usando as credenciais e
+o `whatsapp_provider` recebidos na request.
 
 O grafo é **genérico**: os agentes de cada tenant (nome, instruções, se é o
 ponto de entrada, quais arquivos de base de conhecimento tem anexados) são
@@ -30,7 +30,7 @@ partir de uma transferência (`transfer_to_agent`), a conversa fica fixada no
 agente de destino, persistido no estado (`current_agent_id`).
 
 ```
-Cliente (WhatsApp) ──▶ Meta ──webhook──▶ api (backend geral)
+Cliente (WhatsApp) ──▶ Meta/Z-API ──webhook──▶ api (backend geral)
                                           │ resolve tenant_id + credenciais
                                           │ + carrega a lista de agentes do tenant
                                           ▼
@@ -51,8 +51,8 @@ Cliente (WhatsApp) ──▶ Meta ──webhook──▶ api (backend geral)
                                                  tool_node ──▶ (de volta ao agent_node)
                                                       │
                                                       ▼
-                              respostas ──▶ WhatsAppClient.send_text_message
-                                            (Graph API, credenciais do tenant)
+                              respostas ──▶ WhatsAppClient ou ZApiClient
+                                            (credenciais do tenant)
 ```
 
 ### Stack
@@ -64,7 +64,7 @@ Cliente (WhatsApp) ──▶ Meta ──webhook──▶ api (backend geral)
 | LLM                | OpenAI `gpt-5-mini-2025-08-07` via `langchain-openai` |
 | Persistência conv. | PostgreSQL (`AsyncPostgresSaver` checkpointer)    |
 | Buffer/debounce    | Redis (`redis.asyncio`)                           |
-| Mensageria         | WhatsApp Cloud API (Graph API da Meta)            |
+| Mensageria         | WhatsApp Cloud API (Meta) ou Z-API                 |
 | RAG / retrieval    | API externa HTTP (`RAG_API_URL`)                  |
 | Observabilidade    | Langfuse (callback handler) + Loguru              |
 | Runtime            | Python 3.13, gerenciado por `uv`                  |
@@ -77,7 +77,7 @@ Cliente (WhatsApp) ──▶ Meta ──webhook──▶ api (backend geral)
 api_agent/
 ├── main.py                     # Entrypoint: configura logging e sobe o Uvicorn
 ├── api/
-│   └── routes.py               # Endpoints FastAPI (webhook, listagem, deleção)
+│   └── routes.py               # Mensagens, contexto, resumos, documentos e deleção
 ├── agents/
 │   ├── workflow.py             # Grafo LangGraph genérico: 2 nós (agent_node + tool_node), arestas fixas
 │   ├── nodes.py                # agent_node (resolve o agente ativo do tenant) + tool_node
@@ -89,6 +89,7 @@ api_agent/
 │   └── concat_messages.py      # debounce_messages: buffer de rajada via Redis
 ├── clients/
 │   ├── whatsapp.py             # WhatsAppClient: envio de mensagens via Graph API (Meta)
+│   ├── zapi.py                 # ZApiClient: envio de mensagens e documentos via Z-API
 │   └── retrieval.py            # retrieval_sistema / retrieval_usuario (RAG externo)
 ├── core/
 │   └── logging.py              # setup_logging: configuração do Loguru
@@ -103,20 +104,22 @@ api_agent/
 
 ## 3. API HTTP (`api/routes.py`)
 
-A aplicação FastAPI expõe 3 endpoints. O objeto exportado é `app`.
+A aplicação FastAPI expõe 6 endpoints. O objeto exportado é `app`.
 
 **Autenticação (serviço interno):** se a env `AGENTS_API_KEY` estiver setada,
-`POST /messages` e `DELETE /conversations/{thread_id}` exigem o header
+`POST /messages`, `DELETE /conversations/{thread_id}`, `POST
+/conversations/{thread_id}/context` e `POST /summaries` exigem o header
 `Authorization: <AGENTS_API_KEY>` (valor cru, sem `Bearer`; comparação com
-`secrets.compare_digest`). Falha → `403`. Com a env vazia (dev local), a
-verificação é ignorada.
+`secrets.compare_digest`). `GET /agents` e `GET /generated-documents/{doc_id}`
+não usam essa dependência. Com a env vazia, a autenticação interna é ignorada;
+essa configuração permissiva deve ficar restrita ao desenvolvimento local.
 
 ### 3.1 `POST /messages` — Recebimento de mensagens (contrato interno)
 
-Ponto de entrada principal. Chamado pelo backend geral (`api`), que **já
-resolveu o tenant** a partir do `phone_number_id` do webhook da Meta, validou o
-estado da conversa (`agent` | `human` — em modo `human` o `api` **não** chama
-este serviço) e descriptografou as credenciais do WhatsApp do tenant.
+Ponto de entrada principal. Chamado pelo fluxo `api`/`worker`, que **já
+resolveu o tenant e o provedor** a partir do webhook, validou o estado da
+conversa (`agent`, `human` ou `billing_gate`) e descriptografou as credenciais
+do WhatsApp. Somente o estado `agent`, com saldo liberado, executa o grafo.
 
 **Corpo esperado (JSON — modelo `IncomingMessage`):**
 
@@ -126,9 +129,13 @@ este serviço) e descriptografou as credenciais do WhatsApp do tenant.
   "contact_phone_number": "5511999999999",     // obrigatório; cliente final
   "message": "texto da mensagem do cliente",   // opcional se houver attachments
   "attachments": [],                           // opcional
-  "phone_number_id": "1234567890",             // obrigatório quando send_to_whatsapp=true (default)
-  "access_token": "EAAG...",                   // obrigatório quando send_to_whatsapp=true (default)
-  "send_to_whatsapp": true,                    // opcional, default true — false pula o envio via Graph API (usado pelo playground de admin em apps/api)
+  "whatsapp_provider": "meta",                 // "meta" (default) ou "zapi"
+  "phone_number_id": "1234567890",             // usado pelo provedor Meta
+  "access_token": "EAAG...",                   // usado pelo provedor Meta
+  "zapi_instance_id": "",                      // usado quando whatsapp_provider="zapi"
+  "zapi_token": "",                            // usado quando whatsapp_provider="zapi"
+  "zapi_client_token": "",                     // opcional na Z-API
+  "send_to_whatsapp": true,                     // false pula o envio no provedor (playground/testes)
   "agents": [                                  // opcional, default [] — lista COMPLETA de agentes do tenant
     {
       "id": "uuid-do-agente",
@@ -163,15 +170,24 @@ mensagem de erro genérica, sem chamar o LLM.
    Falha de Redis → `503`.
 3. **Agente** (`run_agent`) — invoca o grafo com a mensagem consolidada.
 4. **Envio** (só quando `send_to_whatsapp=true`, o default) — cada resposta
-   gerada é enviada ao cliente via `WhatsAppClient.send_text_message` (Graph
-   API), usando as credenciais do tenant recebidas na request. Com
+   gerada é enviada ao cliente pelo cliente Meta ou Z-API selecionado em
+   `whatsapp_provider`, usando as credenciais recebidas na request. Com
    `send_to_whatsapp=false` este passo é pulado — usado pelo playground de
    admin (`apps/api`), que só quer as respostas de volta, sem canal.
 
 **Resposta de sucesso (200):**
 
 ```json
-{ "responses": ["resposta 1", "resposta 2"], "tokens_used": 1234, "tokens_input": 1000, "tokens_output": 234, "current_agent": "Condominial" }
+{
+  "responses": ["resposta 1", "resposta 2"],
+  "tokens_used": 1234,
+  "tokens_input": 1000,
+  "tokens_output": 234,
+  "current_agent": "Condominial",
+  "current_agent_id": "uuid-do-agente",
+  "delivery_failures": [],
+  "documents": []
+}
 ```
 
 Todas as respostas geradas são devolvidas ao chamador (`worker`) para
@@ -242,6 +258,22 @@ conversaram.
   Falha de checkpoint → 500.
 - Implementação: `services/update_context.py` (`aupdate_state` com o reducer
   do campo `messages` do estado, `operator.add` — ver §sobre o State).
+
+### 3.5 `POST /summaries` — Resumir uma conversa
+
+Recebe `{"messages": [{"sender_type": "contact", "content": "..."}]}` e
+gera um resumo diretamente com o LLM, sem executar o grafo nem alterar o
+checkpoint. Retorna `summary`, `tokens_used`, `tokens_input` e
+`tokens_output`, usados pelo `api` para persistir o resumo e cobrar o consumo.
+Lista vazia retorna `400`; falha do modelo retorna `500`.
+
+### 3.6 `GET /generated-documents/{doc_id}` — Entregar PDF gerado
+
+Serve o PDF criado pelas tools de documento. A rota não exige a API key
+interna porque Meta/Z-API precisam buscar o arquivo pela URL pública. O
+identificador aleatório do documento é hoje a única proteção; links
+temporários e autenticação de entrega permanecem como melhoria planejada.
+Documento inexistente ou expirado retorna `404`.
 
 ---
 
@@ -529,7 +561,7 @@ Header: `Authorization: {RAG_API_KEY}`. Timeout: 30s.
 
 ---
 
-## 7. Cliente WhatsApp (`clients/whatsapp.py`)
+## 7. Clientes WhatsApp (`clients/whatsapp.py` e `clients/zapi.py`)
 
 `WhatsAppClient` — cliente `httpx.AsyncClient` para enviar mensagens via
 **WhatsApp Cloud API** (Graph API da Meta). As credenciais são **por tenant** e
@@ -552,6 +584,11 @@ await client.send_text_message(to, text)
 await client.send_document_message(to, link, filename=None, caption=None)
 # type "document" com link — para o agente enviar PDFs/documentos gerados.
 ```
+
+`ZApiClient` oferece a mesma interface pública e usa `instance_id`,
+`instance_token` e `client_token` recebidos na request. A rota escolhe o cliente
+por `whatsapp_provider`; ambos retornam o formato
+`{"success", "data", "error"}` e possuem retry para falhas transitórias.
 
 ---
 
@@ -649,14 +686,15 @@ Dependendo do nível de acoplamento desejado:
 
 Trate este serviço como um microsserviço interno. O projeto integrador (`api`):
 
-1. Recebe o webhook da Meta, resolve `tenant_id` + credenciais e chama
+1. Recebe o webhook da Meta ou Z-API, resolve `tenant_id`, provedor e credenciais e chama
    `POST /messages` com o payload da seção 3.1 (header
    `Authorization: <AGENTS_API_KEY>`).
-2. Opcionalmente consome `GET /agents` para exibir agentes/ferramentas.
-3. Usa `DELETE /conversations/{thread_id}` para resetar conversas.
+2. Usa o endpoint de contexto para sincronizar mensagens do takeover humano.
+3. Usa `POST /summaries` para o resumo sob demanda e
+   `DELETE /conversations/{thread_id}` para resetar conversas.
 
-O serviço cuida sozinho de debounce, estado e envio das respostas via Graph
-API; o integrador persiste as respostas retornadas e contabiliza créditos.
+O serviço cuida de debounce, estado e envio das respostas pelo provedor
+selecionado; o integrador persiste o resultado e contabiliza créditos.
 
 ### Opção B — Importar o grafo como biblioteca (maior acoplamento)
 
@@ -690,16 +728,17 @@ Requisitos mínimos para a Opção B:
   `DELETE`. Planeje uma política de retenção/limpeza.
 - **Respostas múltiplas**: `run_agent` retorna uma **lista** de strings; envie
   todas ao cliente na ordem.
-- **Prompts são arquivos**: editar comportamento dos agentes = editar os `.md` em
-  `agents/prompts/`. Os caminhos são relativos ao diretório de execução
-  (`agents/prompts/...`), então **rode a aplicação a partir da raiz do projeto**.
+- **Instruções são dados do tenant**: o comportamento de cada agente vem do
+  campo `instructions` enviado em `POST /messages`. O serviço acrescenta regras
+  fixas de execução, como `_CONTINUITY_RULE`, mas não mantém prompts individuais
+  em arquivos por agente.
 
 ---
 
 ## 11. Débitos técnicos / atenção (para o integrador)
 
-- Nomes com typo preservados por compatibilidade: `bucar_base_conhecimento_*`,
-  `convesation_id`.
+- Nome com typo preservado por compatibilidade:
+  `bucar_base_conhecimento_usuario`.
 - `retrieval_sistema` (`clients/retrieval.py`) ficou sem chamador desde que os
   3 agentes fixos de categoria foram substituídos por
   `buscar_base_conhecimento_agente` — candidata a remoção.
@@ -716,4 +755,7 @@ Requisitos mínimos para a Opção B:
 |--------|---------------------------------|----------------------------------------------|---------|----------------------|
 | POST   | `/messages`                     | Mensagem do cliente (contrato interno, via `api`) | 200 | 202/400/403/422/503/500 |
 | GET    | `/agents`                       | Lista agentes e ferramentas                  | 200     | —                    |
+| GET    | `/generated-documents/{doc_id}` | Entrega um PDF gerado por tool               | 200     | 404                  |
 | DELETE | `/conversations/{thread_id}`    | Apaga histórico da conversa                  | 200     | 403/500              |
+| POST   | `/conversations/{thread_id}/context` | Anexa mensagens ao checkpoint sem executar a IA | 200 | 403/422/500 |
+| POST   | `/summaries`                    | Gera resumo sem alterar o checkpoint         | 200     | 400/403/422/500      |

@@ -6,7 +6,7 @@ Estas mudanças foram **sugeridas pelo ChatGPT após a reunião do dia 21/09/202
 
 Fontes: documento **ANÁLISE CHATGPT - advoxs.pdf** fornecido pelo usuário e esclarecimentos na conversa, especialmente a orientação de preservar a identidade visual existente. O PDF contém melhorias das funcionalidades atuais, sua ordem de prioridade, sugestões de frontend e novas funcionalidades.
 
-**Status: sugestões registradas, pendentes de avaliação e implementação.** Este documento não significa que as mudanças foram executadas, que todas foram aprovadas para desenvolvimento ou que seus resultados foram validados em produção. A análise original foi baseada no código do repositório; as sugestões de interface não resultaram de uma inspeção visual das telas no navegador.
+**Status: backlog em avaliação e implementação incremental.** Os itens 10, 20 (escopo parcial aprovado) e 24 já foram implementados e estão identificados na tabela. Os demais continuam como sugestões, sem indicar aprovação para desenvolvimento ou validação em produção. A análise original foi baseada no código do repositório; as sugestões de interface não resultaram de uma inspeção visual das telas no navegador.
 
 ## Diretriz obrigatória: preservar a identidade visual
 
@@ -43,9 +43,9 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 | 21 | Média | Atualização do painel | Sinalizar falhas de rede e dados desatualizados, evitando que erros apareçam como listas vazias. |
 | 22 | Média | Experiência em celular | Adaptar menu, lista de conversas e histórico a telas pequenas, evitando colunas fixas que comprimam o atendimento. |
 | 23 | Média | Onboarding | Fazer o tutorial refletir o estado real da configuração e indicar o que falta para o primeiro atendimento funcionar. |
-| 24 | Média | Documentação | Atualizar descrições antigas ou substituídas e distinguir comportamento atual de funcionalidades parcialmente implementadas. |
+| 24 | Média — **Implementada em 21/09/2026** | Documentação | A visão geral e os contratos técnicos foram atualizados conforme o código atual; funcionalidades implementadas, parciais e planejadas agora estão identificadas, e specs/planos antigos foram classificados como registros históricos. |
 
-**Testes e documentação específicos devem acompanhar cada mudança.** As posições 16 e 24 representam a ampliação geral dessas frentes, não uma orientação para adiar a validação ou a documentação das correções anteriores. O registro deste backlog não conclui o item 24.
+**Testes e documentação específicos devem acompanhar cada mudança.** A posição 16 representa a ampliação geral da cobertura, não uma orientação para adiar a validação das correções anteriores. O item 24 concluiu a revisão geral em 21/09/2026; a documentação deve continuar sendo atualizada a cada mudança futura.
 
 ## 2. Sugestões de frontend e usabilidade
 
