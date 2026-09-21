@@ -15,7 +15,15 @@ provedores externos e não confirma se uma credencial foi revogada.
 - Em produção, use explicitamente `docker compose -f docker-compose.yml`.
   O workflow de deploy já seleciona esse arquivo.
 
-## Segredos obrigatórios
+## Exigência de segredos
+
+A validação está temporariamente desligada por padrão para permitir a
+continuidade dos deploys enquanto o servidor não pode ter o `.env` atualizado.
+Quando os valores abaixo estiverem preenchidos, adicione
+`ENFORCE_PRODUCTION_CONFIG=true` ao `.env` para voltar a bloquear deploys com
+segredos ausentes ou inválidos.
+
+Com essa opção habilitada, as seguintes variáveis são exigidas em produção:
 
 | Serviço | Variáveis exigidas em produção |
 | --- | --- |
@@ -64,7 +72,8 @@ continuam verificando suas credenciais por escritório.
 ## Preparação e deploy
 
 1. Preencha os segredos no ambiente do servidor e configure explicitamente
-   quais integrações serão usadas.
+   quais integrações serão usadas. Depois, defina
+   `ENFORCE_PRODUCTION_CONFIG=true` para ativar a proteção no deploy.
 2. Preserve as chaves Fernet existentes. Trocar essas chaves sem migrar os
    dados cifrados impede a leitura das credenciais armazenadas.
 3. Com as novas imagens disponíveis, execute a validação:
@@ -76,9 +85,11 @@ continuam verificando suas credenciais por escritório.
    ```
 
 4. O workflow executa essa mesma verificação depois do pull das imagens e
-   antes de `docker compose down`. Uma configuração inválida interrompe o
-   deploy sem parar os containers atuais. As migrações e a subida seguem
-   somente após a aprovação da verificação.
+   antes de `docker compose down`. Enquanto
+   `ENFORCE_PRODUCTION_CONFIG` estiver desligada, a verificação não bloqueia o
+   deploy. Quando habilitada, uma configuração inválida interrompe o deploy sem
+   parar os containers atuais. As migrações e a subida seguem somente após a
+   aprovação da verificação.
 
 O comando acima valida a política de segurança. Disponibilidade de banco,
 Redis, Qdrant e credenciais externas continua sendo verificada durante a

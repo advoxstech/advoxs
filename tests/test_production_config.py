@@ -22,6 +22,7 @@ class ProductionConfigTests(unittest.TestCase):
     def setUp(self):
         self.values = {
             "APP_ENV": "production",
+            "ENFORCE_PRODUCTION_CONFIG": "true",
             "JWT_SECRET": "a" * 48,
             "PLATFORM_JWT_SECRET": "b" * 48,
             "AGENTS_API_KEY": "c" * 48,
@@ -106,6 +107,10 @@ class ProductionConfigTests(unittest.TestCase):
         for service in SERVICES:
             for environment in ("development", "test"):
                 load_policy(service).validate_config({"APP_ENV": environment}, service)
+
+    def test_producao_sem_enforcement_permite_segredos_ausentes_temporariamente(self):
+        for service in SERVICES:
+            load_policy(service).validate_config({"APP_ENV": "production"}, service)
 
     def test_failure_never_contains_values(self):
         values = {**self.values, "JWT_SECRET": "private-value"}

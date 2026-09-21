@@ -35,6 +35,21 @@ INTEGRATIONS = {
 }
 
 
+def production_enforcement_enabled(values: Mapping) -> bool:
+    """Retorna se a exigência de segredos em produção está ativa.
+
+    O bloqueio fica desligado temporariamente por padrão enquanto o servidor
+    ainda não tem os segredos configurados. Ao preenchê-los, habilite
+    ENFORCE_PRODUCTION_CONFIG=true para restaurar a política completa.
+    """
+    value = str(values.get("ENFORCE_PRODUCTION_CONFIG", "false")).strip().lower()
+    if value in {"true", "1"}:
+        return True
+    if value in {"false", "0"}:
+        return False
+    raise RuntimeError("Configuração inválida: ENFORCE_PRODUCTION_CONFIG (use true ou false)")
+
+
 def integration_enabled(values: Mapping, name: str) -> bool:
     value = str(values.get(name, "true")).strip().lower()
     if value in {"true", "1"}:
@@ -49,7 +64,7 @@ def validate_config(values: Mapping, service: str) -> None:
     if environment not in {"development", "test", "production"}:
         raise RuntimeError("Configuração inválida: APP_ENV")
     enabled = {name: integration_enabled(values, name) for name in INTEGRATIONS}
-    if environment != "production":
+    if environment != "production" or not production_enforcement_enabled(values):
         return
 
     required = list(REQUIRED[service])
