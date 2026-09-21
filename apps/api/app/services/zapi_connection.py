@@ -125,6 +125,8 @@ async def provision_zapi_connection(
     number.phone_number_id = None
     number.waba_id = None
     number.access_token_encrypted = None
+    number.meta_app_secret_encrypted = None
+    number.meta_webhook_secret = None
     number.display_phone_number = zapi_display_phone
     number.status = zapi_status
     number.connected_at = now

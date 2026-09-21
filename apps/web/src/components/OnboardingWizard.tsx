@@ -204,7 +204,8 @@ export function OnboardingWizard() {
                     </span>
                   </li>
                   <li>
-                    Por fim, cole os dois valores abaixo numa tela de configuração do
+                    Depois de conectar o número, cole os dois valores exibidos na configuração
+                    da Advoxs em uma tela de configuração do
                     WhatsApp (chamada &quot;Webhooks&quot;, dentro do mesmo app que você criou):
                     <span className="mt-0.5 block text-xs text-muted">
                       É isso que liga o número de vocês na nossa plataforma — depois disso,

@@ -18,6 +18,7 @@ CONNECT_BODY = {
     "phone_number_id": "PNID",
     "waba_id": "WABA",
     "access_token": "token-claro",
+    "app_secret": "segredo-do-app-meta",
     "pin": "123456",
 }
 
@@ -34,6 +35,8 @@ def _number(status: str = "connected", provider: str = "meta") -> SimpleNamespac
         zapi_managed_by_advoxs=False,
         display_phone_number="+5511987654321",
         access_token_encrypted="cifrado",
+        meta_app_secret_encrypted="cifrado-segredo",
+        meta_webhook_secret="webhook-segredo",
         status=status,
         connected_at=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
     )
@@ -73,11 +76,17 @@ def graph_mocks(monkeypatch):
         "register": AsyncMock(return_value=None),
         "subscribe": AsyncMock(return_value=None),
         "encrypt": MagicMock(return_value="token-cifrado"),
+        "encrypt_app_secret": MagicMock(return_value="segredo-app-cifrado"),
     }
     monkeypatch.setattr(whatsapp_module, "fetch_display_phone_number", mocks["fetch"])
     monkeypatch.setattr(whatsapp_module, "register_number", mocks["register"])
     monkeypatch.setattr(whatsapp_module, "subscribe_app_to_waba", mocks["subscribe"])
     monkeypatch.setattr(whatsapp_module, "encrypt_access_token", mocks["encrypt"])
+    monkeypatch.setattr(
+        whatsapp_module,
+        "encrypt_whatsapp_secret",
+        mocks["encrypt_app_secret"],
+    )
     return mocks
 
 
@@ -304,27 +313,29 @@ class TestWebhookConfig:
         response = TestClient(app).get("/api/v1/whatsapp/webhook-config")
         assert response.status_code == 401
 
-    def test_retorna_url_completa_e_verify_token(self, client, monkeypatch) -> None:
+    def test_retorna_url_completa_e_verify_token(self, client, session, monkeypatch) -> None:
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "api_public_url", "https://api.exemplo.com.br")
-        monkeypatch.setattr(settings, "meta_verify_token", "meu-verify-token")
+        session.scalar.return_value = _number()
 
         response = client.get("/api/v1/whatsapp/webhook-config")
 
         assert response.status_code == 200
         assert response.json() == {
-            "callback_url": "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
-            "verify_token": "meu-verify-token",
+            "callback_url": "https://api.exemplo.com.br/api/v1/webhooks/whatsapp/webhook-segredo",
+            "verify_token": "webhook-segredo",
         }
 
-    def test_sem_api_public_url_degrada_pra_path_relativo(self, client, monkeypatch) -> None:
+    def test_sem_api_public_url_degrada_pra_path_relativo(
+        self, client, session, monkeypatch
+    ) -> None:
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "api_public_url", "")
-        monkeypatch.setattr(settings, "meta_verify_token", "meu-verify-token")
+        session.scalar.return_value = _number()
 
         response = client.get("/api/v1/whatsapp/webhook-config")
 
         assert response.status_code == 200
-        assert response.json()["callback_url"] == "/api/v1/webhooks/whatsapp"
+        assert response.json()["callback_url"] == "/api/v1/webhooks/whatsapp/webhook-segredo"

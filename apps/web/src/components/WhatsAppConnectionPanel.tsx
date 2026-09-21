@@ -22,10 +22,17 @@ type FormState = {
   phone_number_id: string;
   waba_id: string;
   access_token: string;
+  app_secret: string;
   pin: string;
 };
 
-const EMPTY_FORM: FormState = { phone_number_id: "", waba_id: "", access_token: "", pin: "" };
+const EMPTY_FORM: FormState = {
+  phone_number_id: "",
+  waba_id: "",
+  access_token: "",
+  app_secret: "",
+  pin: "",
+};
 
 type ZApiFormState = { instance_id: string; instance_token: string; client_token: string };
 
@@ -224,6 +231,7 @@ export function WhatsAppConnectionPanel() {
         return;
       }
       setConnection(body);
+      await load();
       setShowForm(false);
       setProviderChoice(null);
       setForm(EMPTY_FORM);
@@ -479,6 +487,16 @@ export function WhatsAppConnectionPanel() {
                 type="password"
                 value={form.access_token}
                 onChange={(event) => setForm({ ...form, access_token: event.target.value })}
+                className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-ink">
+              App Secret
+              <input
+                required
+                type="password"
+                value={form.app_secret}
+                onChange={(event) => setForm({ ...form, app_secret: event.target.value })}
                 className="rounded border border-line bg-surface px-3 py-2 text-sm text-ink"
               />
             </label>

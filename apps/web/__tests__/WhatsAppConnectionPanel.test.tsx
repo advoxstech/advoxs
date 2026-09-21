@@ -357,6 +357,7 @@ describe("WhatsAppConnectionPanel", () => {
       target: { value: "456" },
     });
     fireEvent.change(screen.getByLabelText(/Access Token/i), { target: { value: "token" } });
+    fireEvent.change(screen.getByLabelText("App Secret"), { target: { value: "segredo" } });
     fireEvent.change(screen.getByLabelText(/PIN/i), { target: { value: "12a45" } });
 
     fireEvent.click(screen.getByRole("button", { name: /Conectar/i }));

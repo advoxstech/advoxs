@@ -13,6 +13,7 @@ escaneia um QR code — sem aprovação de negócio. Ver `connect_zapi`,
 """
 
 import logging
+import secrets
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -38,7 +39,7 @@ from app.clients.zapi import (
     fetch_zapi_qrcode,
 )
 from app.core.config import settings
-from app.core.crypto import decrypt_access_token, encrypt_access_token
+from app.core.crypto import decrypt_access_token, encrypt_access_token, encrypt_whatsapp_secret
 from app.models import Tenant, WhatsAppNumber
 from app.schemas.whatsapp_connection import (
     ConnectWhatsAppRequest,
@@ -103,6 +104,7 @@ async def connect(
         select(WhatsAppNumber).where(WhatsAppNumber.tenant_id == ctx.tenant_id)
     )
     encrypted = encrypt_access_token(body.access_token)
+    encrypted_app_secret = encrypt_whatsapp_secret(body.app_secret)
     now = datetime.now(UTC)
 
     if existing is not None:
@@ -111,6 +113,8 @@ async def connect(
         existing.waba_id = body.waba_id
         existing.display_phone_number = display_phone_number
         existing.access_token_encrypted = encrypted
+        existing.meta_app_secret_encrypted = encrypted_app_secret
+        existing.meta_webhook_secret = secrets.token_urlsafe(32)
         # Limpa credenciais Z-API remanescentes — evita uma linha inconsistente
         # que ainda carrega instância Z-API depois do tenant migrar pra Meta.
         existing.zapi_instance_id = None
@@ -129,6 +133,8 @@ async def connect(
             waba_id=body.waba_id,
             display_phone_number=display_phone_number,
             access_token_encrypted=encrypted,
+            meta_app_secret_encrypted=encrypted_app_secret,
+            meta_webhook_secret=secrets.token_urlsafe(32),
             status="connected",
             zapi_managed_by_advoxs=False,
         )
@@ -346,16 +352,28 @@ async def get_connection(
 @router.get("/webhook-config", dependencies=[Depends(require_meta)])
 async def get_webhook_config(
     ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
 ) -> WebhookConfigOut:
     """Valores que o escritório precisa colar no painel da Meta (passo manual do webhook).
 
-    Só leitura de config — não toca em tabela nenhuma, então não usa
-    get_tenant_session; a autenticação de tenant continua obrigatória.
+    A URL e o token pertencem à conexão Meta do tenant, sem depender de uma
+    credencial global da plataforma.
     """
+    number = await session.scalar(
+        select(WhatsAppNumber).where(
+            WhatsAppNumber.tenant_id == ctx.tenant_id,
+            WhatsAppNumber.provider == "meta",
+        )
+    )
+    if number is None or number.meta_webhook_secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conecte um número pela Meta antes de configurar o webhook",
+        )
     base = settings.api_public_url.rstrip("/")
     return WebhookConfigOut(
-        callback_url=f"{base}/api/v1/webhooks/whatsapp",
-        verify_token=settings.meta_verify_token,
+        callback_url=f"{base}/api/v1/webhooks/whatsapp/{number.meta_webhook_secret}",
+        verify_token=number.meta_webhook_secret,
     )
 
 
