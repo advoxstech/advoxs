@@ -111,7 +111,12 @@ class DocumentoService:
                     payload={**payload, "text": text},
                 )
             )
-        await self.qdrant.upsert_points(collection_name=QDRANT_COLLECTION, points=points)
+        result = await self.qdrant.upsert_points(
+            collection_name=QDRANT_COLLECTION, points=points
+        )
+        if not result.get("success"):
+            error = result.get("error") or "erro desconhecido"
+            raise RuntimeError(f"Falha ao indexar documento no Qdrant: {error}")
         logger.debug(f"Qdrant upsert | collection={QDRANT_COLLECTION} | pontos={len(points)}")
 
     # ──  Documentos do Usuário ──────────────────────────────────────────

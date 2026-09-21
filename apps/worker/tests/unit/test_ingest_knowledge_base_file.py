@@ -103,6 +103,33 @@ async def test_erro_transiente_na_ultima_tentativa_marca_error(patched, temp_fil
     assert temp_file.exists()  # temp fica para eventual retry manual
 
 
+async def test_erro_5xx_do_rag_reagenda(patched, temp_file) -> None:
+    response = httpx.Response(500, request=httpx.Request("POST", "http://rag"))
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "500", request=response.request, response=response
+    )
+
+    with pytest.raises(Retry):
+        await ingest_knowledge_base_file(_ctx(job_try=1), TENANT_ID, FILE_ID)
+
+    patched["set_status"].assert_not_awaited()
+    assert temp_file.exists()
+
+
+async def test_erro_5xx_na_ultima_tentativa_preserva_arquivo(patched, temp_file) -> None:
+    response = httpx.Response(500, request=httpx.Request("POST", "http://rag"))
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "500", request=response.request, response=response
+    )
+
+    await ingest_knowledge_base_file(_ctx(job_try=5), TENANT_ID, FILE_ID)
+
+    args = patched["set_status"].await_args.args
+    assert args[2] == "error"
+    assert "500" in args[3]
+    assert temp_file.exists()
+
+
 async def test_erro_definitivo_4xx_marca_error(patched, temp_file) -> None:
     response = httpx.Response(400, request=httpx.Request("POST", "http://rag"), text="formato")
     patched["ingest"].side_effect = httpx.HTTPStatusError(
