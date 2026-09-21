@@ -1,4 +1,4 @@
-export type ConversationState = "agent" | "human";
+export type ConversationState = "agent" | "human" | "billing_gate";
 
 export interface Conversation {
   id: string;

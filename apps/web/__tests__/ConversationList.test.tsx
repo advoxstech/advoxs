@@ -62,6 +62,27 @@ describe("ConversationList", () => {
     expect(screen.getByText("Condominial respondendo")).toBeInTheDocument();
   });
 
+  it("mostra aguardando pagamento quando a conversa está no billing gate", () => {
+    render(
+      <ConversationList
+        conversations={[
+          {
+            ...conversations[0],
+            state: "billing_gate",
+            current_agent_name: "Condominial",
+          },
+        ]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Aguardando pagamento")).toBeInTheDocument();
+    expect(screen.queryByText("Condominial respondendo")).not.toBeInTheDocument();
+    expect(screen.queryByText("agente respondendo")).not.toBeInTheDocument();
+  });
+
   it("chama onSelect com o id da conversa clicada", () => {
     const onSelect = vi.fn();
     render(

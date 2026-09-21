@@ -30,6 +30,16 @@ export function ConversationList({
       {conversations.map((conversation) => {
         const isSelected = conversation.id === selectedId;
         const isManual = conversation.state === "human";
+        const isBillingGate = conversation.state === "billing_gate";
+        const needsAttention = isManual || isBillingGate;
+        let statusLabel = conversation.current_agent_name
+          ? `${conversation.current_agent_name} respondendo`
+          : "agente respondendo";
+        if (isManual) {
+          statusLabel = "atendimento manual";
+        } else if (isBillingGate) {
+          statusLabel = "Aguardando pagamento";
+        }
         return (
           <li key={conversation.id} className="border-b border-line">
             <button
@@ -57,20 +67,16 @@ export function ConversationList({
               <span className="flex items-center justify-between gap-2">
                 <span
                   className={`flex items-center gap-1.5 text-xs ${
-                    isManual ? "text-brass" : "text-muted"
+                    needsAttention ? "text-brass" : "text-muted"
                   }`}
                 >
                   <span
                     aria-hidden
                     className={`h-1.5 w-1.5 rounded-full ${
-                      isManual ? "bg-brass" : "bg-accent"
+                      needsAttention ? "bg-brass" : "bg-accent"
                     }`}
                   />
-                  {isManual
-                    ? "atendimento manual"
-                    : conversation.current_agent_name
-                      ? `${conversation.current_agent_name} respondendo`
-                      : "agente respondendo"}
+                  {statusLabel}
                 </span>
                 {conversation.end_customer_balance != null ? (
                   <span className="font-mono text-[11px] text-muted">
