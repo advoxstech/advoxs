@@ -55,6 +55,8 @@ def _verify_signature(raw_body: bytes, signature_header: str | None) -> None:
     Se META_APP_SECRET não estiver setado (dev local), a validação é ignorada.
     """
     if not settings.meta_app_secret:
+        if settings.app_env == "production":
+            raise HTTPException(status_code=503, detail="Validação de assinatura indisponível")
         return
     if not signature_header or not signature_header.startswith("sha256="):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Assinatura ausente")

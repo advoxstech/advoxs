@@ -13,12 +13,14 @@ from pydantic import BaseModel, Field
 from agents.registry import AGENTS_REGISTRY
 from clients.whatsapp import WhatsAppClient
 from clients.zapi import ZApiClient
+from config_validation import validate_environment
 from services.call_agent import DB_URI, run_agent
 from services.concat_messages import debounce_messages
 from services.document_storage import resolve_path, start_cleanup_loop
 from services.summarize import summarize_conversation
 from services.update_context import add_context_messages
 
+validate_environment("agents")
 AGENTS_API_KEY = os.getenv("AGENTS_API_KEY")
 
 
@@ -27,6 +29,8 @@ async def verify_api_key(authorization: str | None = Header(default=None)):
     `Authorization: <AGENTS_API_KEY>`. Se a env não estiver setada (dev local),
     a verificação é ignorada."""
     if not AGENTS_API_KEY:
+        if os.getenv("APP_ENV") == "production":
+            raise HTTPException(status_code=503, detail="Autenticação interna indisponível")
         return
     if not authorization or not secrets.compare_digest(authorization, AGENTS_API_KEY):
         raise HTTPException(

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.api.integration_deps import require_stripe
 from app.core.db import get_system_session
 from app.models import CreditTransaction, Tenant
 from app.schemas.billing import (
@@ -53,7 +54,7 @@ async def list_transactions(
     return [BillingTransactionOut.model_validate(t) for t in result.scalars().all()]
 
 
-@router.post("/checkout")
+@router.post("/checkout", dependencies=[Depends(require_stripe)])
 async def checkout(
     body: BillingCheckoutRequest,
     ctx: TenantContext = Depends(get_current_tenant),

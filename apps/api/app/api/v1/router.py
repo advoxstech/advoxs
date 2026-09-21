@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.integration_deps import require_meta, require_stripe, require_stripe_connect
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.billing import router as billing_router
@@ -43,12 +44,14 @@ api_router.include_router(platform_admin_playground_router)
 api_router.include_router(platform_admin_tenants_router)
 api_router.include_router(platform_admin_whatsapp_router)
 api_router.include_router(profile_router)
-api_router.include_router(signup_router)
+api_router.include_router(signup_router, dependencies=[Depends(require_stripe)])
 api_router.include_router(test_conversations_router)
-api_router.include_router(stripe_webhook_router)
-api_router.include_router(stripe_connect_webhook_router)
+api_router.include_router(stripe_webhook_router, dependencies=[Depends(require_stripe)])
+api_router.include_router(
+    stripe_connect_webhook_router, dependencies=[Depends(require_stripe_connect)]
+)
 api_router.include_router(stripe_tenant_webhook_router)
-api_router.include_router(whatsapp_webhook_router)
+api_router.include_router(whatsapp_webhook_router, dependencies=[Depends(require_meta)])
 api_router.include_router(zapi_webhook_router)
 api_router.include_router(whatsapp_router)
 

@@ -67,6 +67,8 @@ de serviços e modelo externo ficam fora da execução padrão.
 
 ## Documentação
 
+- [Configuração de produção e segredos obrigatórios](docs/configuracao-producao.md)
+
 - [Contexto técnico e convenções](CLAUDE.md)
 - [Índice e política da documentação](docs/README.md)
 - [API do serviço de agentes](apps/agents/API_AGENTS.md)

@@ -6,7 +6,7 @@ Estas mudanças foram **sugeridas pelo ChatGPT após a reunião do dia 21/09/202
 
 Fontes: documento **ANÁLISE CHATGPT - advoxs.pdf** fornecido pelo usuário e esclarecimentos na conversa, especialmente a orientação de preservar a identidade visual existente. O PDF contém melhorias das funcionalidades atuais, sua ordem de prioridade, sugestões de frontend e novas funcionalidades.
 
-**Status: backlog em avaliação e implementação incremental.** Os itens 10, 20 (escopo parcial aprovado) e 24 já foram implementados e estão identificados na tabela. Os demais continuam como sugestões, sem indicar aprovação para desenvolvimento ou validação em produção. A análise original foi baseada no código do repositório; as sugestões de interface não resultaram de uma inspeção visual das telas no navegador.
+**Status: backlog em avaliação e implementação incremental.** Os itens 2, 10, 20 (escopo parcial aprovado) e 24 já foram implementados e estão identificados na tabela. Os demais continuam como sugestões, sem indicar aprovação para desenvolvimento ou validação em produção. A análise original foi baseada no código do repositório; as sugestões de interface não resultaram de uma inspeção visual das telas no navegador.
 
 ## Diretriz obrigatória: preservar a identidade visual
 
@@ -21,7 +21,7 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 | Ordem | Prioridade | Área | Mudança sugerida |
 | --- | --- | --- | --- |
 | 1 | Crítica | Segurança dos uploads | Substituir o nome físico recebido por um identificador seguro; validar o conteúdo e o caminho final de gravação, impedindo escrita fora do diretório permitido. |
-| 2 | Crítica | Configuração de produção | Impedir a inicialização sem os segredos obrigatórios de autenticação interna e validação de webhooks, evitando funcionamento permissivo por configuração incompleta. |
+| 2 | Crítica — **Implementada em 21/09/2026** | Configuração de produção | Os quatro serviços Python validam os segredos por ambiente antes de atender. Integrações habilitadas exigem suas chaves; rotas de integrações desabilitadas recusam chamadas. O deploy valida as novas imagens antes de parar os serviços existentes. Testes locais aprovados; execução em containers e implantação no servidor ainda não realizadas. Veja [configuração de produção](configuracao-producao.md). |
 | 3 | Crítica | Recebimento de mensagens | Garantir que mensagens salvas sejam processadas mesmo quando o enfileiramento falhar, com registro durável de pendências e recuperação automática. |
 | 4 | Crítica | Processamento e envio | Impedir respostas e cobranças duplicadas nas novas tentativas. Quando somente a entrega falhar, reenviar a resposta pronta sem executar a IA novamente; recuperar separadamente geração, persistência, envio e cobrança. |
 | 5 | Crítica | Ordem das conversas | Evitar execuções simultâneas da IA para o mesmo contato, preservando a sequência das mensagens e a consistência do contexto. |

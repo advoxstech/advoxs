@@ -1,8 +1,14 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from config_validation import validate_environment
+
+validate_environment("worker")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
+
+    app_env: str = "development"
 
     # advoxs_app (RLS ativo) — mesmo valor de APP_DATABASE_URL usado pelo
     # api, ver migration 0008 no apps/api.
