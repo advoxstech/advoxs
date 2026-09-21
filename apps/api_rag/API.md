@@ -15,6 +15,10 @@ decisão do chamador de alto nível. A base de conhecimento da plataforma
 
 Este documento serve como referência para integrar esta API a outro projeto.
 
+**Estado:** implementado e integrado ao fluxo multi-tenant da plataforma. As
+ressalvas da seção 9 descrevem limitações atuais, não etapas obrigatórias do
+retrofit já concluído.
+
 ---
 
 ## 1. Visão geral da arquitetura
@@ -49,6 +53,10 @@ Qdrant (`qdrant-client` async) · LangChain + `langchain-openai` · `chonkie`
 4. Salva o arquivo cru no disco (`UPLOAD_DIR_*`).
 5. Grava metadados no Postgres.
 6. Faz *upsert* dos pontos no Qdrant com payload de filtro.
+7. Só confirma a ingestão quando o cliente Qdrant devolve `success=true`.
+   Exceções ou uma resposta sem sucesso geram erro `500`, permitindo que o
+   `worker` repita a ingestão sem marcar o arquivo como pronto antes da
+   confirmação.
 
 ### Fluxo de retrieval
 1. Recebe a query.
