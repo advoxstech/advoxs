@@ -39,7 +39,7 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 | 17 | Alta | Implantação | Reduzir a indisponibilidade causada pela parada de todos os serviços, fixar versões das imagens e verificar a saúde da aplicação após cada deploy. |
 | 18 | Alta | Relatórios financeiros | Consolidar os diferentes caminhos de consumo e custos de busca, embeddings e geração de documentos; registrar o preço efetivo de cada compra sem recalcular o passado pelo preço atual do pacote. |
 | 19 | Média | Histórico de conversas | Usar a paginação existente na API para acessar conversas e mensagens anteriores às 50 mais recentes. |
-| 20 | Média | Estados do atendimento | Representar corretamente IA, atendimento humano, espera por pagamento e falhas; evitar mostrar agente respondendo quando a conversa aguarda pagamento. |
+| 20 | Média — **Implementada parcialmente em 21/09/2026** | Estados do atendimento | A lista agora mostra “Aguardando pagamento” no estado `billing_gate`, sem indicar que o agente está respondendo. A criação de novos estados de processamento e entrega ficou fora do escopo aprovado. |
 | 21 | Média | Atualização do painel | Sinalizar falhas de rede e dados desatualizados, evitando que erros apareçam como listas vazias. |
 | 22 | Média | Experiência em celular | Adaptar menu, lista de conversas e histórico a telas pequenas, evitando colunas fixas que comprimam o atendimento. |
 | 23 | Média | Onboarding | Fazer o tutorial refletir o estado real da configuração e indicar o que falta para o primeiro atendimento funcionar. |
