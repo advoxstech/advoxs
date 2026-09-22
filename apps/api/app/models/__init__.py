@@ -11,6 +11,7 @@ from app.models.end_customer_billing import (
     EndCustomerSubscriptionPayment,
     TenantBillingSettings,
 )
+from app.models.inbound_message_job import InboundMessageJob
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
 from app.models.platform_admin import PlatformAdmin
@@ -34,6 +35,7 @@ __all__ = [
     "EndCustomerSubscription",
     "EndCustomerSubscriptionPayment",
     "KnowledgeBaseFile",
+    "InboundMessageJob",
     "Message",
     "PlatformAdmin",
     "PricingConfig",

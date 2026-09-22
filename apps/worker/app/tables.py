@@ -45,6 +45,7 @@ conversations = Table(
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
     Column("state", String),
+    Column("automation_status", String),
     Column("is_test", Boolean, nullable=False),
     Column("last_message_at", DateTime(timezone=True)),
     Column("human_last_seen_at", DateTime(timezone=True)),
@@ -69,6 +70,23 @@ messages = Table(
     Column("tokens_used", Integer),
     Column("credits_consumed", Numeric(12, 4)),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
+inbound_message_jobs = Table(
+    "inbound_message_jobs",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("conversation_id", Uuid),
+    Column("message_id", Uuid),
+    Column("status", String),
+    Column("attempts", Integer),
+    Column("available_at", DateTime(timezone=True)),
+    Column("last_enqueued_at", DateTime(timezone=True)),
+    Column("locked_at", DateTime(timezone=True)),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("created_at", DateTime(timezone=True)),
 )
 
 credit_transactions = Table(

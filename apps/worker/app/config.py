@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # advoxs_app (RLS ativo) — mesmo valor de APP_DATABASE_URL usado pelo
     # api, ver migration 0008 no apps/api.
     app_database_url: str
+    # Papel interno, usado somente para recuperar a caixa de saída pendente
+    # entre todos os tenants. A variável já é compartilhada pelo Compose.
+    system_database_url: str
     redis_url: str
 
     # Agents service (chamada interna com credenciais do tenant)

@@ -17,6 +17,11 @@ def create_engine_and_factory() -> tuple[AsyncEngine, async_sessionmaker]:
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 
+def create_system_engine_and_factory() -> tuple[AsyncEngine, async_sessionmaker]:
+    engine = create_async_engine(settings.system_database_url, pool_pre_ping=True)
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
 @asynccontextmanager
 async def open_tenant_session(session_factory, tenant_id: str) -> AsyncIterator[AsyncSession]:
     """Abre uma sessão e seta app.tenant_id — ativa a RLS pro papel advoxs_app.
@@ -32,4 +37,11 @@ async def open_tenant_session(session_factory, tenant_id: str) -> AsyncIterator[
             text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
             {"tenant_id": str(tenant_id)},
         )
+        yield session
+
+
+@asynccontextmanager
+async def open_system_session(session_factory) -> AsyncIterator[AsyncSession]:
+    """Sessão cross-tenant exclusiva para a recuperação da caixa de saída."""
+    async with session_factory() as session:
         yield session

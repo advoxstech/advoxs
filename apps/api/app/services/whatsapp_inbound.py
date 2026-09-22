@@ -7,13 +7,14 @@ e humano (estado da conversa) e chama o agents service.
 
 import hmac
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from arq.connections import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversation, Message, WhatsAppNumber
+from app.models import Conversation, InboundMessageJob, Message, WhatsAppNumber
 from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
     Retorna um resumo ({"received": N}) — o corpo da resposta não importa
     para a Meta, só o status 200 rápido.
     """
-    persisted: list[tuple[str, str, str]] = []  # (tenant_id, conversation_id, message_id)
+    persisted: list[tuple[str, str, str, str]] = []
 
     for inbound in extract_inbound_messages(payload):
         number = await session.scalar(
@@ -52,13 +53,19 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
 
     # Enfileira só depois do commit — o worker não pode correr atrás de linha
     # ainda não visível.
-    for tenant_id, conversation_id, message_id in persisted:
-        await arq.enqueue_job(
-            "process_inbound_message",
-            tenant_id=tenant_id,
-            conversation_id=conversation_id,
-            message_id=message_id,
-        )
+    for tenant_id, conversation_id, message_id, job_id in persisted:
+        try:
+            await arq.enqueue_job(
+                "process_inbound_message",
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                job_id=job_id,
+            )
+        except Exception as exc:
+            # A mensagem e a pendência já foram gravadas. Responder 200 evita
+            # depender de uma nova entrega do provedor; o worker reenfileira.
+            logger.exception("Fila indisponível; pendência será recuperada | erro=%s", exc)
 
     return {"received": len(persisted)}
 
@@ -102,13 +109,17 @@ async def handle_zapi_webhook(
         return {"received": 0}
 
     await session.commit()
-    tenant_id, conversation_id, message_id = result
-    await arq.enqueue_job(
-        "process_inbound_message",
-        tenant_id=tenant_id,
-        conversation_id=conversation_id,
-        message_id=message_id,
-    )
+    tenant_id, conversation_id, message_id, job_id = result
+    try:
+        await arq.enqueue_job(
+            "process_inbound_message",
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            job_id=job_id,
+        )
+    except Exception as exc:
+        logger.exception("Fila indisponível; pendência será recuperada | erro=%s", exc)
     return {"received": 1}
 
 
@@ -121,13 +132,26 @@ async def _persist_inbound_message(
     media_id: str | None,
     media_type: str | None,
     session: AsyncSession,
-) -> tuple[str, str, str] | None:
+) -> tuple[str, str, str, str] | None:
     # Dedup: ambos os provedores podem reentregar webhook não confirmado.
-    duplicate = await session.scalar(
+    duplicate_message_id = await session.scalar(
         select(Message.id).where(Message.wa_message_id == wa_message_id)
     )
-    if duplicate is not None:
+    if duplicate_message_id is not None:
         logger.info("Webhook duplicado ignorado (wamid=%s)", wa_message_id)
+        pending_job = await session.scalar(
+            select(InboundMessageJob).where(
+                InboundMessageJob.message_id == duplicate_message_id,
+                InboundMessageJob.status == "pending",
+            )
+        )
+        if pending_job is not None:
+            return (
+                str(pending_job.tenant_id),
+                str(pending_job.conversation_id),
+                str(pending_job.message_id),
+                str(pending_job.id),
+            )
         return None
 
     conversation = await session.scalar(
@@ -145,6 +169,8 @@ async def _persist_inbound_message(
         await session.flush()
 
     conversation.last_message_at = datetime.now(UTC)
+    if conversation.state == "agent":
+        conversation.automation_status = "processing"
 
     message = Message(
         conversation_id=conversation.id,
@@ -158,4 +184,13 @@ async def _persist_inbound_message(
     session.add(message)
     await session.flush()
 
-    return (str(number.tenant_id), str(conversation.id), str(message.id))
+    job = InboundMessageJob(
+        id=uuid.uuid4(),
+        tenant_id=number.tenant_id,
+        conversation_id=conversation.id,
+        message_id=message.id,
+    )
+    session.add(job)
+    await session.flush()
+
+    return (str(number.tenant_id), str(conversation.id), str(message.id), str(job.id))

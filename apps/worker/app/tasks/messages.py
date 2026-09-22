@@ -9,11 +9,11 @@ from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
-from app.billing_gate import _escalate_to_human, handle_billing_gate, maybe_enter_gate
+from app.billing_gate import handle_billing_gate, maybe_enter_gate
 from app.clients.agents import send_message_to_agents, sync_context_to_agents
 from app.config import settings
 from app.crypto import decrypt_access_token
-from app.db import open_tenant_session
+from app.db import open_system_session, open_tenant_session
 from app.email_notifications import send_tenant_out_of_credits_notification
 from app.pricing import (
     DOCUMENT_GENERATION_CREDIT_COST,
@@ -95,7 +95,105 @@ async def _sync_context(
         )
 
 
+async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
+    """Reserva uma pendência uma única vez, mesmo se Redis a entregar duas vezes."""
+    async with open_system_session(ctx["system_session_factory"]) as session:
+        claimed = await session.execute(
+            update(tables.inbound_message_jobs)
+            .where(
+                tables.inbound_message_jobs.c.id == uuid.UUID(job_id),
+                tables.inbound_message_jobs.c.tenant_id == uuid.UUID(tenant_id),
+                tables.inbound_message_jobs.c.status == "pending",
+                tables.inbound_message_jobs.c.available_at <= datetime.now(UTC),
+            )
+            .values(
+                status="processing",
+                attempts=tables.inbound_message_jobs.c.attempts + 1,
+                locked_at=datetime.now(UTC),
+                last_error=None,
+            )
+            .returning(tables.inbound_message_jobs.c.id)
+        )
+        await session.commit()
+    return claimed.scalar_one_or_none() is not None
+
+
+async def _finish_inbound_job(
+    ctx: dict, job_id: str, *, failed: bool = False, error: str | None = None
+) -> None:
+    async with open_system_session(ctx["system_session_factory"]) as session:
+        await session.execute(
+            update(tables.inbound_message_jobs)
+            .where(tables.inbound_message_jobs.c.id == uuid.UUID(job_id))
+            .values(
+                status="failed" if failed else "completed",
+                completed_at=datetime.now(UTC),
+                locked_at=None,
+                last_error=(error or "")[:1000] if failed else None,
+            )
+        )
+        await session.commit()
+
+
+async def _release_inbound_job(ctx: dict, job_id: str, error: Exception) -> None:
+    async with open_system_session(ctx["system_session_factory"]) as session:
+        await session.execute(
+            update(tables.inbound_message_jobs)
+            .where(tables.inbound_message_jobs.c.id == uuid.UUID(job_id))
+            .values(
+                status="pending",
+                locked_at=None,
+                available_at=datetime.now(UTC),
+                last_error=str(error)[:1000],
+            )
+        )
+        await session.commit()
+
+
 async def process_inbound_message(
+    ctx: dict, tenant_id: str, conversation_id: str, message_id: str, job_id: str | None = None
+) -> None:
+    """Processa o turno e mantém o estado operacional consistente em falhas."""
+    if job_id is not None and not await _claim_inbound_job(ctx, tenant_id, job_id):
+        return
+    try:
+        await _process_inbound_message(ctx, tenant_id, conversation_id, message_id)
+    except Retry:
+        if job_id is not None:
+            await _release_inbound_job(ctx, job_id, RuntimeError("tentativa reagendada"))
+        raise
+    except Exception as exc:
+        if ctx.get("job_try", 1) < MAX_TRIES:
+            logger.exception(
+                "Falha inesperada no turno, reagendando | tenant=%s conversation=%s",
+                tenant_id,
+                conversation_id,
+            )
+            if job_id is not None:
+                await _release_inbound_job(ctx, job_id, exc)
+            raise Retry(defer=ctx.get("job_try", 1) * 10) from exc
+
+        logger.exception(
+            "Falha inesperada definitiva no turno | tenant=%s conversation=%s",
+            tenant_id,
+            conversation_id,
+        )
+        session_factory = ctx["session_factory"]
+        async with open_tenant_session(session_factory, tenant_id) as session:
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(state="human", automation_status="failed")
+            )
+            await session.commit()
+        if job_id is not None:
+            await _finish_inbound_job(ctx, job_id, failed=True, error=str(exc))
+    else:
+        if job_id is not None:
+            await _finish_inbound_job(ctx, job_id)
+
+
+async def _process_inbound_message(
     ctx: dict, tenant_id: str, conversation_id: str, message_id: str
 ) -> None:
     """Verifica o estado da conversa (agent|human) e repassa para o agents service.
@@ -138,7 +236,18 @@ async def process_inbound_message(
                 exc,
             )
             async with open_tenant_session(session_factory, tenant_id) as session:
-                await _escalate_to_human(session, conversation_id)
+                await session.execute(
+                    update(tables.conversations)
+                    .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                    .values(
+                        state="human",
+                        automation_status="failed",
+                        billing_gate_step=None,
+                        billing_gate_retries=0,
+                        billing_gate_checkout_url=None,
+                    )
+                )
+                await session.commit()
         return
 
     if inbound.conversation_state != "agent":
@@ -164,7 +273,11 @@ async def process_inbound_message(
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-                .values(state="agent", human_last_seen_at=None)
+                .values(
+                    state="agent",
+                    automation_status="processing",
+                    human_last_seen_at=None,
+                )
             )
             await session.commit()
 
@@ -189,6 +302,13 @@ async def process_inbound_message(
             inbound.credit_balance,
         )
         await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        async with open_tenant_session(session_factory, tenant_id) as session:
+            await session.execute(
+                update(tables.conversations)
+                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+                .values(automation_status="idle")
+            )
+            await session.commit()
         return
 
     meta_access_token: str | None = None
@@ -283,7 +403,7 @@ async def process_inbound_message(
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-                .values(state="human")
+                .values(state="human", automation_status="failed")
             )
             await session.commit()
         return
@@ -340,9 +460,18 @@ async def process_inbound_message(
             delivery_failures,
         )
 
+        delivery_failed = bool(delivery_failures) or any(
+            not document.get("delivered") for document in documents
+        )
+        await session.execute(
+            update(tables.conversations)
+            .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+            .values(automation_status="failed" if delivery_failed else "idle")
+        )
+
         if current_agent_id:
-            # Pra exibir "{nome do agente} respondendo" no painel em vez do
-            # texto genérico — atualiza mesmo se `responses` veio vazio.
+            # Permite identificar o agente atual no status do painel; atualiza
+            # mesmo se `responses` veio vazio.
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
