@@ -9,8 +9,6 @@ KWARGS = {
     "tenant_id": "t-1",
     "contact_phone_number": "5511888888888",
     "message": "Olá",
-    "phone_number_id": "PNID",
-    "access_token": "token",
 }
 
 
@@ -44,7 +42,9 @@ async def test_returns_responses_and_tokens_on_200() -> None:
     }
     body = http.post.await_args.kwargs["json"]
     assert body["tenant_id"] == "t-1"
-    assert body["access_token"] == "token"
+    assert body["send_to_whatsapp"] is False
+    assert "access_token" not in body
+    assert "zapi_token" not in body
 
 
 async def test_resposta_sem_tokens_usa_zero() -> None:
@@ -159,7 +159,7 @@ async def test_sem_agents_manda_lista_vazia() -> None:
     assert body["agents"] == []
 
 
-async def test_default_whatsapp_provider_e_meta() -> None:
+async def test_geracao_nao_envia_credenciais_do_provedor() -> None:
     response = MagicMock(spec=Response, status_code=200)
     response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
     http = _http_returning(response)
@@ -167,33 +167,6 @@ async def test_default_whatsapp_provider_e_meta() -> None:
     await send_message_to_agents(http, **KWARGS)
 
     body = http.post.await_args.kwargs["json"]
-    assert body["whatsapp_provider"] == "meta"
-    assert body["zapi_instance_id"] == ""
-    assert body["zapi_token"] == ""
-    assert body["zapi_client_token"] == ""
-
-
-async def test_inclui_credenciais_zapi_quando_informado() -> None:
-    response = MagicMock(spec=Response, status_code=200)
-    response.json.return_value = {"responses": ["oi"], "tokens_used": 100}
-    http = _http_returning(response)
-    kwargs = {
-        "tenant_id": "t-1",
-        "contact_phone_number": "5511888888888",
-        "message": "Olá",
-        "whatsapp_provider": "zapi",
-        "zapi_instance_id": "inst-123",
-        "zapi_token": "token-claro",
-        "zapi_client_token": "client-token-claro",
-    }
-
-    await send_message_to_agents(http, **kwargs)
-
-    body = http.post.await_args.kwargs["json"]
-    assert body["whatsapp_provider"] == "zapi"
-    assert body["zapi_instance_id"] == "inst-123"
-    assert body["zapi_token"] == "token-claro"
-    assert body["zapi_client_token"] == "client-token-claro"
-    # Sem credenciais Meta nesta chamada — ficam vazias, nunca None.
-    assert body["phone_number_id"] == ""
-    assert body["access_token"] == ""
+    assert body["send_to_whatsapp"] is False
+    assert "whatsapp_provider" not in body
+    assert "phone_number_id" not in body

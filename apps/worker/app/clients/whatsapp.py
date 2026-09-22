@@ -55,6 +55,29 @@ async def send_text_message(phone_number_id: str, access_token: str, to: str, te
     )
 
 
+async def send_document_message(
+    phone_number_id: str,
+    access_token: str,
+    to: str,
+    link: str,
+    filename: str | None = None,
+) -> None:
+    document: dict[str, str] = {"link": link}
+    if filename:
+        document["filename"] = filename
+    await _post(
+        phone_number_id,
+        access_token,
+        {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "document",
+            "document": document,
+        },
+    )
+
+
 async def send_interactive_list_message(
     phone_number_id: str,
     access_token: str,

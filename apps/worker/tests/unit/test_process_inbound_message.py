@@ -65,6 +65,7 @@ def _inbound(
 
 
 FIRST_MESSAGE_ID = uuid.uuid4()
+OUTBOUND_JOB_IDS = [uuid.uuid4()]
 
 
 @pytest.fixture
@@ -80,7 +81,8 @@ def patched(monkeypatch):
                 "tokens_output": 1000,
             }
         ),
-        "persist": AsyncMock(return_value=FIRST_MESSAGE_ID),
+        "persist": AsyncMock(return_value=(FIRST_MESSAGE_ID, OUTBOUND_JOB_IDS)),
+        "enqueue_outbound": AsyncMock(),
         # False por padrão: nenhum teste existente representa um débito que
         # zera o saldo — sem isso, o valor default de um AsyncMock (um
         # MagicMock truthy) faria toda mensagem parecer ter zerado o saldo.
@@ -107,18 +109,28 @@ def patched(monkeypatch):
         messages_task, "send_tenant_out_of_credits_notification", mocks["notify_sem_creditos"]
     )
     monkeypatch.setattr(messages_task, "process_inbound_attachment", mocks["attachment"])
+    monkeypatch.setattr(messages_task, "enqueue_outbound_message_jobs", mocks["enqueue_outbound"])
     return mocks
 
 
 async def test_agent_flow_persists_responses(patched) -> None:
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+    ctx = _ctx()
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     patched["decrypt"].assert_called_once_with("token-cifrado")
     patched["send"].assert_awaited_once()
-    assert patched["send"].await_args.kwargs["access_token"] == "token-claro"
     assert patched["send"].await_args.kwargs["message"] == "Olá"
     patched["persist"].assert_awaited_once()
+    patched["enqueue_outbound"].assert_awaited_once_with(ctx, OUTBOUND_JOB_IDS)
     assert patched["persist"].await_args.args[3] == ["resposta 1", "resposta 2"]
+    statements = [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in ctx[
+            "session_factory"
+        ].return_value.__aenter__.return_value.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+    ]
+    assert any("automation_status='processing'" in statement for statement in statements)
 
 
 async def test_sem_anexo_nao_altera_a_mensagem(patched) -> None:
@@ -399,17 +411,27 @@ async def test_http_error_raises_retry(patched) -> None:
     patched["persist"].assert_not_awaited()
 
 
-async def test_delivery_failures_repassado_ao_persistir(patched) -> None:
+async def test_agents_nao_entrega_e_respostas_sempre_entram_na_caixa_de_saida(patched) -> None:
     patched["send"].return_value = {
         "responses": ["resposta 1", "resposta 2"],
         "tokens_used": 100,
         "delivery_failures": [1],
     }
 
-    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+    ctx = _ctx()
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[7] == {1}
+    assert len(persist_args) == 7
+    patched["enqueue_outbound"].assert_awaited_once_with(ctx, OUTBOUND_JOB_IDS)
+    statements = [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in ctx[
+            "session_factory"
+        ].return_value.__aenter__.return_value.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+    ]
+    assert any("automation_status='processing'" in statement for statement in statements)
 
 
 def test_decrypt_access_token_roundtrip(monkeypatch) -> None:
@@ -437,6 +459,10 @@ async def test_esgotadas_tentativas_vira_conversa_pra_human(patched) -> None:
     session = ctx["session_factory"].return_value.__aenter__.return_value
     session.execute.assert_awaited()
     session.commit.assert_awaited()
+    statement = session.execute.await_args.args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "state='human'" in compiled
+    assert "automation_status='failed'" in compiled
     patched["persist"].assert_not_awaited()
 
 

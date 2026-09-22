@@ -9,12 +9,6 @@ async def send_message_to_agents(
     tenant_id: str,
     contact_phone_number: str,
     message: str,
-    whatsapp_provider: str = "meta",
-    phone_number_id: str = "",
-    access_token: str = "",
-    zapi_instance_id: str = "",
-    zapi_token: str = "",
-    zapi_client_token: str = "",
     agents: list[dict] | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
@@ -30,20 +24,17 @@ async def send_message_to_agents(
     breakdown (versão antiga durante o deploy).
 
     `documents`: documentos gerados nesta execução (fazer_contrato/fazer_multa/
-    etc, ver apps/agents/agents/tools.py) — cada item tem {"link", "filename",
-    "credit_cost", "delivered"}. `credit_cost` é somado ao custo normal de
-    tokens do turno (ver app/pricing.py); `delivered` reflete se o envio pelo
-    WhatsApp/Z-API funcionou, mas a cobrança independe disso (o custo da
-    geração já ocorreu).
+    etc, ver apps/agents/agents/tools.py) — cada item tem {"link", "filename"
+    e "credit_cost"}. O custo da geração é registrado antes da entrega.
 
     `agents`: a lista de agentes do tenant (id, name, instructions,
     is_entry_point, knowledge_base_file_ids) — resolvida aqui a partir do
     Postgres do monorepo antes da chamada; o agents service nunca acessa
     esse banco diretamente.
 
-    `whatsapp_provider`: "meta" (default, usa phone_number_id/access_token)
-    ou "zapi" (usa zapi_instance_id/zapi_token/zapi_client_token) — o agents
-    service decide qual client de envio usar a partir deste campo.
+    A geração não envia ao WhatsApp. O worker grava a resposta e uma entrega
+    pendente antes de chamar o provedor, para que uma nova tentativa de envio
+    não execute a IA novamente.
     """
     headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
     payload = {
@@ -51,12 +42,7 @@ async def send_message_to_agents(
         "contact_phone_number": contact_phone_number,
         "message": message,
         "attachments": [],
-        "whatsapp_provider": whatsapp_provider,
-        "phone_number_id": phone_number_id,
-        "access_token": access_token,
-        "zapi_instance_id": zapi_instance_id,
-        "zapi_token": zapi_token,
-        "zapi_client_token": zapi_client_token,
+        "send_to_whatsapp": False,
         "agents": agents or [],
     }
 

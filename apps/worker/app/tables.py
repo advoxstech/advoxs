@@ -89,6 +89,23 @@ inbound_message_jobs = Table(
     Column("created_at", DateTime(timezone=True)),
 )
 
+outbound_message_jobs = Table(
+    "outbound_message_jobs",
+    metadata,
+    Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("tenant_id", Uuid),
+    Column("conversation_id", Uuid),
+    Column("message_id", Uuid),
+    Column("status", String),
+    Column("attempts", Integer),
+    Column("available_at", DateTime(timezone=True)),
+    Column("last_enqueued_at", DateTime(timezone=True)),
+    Column("locked_at", DateTime(timezone=True)),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("created_at", DateTime(timezone=True)),
+)
+
 credit_transactions = Table(
     "credit_transactions",
     metadata,

@@ -8,6 +8,7 @@ apps/worker/app/clients/whatsapp.py, que já duplica o cliente Meta do api
 pelo mesmo motivo)."""
 
 import logging
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.z-api.io"
 _TIMEOUT = 15
+_DEFAULT_DOCUMENT_EXTENSION = "pdf"
 
 
 class ZApiNetworkError(Exception):
@@ -34,6 +36,13 @@ def _headers(client_token: str | None) -> dict:
 
 def _instance_url(instance_id: str, token: str, path: str) -> str:
     return f"{_BASE_URL}/instances/{instance_id}/token/{token}/{path}"
+
+
+def _infer_document_extension(filename: str | None, link: str) -> str:
+    source = filename or link
+    last_segment = urlsplit(source).path.rsplit("/", 1)[-1]
+    parts = last_segment.rsplit(".", 1)
+    return parts[1].lower() if len(parts) == 2 and parts[1] else _DEFAULT_DOCUMENT_EXTENSION
 
 
 def _zapi_error_message(response: httpx.Response, fallback: str) -> str:
@@ -70,6 +79,36 @@ async def send_zapi_text_message(
         )
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível enviar a mensagem pela Z-API")
+        )
+
+
+async def send_zapi_document_message(
+    instance_id: str,
+    token: str,
+    client_token: str | None,
+    to: str,
+    link: str,
+    filename: str | None = None,
+) -> None:
+    extension = _infer_document_extension(filename, link)
+    url = _instance_url(instance_id, token, f"send-document/{extension}")
+    payload: dict[str, str] = {"phone": to, "document": link}
+    if filename:
+        payload["fileName"] = filename
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(url, headers=_headers(client_token), json=payload)
+    except httpx.HTTPError as exc:
+        raise ZApiNetworkError(f"Falha de rede ao enviar documento pela Z-API: {exc}") from exc
+
+    if response.is_error:
+        logger.warning(
+            "Z-API (send-document) retornou erro | status=%s body=%s",
+            response.status_code,
+            response.text,
+        )
+        raise ZApiApiError(
+            _zapi_error_message(response, "Não foi possível enviar o documento pela Z-API")
         )
 
 

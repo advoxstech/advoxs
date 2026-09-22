@@ -44,9 +44,9 @@ class IncomingMessage(BaseModel):
     webhook da Meta), validou o estado da conversa (agent|human) e
     descriptografou as credenciais do WhatsApp antes de chamar aqui.
 
-    `send_to_whatsapp=False` (usado pelo playground de admin) roda o grafo
-    normalmente mas pula o envio pela Graph API — phone_number_id/access_token
-    ficam vazios nesse caso.
+    `send_to_whatsapp=False` (usado pelo worker e pelo playground de admin)
+    roda o grafo normalmente mas pula o envio pela Graph API — as credenciais
+    do provedor ficam vazias nesse caso.
 
     `agents`: a lista completa de agentes do tenant, resolvida pelo chamador
     (worker/api) — nunca lida pelo agents service do Postgres principal.

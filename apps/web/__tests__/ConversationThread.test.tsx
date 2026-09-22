@@ -529,6 +529,33 @@ describe("ConversationThread", () => {
     });
   });
 
+  it("mostra o badge 'Enviando' enquanto a entrega está pendente", async () => {
+    const pendingMessages: Message[] = [
+      {
+        id: "m4",
+        sender_type: "agent",
+        content: "Resposta aguardando envio.",
+        media_url: null,
+        media_type: null,
+        delivery_status: "pending",
+        created_at: new Date().toISOString(),
+      },
+    ];
+    backendFetchMock.mockResolvedValue(jsonResponse(pendingMessages));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Enviando")).toBeInTheDocument();
+    });
+  });
+
   it("não mostra o badge quando a mensagem foi entregue", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse(messages));
 

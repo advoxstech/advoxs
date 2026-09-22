@@ -22,6 +22,7 @@ from app.pricing import (
 )
 from app.tasks.attachments import process_inbound_attachment
 from app.tasks.inbound_context import InboundContext
+from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -314,25 +315,13 @@ async def _process_inbound_message(
     meta_access_token: str | None = None
     zapi_client_token: str | None = None
     if inbound.whatsapp_provider == "zapi":
-        zapi_token = decrypt_access_token(inbound.zapi_instance_token_encrypted)
         zapi_client_token = (
             decrypt_access_token(inbound.zapi_client_token_encrypted)
             if inbound.zapi_client_token_encrypted
             else ""
         )
-        agents_kwargs = {
-            "whatsapp_provider": "zapi",
-            "zapi_instance_id": inbound.zapi_instance_id,
-            "zapi_token": zapi_token,
-            "zapi_client_token": zapi_client_token,
-        }
     else:
         meta_access_token = decrypt_access_token(inbound.access_token_encrypted)
-        agents_kwargs = {
-            "whatsapp_provider": "meta",
-            "phone_number_id": inbound.phone_number_id,
-            "access_token": meta_access_token,
-        }
 
     # Baixa e ingere um eventual anexo (PDF/DOCX/TXT) na base de conhecimento
     # pessoal do contato ANTES de chamar o agents — só assim o documento já
@@ -369,7 +358,6 @@ async def _process_inbound_message(
             contact_phone_number=inbound.contact_phone_number,
             message=message_content,
             agents=inbound.agents,
-            **agents_kwargs,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -422,7 +410,6 @@ async def _process_inbound_message(
     tokens_input = result.get("tokens_input", 0)
     tokens_output = result.get("tokens_output", 0)
     current_agent_id = result.get("current_agent_id")
-    delivery_failures = set(result.get("delivery_failures", []))
     documents = result.get("documents", [])
 
     async with open_tenant_session(session_factory, tenant_id) as session:
@@ -449,7 +436,7 @@ async def _process_inbound_message(
             tokens_used_persistido = tokens_used
             credits_persistido = credits
 
-        first_message_id = await _persist_agent_responses(
+        first_message_id, outbound_job_ids = await _persist_agent_responses(
             session,
             tenant_id,
             conversation_id,
@@ -457,16 +444,12 @@ async def _process_inbound_message(
             documents,
             tokens_used_persistido,
             credits_persistido,
-            delivery_failures,
         )
 
-        delivery_failed = bool(delivery_failures) or any(
-            not document.get("delivered") for document in documents
-        )
         await session.execute(
             update(tables.conversations)
             .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-            .values(automation_status="failed" if delivery_failed else "idle")
+            .values(automation_status="processing" if outbound_job_ids else "idle")
         )
 
         if current_agent_id:
@@ -513,6 +496,17 @@ async def _process_inbound_message(
                 )
 
         await session.commit()
+
+        # A resposta, o débito e a pendência de entrega já estão no banco.
+        # Se Redis estiver indisponível neste ponto, a recuperação periódica
+        # encontra o job pendente; não chamamos a IA nem cobramos novamente.
+        try:
+            await enqueue_outbound_message_jobs(ctx, outbound_job_ids)
+        except Exception:
+            logger.exception(
+                "Falha ao enfileirar entrega da resposta; recuperação assumirá | tenant=%s",
+                tenant_id,
+            )
 
         if saldo_tenant_zerou:
             # Best-effort, depois do commit — nunca deve atrapalhar o
@@ -691,33 +685,32 @@ async def _persist_agent_responses(
     tokens_used: int = 0,
     credits: Decimal | int = 0,
     delivery_failures: set[int] | None = None,
-) -> uuid.UUID | None:
+) -> tuple[uuid.UUID | None, list[uuid.UUID]]:
     """Insere as respostas de texto do agente + uma mensagem por documento
     gerado (fazer_contrato/fazer_multa/etc, ver agents/tools.py) e retorna o
     id da primeira mensagem inserida (texto ou documento, o que vier
-    primeiro).
+    primeiro) e os ids das entregas pendentes.
 
     O consumo da execução inteira (tokens/créditos, já incluindo o custo
     fixo de eventuais documentos) fica registrado só nessa primeira mensagem
-    — é a ela que o lançamento do ledger se vincula. `delivery_failures`
-    marca, por índice, quais RESPOSTAS DE TEXTO falharam ao entregar ao
-    WhatsApp; documentos carregam o próprio `delivered` (ver api/routes.py do
-    agents). A cobrança acontece independente de qualquer falha de entrega,
-    porque o custo do LLM/da geração já ocorreu.
+    — é a ela que o lançamento do ledger se vincula. A entrega ocorre depois
+    do commit por uma caixa de saída independente; portanto toda nova
+    mensagem do agente começa como `pending`, inclusive documentos.
     """
-    delivery_failures = delivery_failures or set()
+    del delivery_failures  # Compatibilidade temporária com chamadas antigas.
     documents = documents or []
     now = datetime.now(UTC)
     first_message_id: uuid.UUID | None = None
+    outbound_job_ids: list[uuid.UUID] = []
     index = 0
 
-    for i, response in enumerate(responses):
+    for response in responses:
         values: dict = {
             "conversation_id": uuid.UUID(conversation_id),
             "tenant_id": uuid.UUID(tenant_id),
             "sender_type": "agent",
             "content": response,
-            "delivery_status": "failed" if i in delivery_failures else "sent",
+            "delivery_status": "pending",
             # Mesma execução pode gerar várias respostas/documentos (ex:
             # despedida da secretária + saudação do especialista) — sem um
             # offset por índice, todas cravam o mesmo instante e o ORDER BY
@@ -730,8 +723,22 @@ async def _persist_agent_responses(
         result = await session.execute(
             insert(tables.messages).values(**values).returning(tables.messages.c.id)
         )
+        message_id = result.scalar_one()
         if index == 0:
-            first_message_id = result.scalar_one()
+            first_message_id = message_id
+        job_id = uuid.uuid4()
+        await session.execute(
+            insert(tables.outbound_message_jobs).values(
+                id=job_id,
+                tenant_id=uuid.UUID(tenant_id),
+                conversation_id=uuid.UUID(conversation_id),
+                message_id=message_id,
+                status="pending",
+                available_at=now,
+                created_at=now,
+            )
+        )
+        outbound_job_ids.append(job_id)
         index += 1
 
     for doc in documents:
@@ -740,7 +747,7 @@ async def _persist_agent_responses(
             "tenant_id": uuid.UUID(tenant_id),
             "sender_type": "agent",
             "content": f"📄 {doc['filename']}",
-            "delivery_status": "sent" if doc.get("delivered") else "failed",
+            "delivery_status": "pending",
             "media_url": doc["link"],
             "media_type": "application/pdf",
             "created_at": now + timedelta(microseconds=index),
@@ -751,8 +758,22 @@ async def _persist_agent_responses(
         result = await session.execute(
             insert(tables.messages).values(**values).returning(tables.messages.c.id)
         )
+        message_id = result.scalar_one()
         if index == 0:
-            first_message_id = result.scalar_one()
+            first_message_id = message_id
+        job_id = uuid.uuid4()
+        await session.execute(
+            insert(tables.outbound_message_jobs).values(
+                id=job_id,
+                tenant_id=uuid.UUID(tenant_id),
+                conversation_id=uuid.UUID(conversation_id),
+                message_id=message_id,
+                status="pending",
+                available_at=now,
+                created_at=now,
+            )
+        )
+        outbound_job_ids.append(job_id)
         index += 1
 
     if responses or documents:
@@ -761,7 +782,7 @@ async def _persist_agent_responses(
             .where(tables.conversations.c.id == uuid.UUID(conversation_id))
             .values(last_message_at=now)
         )
-    return first_message_id
+    return first_message_id, outbound_job_ids
 
 
 async def _debitar_creditos(
