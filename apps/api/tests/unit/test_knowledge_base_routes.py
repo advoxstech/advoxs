@@ -171,6 +171,29 @@ class TestUpload:
 
         assert response.status_code == 400
 
+    def test_nome_com_diretorio_e_normalizado(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+        session.scalar.side_effect = [
+            SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID),
+            0,
+            0,
+            None,
+        ]
+
+        response = _upload(client, filename="../../regimento.pdf")
+
+        assert response.status_code == 202
+        assert response.json()["filename"] == "regimento.pdf"
+
+    def test_pdf_falso_retorna_400(self, client, session) -> None:
+        session.execute.return_value = _active_subscription()
+        session.scalar.side_effect = [SimpleNamespace(id=AGENT_ID, tenant_id=TENANT_ID), 0, 0]
+
+        response = _upload(client, content=b"conteudo que nao e pdf")
+
+        assert response.status_code == 400
+        assert "Conteúdo" in response.json()["detail"]
+
     def test_mime_incompativel_400(self, client, session) -> None:
         session.execute.return_value = _active_subscription()
 

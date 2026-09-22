@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +7,14 @@ from app.core.config import settings
 from app.models import Tenant, User
 from app.schemas.profile import ChangePasswordRequest, ProfileOut, ProfileUpdateRequest
 from app.services.profile import InvalidCurrentPasswordError, change_password, update_tenant_name
+from app.services.upload_storage import (
+    InvalidUploadContentError,
+    UnsafeUploadPathError,
+    atomic_write,
+    managed_path,
+    safe_delete,
+    validate_upload_content,
+)
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
@@ -71,7 +77,8 @@ async def upload_logo(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> ProfileOut:
     filename = file.filename or ""
-    extension = Path(filename).suffix.lower()
+    extension = filename.replace("\\", "/").rsplit(".", maxsplit=1)[-1].lower()
+    extension = f".{extension}" if filename and "." in filename else ""
     if extension not in ALLOWED_LOGO_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -85,19 +92,21 @@ async def upload_logo(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"Arquivo maior que {limite_mb} MB",
         )
+    try:
+        validate_upload_content(data, extension)
+    except InvalidUploadContentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     tenant = await session.get(Tenant, ctx.tenant_id)
     previous_filename = tenant.logo_filename
 
-    upload_dir = Path(settings.logo_upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_filename = f"{ctx.tenant_id}{extension}"
-    (upload_dir / stored_filename).write_bytes(data)
+    atomic_write(managed_path(settings.logo_upload_dir, stored_filename), data)
 
     if previous_filename and previous_filename != stored_filename:
         # Upload anterior com outra extensão — remove o arquivo órfão em disco
         # (sem versionamento, o novo upload substitui o anterior por completo).
-        (upload_dir / previous_filename).unlink(missing_ok=True)
+        safe_delete(settings.logo_upload_dir, previous_filename)
 
     tenant.logo_filename = stored_filename
     await session.commit()
@@ -121,7 +130,10 @@ async def get_logo(
     if tenant.logo_filename is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sem logo cadastrada")
 
-    path = Path(settings.logo_upload_dir) / tenant.logo_filename
+    try:
+        path = managed_path(settings.logo_upload_dir, tenant.logo_filename)
+    except UnsafeUploadPathError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo não encontrada")
     extension = path.suffix.lower()
     content_type = ALLOWED_LOGO_EXTENSIONS.get(extension, "application/octet-stream")
     return Response(

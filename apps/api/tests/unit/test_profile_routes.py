@@ -12,6 +12,8 @@ from app.services.profile import InvalidCurrentPasswordError
 
 TENANT_ID = uuid.uuid4()
 USER_ID = uuid.uuid4()
+PNG = b"\x89PNG\r\n\x1a\nconteudo"
+JPEG = b"\xff\xd8\xffconteudo"
 
 
 def _tenant(logo: str | None = None) -> SimpleNamespace:
@@ -151,13 +153,13 @@ class TestUploadLogo:
 
         response = client.post(
             "/api/v1/profile/logo",
-            files={"file": ("logo.png", b"fake-png-bytes", "image/png")},
+            files={"file": ("logo.png", PNG, "image/png")},
         )
 
         assert response.status_code == 200
         assert response.json()["user_name"] == "Fulano"
         assert tenant.logo_filename == f"{TENANT_ID}.png"
-        assert (tmp_path / f"{TENANT_ID}.png").read_bytes() == b"fake-png-bytes"
+        assert (tmp_path / f"{TENANT_ID}.png").read_bytes() == PNG
         session.commit.assert_awaited_once()
 
     def test_upload_com_extensao_diferente_remove_o_arquivo_anterior(
@@ -175,13 +177,23 @@ class TestUploadLogo:
 
         response = client.post(
             "/api/v1/profile/logo",
-            files={"file": ("logo.jpg", b"logo-nova", "image/jpeg")},
+            files={"file": ("logo.jpg", JPEG, "image/jpeg")},
         )
 
         assert response.status_code == 200
         assert tenant.logo_filename == f"{TENANT_ID}.jpg"
         assert not (tmp_path / f"{TENANT_ID}.png").exists()
-        assert (tmp_path / f"{TENANT_ID}.jpg").read_bytes() == b"logo-nova"
+        assert (tmp_path / f"{TENANT_ID}.jpg").read_bytes() == JPEG
+
+    def test_imagem_falsa_retorna_400(self, client, session, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "logo_upload_dir", str(tmp_path))
+
+        response = client.post(
+            "/api/v1/profile/logo",
+            files={"file": ("logo.png", b"nao e imagem", "image/png")},
+        )
+
+        assert response.status_code == 400
 
 
 class TestGetLogo:

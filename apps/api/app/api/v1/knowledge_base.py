@@ -21,6 +21,14 @@ from app.schemas.knowledge_base import (
     KnowledgeBaseFileOut,
 )
 from app.services.subscriptions import get_active_subscription
+from app.services.upload_storage import (
+    InvalidUploadContentError,
+    atomic_write,
+    display_filename,
+    managed_path,
+    safe_delete,
+    validate_upload_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +82,10 @@ async def upload_file(
             detail="Sua assinatura não está ativa — regularize o pagamento para continuar",
         )
 
-    filename = file.filename or ""
+    try:
+        filename = display_filename(file.filename or "")
+    except InvalidUploadContentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     extension = Path(filename).suffix.lower()
     expected_mime = ALLOWED_EXTENSIONS.get(extension)
     if expected_mime is None:
@@ -128,6 +139,10 @@ async def upload_file(
 
     if not data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Arquivo vazio")
+    try:
+        validate_upload_content(data, extension)
+    except InvalidUploadContentError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     duplicate = await session.scalar(
         select(KnowledgeBaseFile.id).where(
@@ -160,9 +175,8 @@ async def upload_file(
     await session.flush()
     session.add(AgentKnowledgeBaseFile(agent_id=agent_id, knowledge_base_file_id=record.id))
 
-    tenant_dir = Path(settings.kb_upload_dir) / str(ctx.tenant_id)
-    tenant_dir.mkdir(parents=True, exist_ok=True)
-    (tenant_dir / str(record.id)).write_bytes(data)
+    storage_path = managed_path(settings.kb_upload_dir, str(ctx.tenant_id), str(record.id))
+    atomic_write(storage_path, data)
 
     try:
         await session.commit()
@@ -170,7 +184,7 @@ async def upload_file(
         # Corrida entre uploads concorrentes com o mesmo filename — a unique
         # constraint (tenant_id, filename) é o backstop do check acima.
         await session.rollback()
-        (tenant_dir / str(record.id)).unlink(missing_ok=True)
+        safe_delete(settings.kb_upload_dir, str(ctx.tenant_id), str(record.id))
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Já existe um arquivo com esse nome — exclua o antigo antes de re-subir",

@@ -20,7 +20,7 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 
 | Ordem | Prioridade | Área | Mudança sugerida |
 | --- | --- | --- | --- |
-| 1 | Crítica | Segurança dos uploads | Substituir o nome físico recebido por um identificador seguro; validar o conteúdo e o caminho final de gravação, impedindo escrita fora do diretório permitido. |
+| 1 | Crítica — **Implementada em 22/09/2026** | Segurança dos uploads | Os uploads de base de conhecimento e logo validam o conteúdo real do formato aceito, usam caminhos resolvidos dentro dos diretórios permitidos e gravam de forma atômica. Nomes recebidos são normalizados para exibição, enquanto o armazenamento físico usa apenas identificadores internos. |
 | 2 | Crítica — **Implementação temporariamente desativada em 21/09/2026** | Configuração de produção | A validação completa permanece no código, mas não bloqueia deploys até que os segredos possam ser configurados no servidor. Após preencher o `.env`, defina `ENFORCE_PRODUCTION_CONFIG=true` para reativá-la. Veja [configuração de produção](configuracao-producao.md). |
 | 3 | Crítica — **Implementada em 22/09/2026** | Recebimento de mensagens | Cada mensagem recebida passa a criar, na mesma transação, uma pendência durável de processamento. Se a fila estiver indisponível, o webhook confirma o recebimento e o worker tenta reenfileirar periodicamente; trabalhos duplicados ou abandonados são reservados de forma atômica antes de executar. |
 | 4 | Crítica | Processamento e envio | Impedir respostas e cobranças duplicadas nas novas tentativas. Quando somente a entrega falhar, reenviar a resposta pronta sem executar a IA novamente; recuperar separadamente geração, persistência, envio e cobrança. |
