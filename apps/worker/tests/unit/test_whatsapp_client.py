@@ -6,6 +6,7 @@ import pytest
 import app.clients.whatsapp as whatsapp_client
 from app.clients.whatsapp import (
     WhatsAppSendError,
+    send_document_message,
     send_interactive_list_message,
     send_text_message,
 )
@@ -54,6 +55,27 @@ class TestSendTextMessage:
             await send_text_message(
                 phone_number_id="PNID", access_token="token", to="5511999998888", text="Olá"
             )
+
+
+class TestSendDocumentMessage:
+    async def test_envia_documento_com_link_e_nome(self, monkeypatch) -> None:
+        response = _response(200, {})
+        client = _mock_async_client(monkeypatch, response)
+
+        await send_document_message(
+            phone_number_id="PNID",
+            access_token="token",
+            to="5511999998888",
+            link="https://agents.exemplo.com/documento.pdf",
+            filename="Contrato.pdf",
+        )
+
+        payload = client.post.call_args.kwargs["json"]
+        assert payload["type"] == "document"
+        assert payload["document"] == {
+            "link": "https://agents.exemplo.com/documento.pdf",
+            "filename": "Contrato.pdf",
+        }
 
     async def test_falha_de_rede_levanta_whatsapp_send_error(self, monkeypatch) -> None:
         client = AsyncMock()

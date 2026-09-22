@@ -8,4 +8,6 @@ def test_worker_functions_registered() -> None:
         "ingest_knowledge_base_file",
         "process_inbound_message",
         "recover_inbound_message_jobs",
+        "deliver_outbound_message",
+        "recover_outbound_message_jobs",
     }

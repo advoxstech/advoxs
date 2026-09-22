@@ -7,6 +7,7 @@ import app.clients.zapi as zapi_client
 from app.clients.zapi import (
     ZApiApiError,
     ZApiNetworkError,
+    send_zapi_document_message,
     send_zapi_option_list,
     send_zapi_text_message,
 )
@@ -76,6 +77,30 @@ class TestSendZApiTextMessage:
                 to="5511999998888",
                 text="Olá",
             )
+
+
+class TestSendZApiDocumentMessage:
+    async def test_envia_documento_com_extensao_do_nome(self, monkeypatch) -> None:
+        response = _response(200, {})
+        client = _mock_async_client(monkeypatch, response)
+
+        await send_zapi_document_message(
+            instance_id="inst-1",
+            token="token-1",
+            client_token="client-token",
+            to="5511999998888",
+            link="https://agents.exemplo.com/documento.pdf",
+            filename="Contrato.docx",
+        )
+
+        args, kwargs = client.post.call_args
+        assert args[0].endswith("/send-document/docx")
+        assert kwargs["json"] == {
+            "phone": "5511999998888",
+            "document": "https://agents.exemplo.com/documento.pdf",
+            "fileName": "Contrato.docx",
+        }
+        assert kwargs["headers"]["Client-Token"] == "client-token"
 
     async def test_erro_http_levanta_zapi_api_error(self, monkeypatch) -> None:
         response = _response(400, {"error": "instância não encontrada"})

@@ -27,20 +27,23 @@ class FakeSession:
         return FakeResult(None)
 
 
-async def test_marca_delivery_status_sent_por_padrao() -> None:
+async def test_cria_entregas_pendentes_para_cada_resposta() -> None:
     session = FakeSession()
 
-    first_id = await messages_task._persist_agent_responses(
+    first_id, job_ids = await messages_task._persist_agent_responses(
         session, TENANT_ID, CONVERSATION_ID, ["resposta 1", "resposta 2"], None, 100, 1
     )
 
     assert first_id == session.next_id
     inserted = [v for v in session.executed_values if "sender_type" in v]
-    assert inserted[0]["delivery_status"] == "sent"
-    assert inserted[1]["delivery_status"] == "sent"
+    assert inserted[0]["delivery_status"] == "pending"
+    assert inserted[1]["delivery_status"] == "pending"
+    assert len(job_ids) == 2
+    jobs = [v for v in session.executed_values if "message_id" in v]
+    assert len(jobs) == 2
 
 
-async def test_marca_delivery_status_failed_pelo_indice() -> None:
+async def test_delivery_failures_antigas_nao_alteram_a_pendencia() -> None:
     session = FakeSession()
 
     await messages_task._persist_agent_responses(
@@ -48,8 +51,8 @@ async def test_marca_delivery_status_failed_pelo_indice() -> None:
     )
 
     inserted = [v for v in session.executed_values if "sender_type" in v]
-    assert inserted[0]["delivery_status"] == "sent"
-    assert inserted[1]["delivery_status"] == "failed"
+    assert inserted[0]["delivery_status"] == "pending"
+    assert inserted[1]["delivery_status"] == "pending"
 
 
 async def test_documento_gerado_persiste_mensagem_com_media_url() -> None:
@@ -70,7 +73,7 @@ async def test_documento_gerado_persiste_mensagem_com_media_url() -> None:
     assert "Multa.pdf" in doc_row["content"]
 
 
-async def test_documento_marca_delivery_status_pelo_campo_delivered() -> None:
+async def test_documentos_tambem_criam_entregas_pendentes() -> None:
     session = FakeSession()
     documents = [
         {"link": "https://exemplo.com/a", "filename": "A.pdf", "delivered": True},
@@ -82,8 +85,8 @@ async def test_documento_marca_delivery_status_pelo_campo_delivered() -> None:
     )
 
     inserted = [v for v in session.executed_values if "sender_type" in v]
-    assert inserted[0]["delivery_status"] == "sent"
-    assert inserted[1]["delivery_status"] == "failed"
+    assert inserted[0]["delivery_status"] == "pending"
+    assert inserted[1]["delivery_status"] == "pending"
 
 
 async def test_sem_texto_credito_vai_pro_primeiro_documento() -> None:
@@ -93,7 +96,7 @@ async def test_sem_texto_credito_vai_pro_primeiro_documento() -> None:
     session = FakeSession()
     documents = [{"link": "https://exemplo.com/a", "filename": "A.pdf"}]
 
-    first_id = await messages_task._persist_agent_responses(
+    first_id, job_ids = await messages_task._persist_agent_responses(
         session, TENANT_ID, CONVERSATION_ID, [], documents, 100, 20
     )
 
@@ -101,3 +104,4 @@ async def test_sem_texto_credito_vai_pro_primeiro_documento() -> None:
     inserted = [v for v in session.executed_values if "sender_type" in v]
     assert inserted[0]["tokens_used"] == 100
     assert inserted[0]["credits_consumed"] == 20
+    assert len(job_ids) == 1

@@ -7,6 +7,7 @@ from app.db import create_engine_and_factory, create_system_engine_and_factory
 from app.tasks.inbound_outbox import recover_inbound_message_jobs
 from app.tasks.knowledge_base import ingest_knowledge_base_file
 from app.tasks.messages import process_inbound_message
+from app.tasks.outbound_outbox import deliver_outbound_message, recover_outbound_message_jobs
 
 
 async def startup(ctx: dict) -> None:
@@ -32,8 +33,17 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [ingest_knowledge_base_file, process_inbound_message, recover_inbound_message_jobs]
-    cron_jobs = [cron(recover_inbound_message_jobs, second=0)]
+    functions = [
+        ingest_knowledge_base_file,
+        process_inbound_message,
+        recover_inbound_message_jobs,
+        deliver_outbound_message,
+        recover_outbound_message_jobs,
+    ]
+    cron_jobs = [
+        cron(recover_inbound_message_jobs, second=0),
+        cron(recover_outbound_message_jobs, second=0),
+    ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = startup
     on_shutdown = shutdown

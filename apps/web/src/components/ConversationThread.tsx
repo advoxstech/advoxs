@@ -467,6 +467,10 @@ function MessageBubble({ message }: { message: Message }) {
           <span className="rounded-sm bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-danger">
             Não entregue
           </span>
+        ) : message.delivery_status === "pending" ? (
+          <span className="rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-brass">
+            Enviando
+          </span>
         ) : null}
         <time className="font-mono text-[10px] text-muted">
           {formatMessageTime(message.created_at)}
