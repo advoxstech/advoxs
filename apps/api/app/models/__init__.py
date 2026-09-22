@@ -3,6 +3,7 @@ from app.models.agent import Agent, AgentKnowledgeBaseFile
 from app.models.base import Base
 from app.models.billing import CreditPackage, CreditTransaction, PricingConfig
 from app.models.conversation import Conversation
+from app.models.conversation_processing_lock import ConversationProcessingLock
 from app.models.end_customer_billing import (
     EndCustomerBalance,
     EndCustomerCreditPackage,
@@ -30,6 +31,7 @@ __all__ = [
     "CreditPackage",
     "CreditTransaction",
     "Conversation",
+    "ConversationProcessingLock",
     "EndCustomerBalance",
     "EndCustomerCreditPackage",
     "EndCustomerCreditTransaction",

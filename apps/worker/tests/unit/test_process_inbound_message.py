@@ -94,6 +94,8 @@ def patched(monkeypatch):
         # None por padrão: sem anexo, não deve mudar a mensagem mandada ao
         # agents em nenhum teste existente.
         "attachment": AsyncMock(return_value=None),
+        "has_newer": AsyncMock(return_value=False),
+        "restore_context": AsyncMock(),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
@@ -110,6 +112,10 @@ def patched(monkeypatch):
     )
     monkeypatch.setattr(messages_task, "process_inbound_attachment", mocks["attachment"])
     monkeypatch.setattr(messages_task, "enqueue_outbound_message_jobs", mocks["enqueue_outbound"])
+    monkeypatch.setattr(messages_task, "_has_newer_contact_message", mocks["has_newer"])
+    monkeypatch.setattr(
+        messages_task, "_restore_agent_context_before_stale_response", mocks["restore_context"]
+    )
     return mocks
 
 
@@ -131,6 +137,50 @@ async def test_agent_flow_persists_responses(patched) -> None:
         if hasattr(call.args[0], "compile")
     ]
     assert any("automation_status='processing'" in statement for statement in statements)
+
+
+async def test_turno_com_mensagem_mais_nova_so_atualiza_contexto(patched) -> None:
+    patched["has_newer"].return_value = True
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["sync"].assert_awaited_once()
+    assert patched["sync"].await_args.kwargs["content"] == "Olá"
+    patched["send"].assert_not_awaited()
+    patched["persist"].assert_not_awaited()
+
+
+async def test_resposta_fica_descartada_quando_contexto_muda_durante_geracao(patched) -> None:
+    patched["has_newer"].side_effect = [False, True]
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_awaited_once()
+    patched["restore_context"].assert_awaited_once()
+    patched["persist"].assert_not_awaited()
+    patched["enqueue_outbound"].assert_not_awaited()
+
+
+async def test_job_libera_bloqueio_e_dispara_proxima_mensagem(monkeypatch) -> None:
+    claim = AsyncMock(return_value=True)
+    process = AsyncMock()
+    finish = AsyncMock()
+    release_lock = AsyncMock()
+    enqueue_next = AsyncMock()
+    monkeypatch.setattr(messages_task, "_claim_inbound_job", claim)
+    monkeypatch.setattr(messages_task, "_process_inbound_message", process)
+    monkeypatch.setattr(messages_task, "_finish_inbound_job", finish)
+    monkeypatch.setattr(messages_task, "_release_conversation_lock", release_lock)
+    monkeypatch.setattr(messages_task, "_enqueue_next_inbound_message_job", enqueue_next)
+    job_id = str(uuid.uuid4())
+    ctx = {"job_try": 1}
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID, job_id)
+
+    claim.assert_awaited_once_with(ctx, TENANT_ID, job_id)
+    finish.assert_awaited_once_with(ctx, job_id)
+    release_lock.assert_awaited_once_with(ctx, CONVERSATION_ID, job_id)
+    enqueue_next.assert_awaited_once_with(ctx, CONVERSATION_ID)
 
 
 async def test_sem_anexo_nao_altera_a_mensagem(patched) -> None:

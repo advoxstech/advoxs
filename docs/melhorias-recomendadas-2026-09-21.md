@@ -25,6 +25,11 @@ inclusão aqui não significa que foram aprovadas ou implementadas.
   de 21/09/2026 foi implementada. A resposta gerada, o consumo e a pendência
   de entrega são gravados antes do envio ao WhatsApp. Falhas de entrega são
   recuperadas por uma fila própria, sem chamar a IA nem registrar nova cobrança.
+- **22/09/2026 — Ordem e contexto das conversas:** a sugestão do ChatGPT após
+  a reunião de 21/09/2026 foi implementada. Um único worker executa a IA por
+  conversa; mensagens posteriores aguardam sua vez. Se uma nova mensagem
+  chegar durante a geração, a resposta antiga é descartada e a memória do
+  agente volta ao histórico realmente registrado antes do próximo turno.
 
 As melhorias de interface devem manter a paleta, tipografia e identidade visual
 já definidas pelo projeto. O foco é clareza, acesso em celular e feedback das

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from langchain_core.messages import AIMessage, HumanMessage
 
 import services.update_context as update_context_module
-from services.update_context import add_context_messages
+from services.update_context import add_context_messages, replace_context_messages
 
 
 def _mock_checkpointer(monkeypatch):
@@ -45,3 +45,20 @@ async def test_mapeia_roles_e_anexa_ao_checkpoint(monkeypatch):
     assert lc_messages[0].content == "oi, ainda tá aí?"
     assert isinstance(lc_messages[1], AIMessage)
     assert lc_messages[1].content == "sim! sou o Dr. Silva, vou te ajudar"
+
+
+async def test_substitui_checkpoint_pelo_historico_persistido(monkeypatch):
+    agent = _mock_checkpointer(monkeypatch)
+    context_manager = update_context_module.AsyncPostgresSaver.from_conn_string.return_value
+    checkpointer = context_manager.__aenter__.return_value
+    checkpointer.adelete_thread = AsyncMock()
+
+    replaced = await replace_context_messages(
+        "tenant-1:5511999999999",
+        [{"role": "contact", "content": "informação nova"}],
+        db_uri="postgresql://x",
+    )
+
+    assert replaced == 1
+    checkpointer.adelete_thread.assert_awaited_once_with("tenant-1:5511999999999")
+    agent.aupdate_state.assert_awaited_once()

@@ -331,6 +331,17 @@ def test_context_com_messages_vazio_retorna_422(client):
     assert response.status_code == 422
 
 
+def test_substitui_contexto_e_permite_historico_vazio(client, monkeypatch):
+    replace_mock = AsyncMock(return_value=0)
+    monkeypatch.setattr(routes, "replace_context_messages", replace_mock)
+
+    response = client.put("/conversations/t1:5511/context", json={"messages": []})
+
+    assert response.status_code == 200
+    assert response.json() == {"replaced": 0}
+    replace_mock.assert_awaited_once_with("t1:5511", [])
+
+
 def test_context_com_role_invalido_retorna_422(client):
     payload = {"messages": [{"role": "robo", "content": "oi"}]}
     response = client.post("/conversations/t1:5511/context", json=payload)

@@ -80,3 +80,21 @@ async def sync_context_to_agents(
         headers=headers,
     )
     response.raise_for_status()
+
+
+async def replace_context_to_agents(
+    http: httpx.AsyncClient,
+    *,
+    tenant_id: str,
+    contact_phone_number: str,
+    messages: list[dict[str, str]],
+) -> None:
+    """Substitui a memória do agente pelo histórico persistido no monorepo."""
+    headers = {"Authorization": settings.agents_api_key} if settings.agents_api_key else {}
+    thread_id = f"{tenant_id}:{contact_phone_number}"
+    response = await http.put(
+        f"/conversations/{thread_id}/context",
+        json={"messages": messages},
+        headers=headers,
+    )
+    response.raise_for_status()

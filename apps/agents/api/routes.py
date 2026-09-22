@@ -18,7 +18,7 @@ from services.call_agent import DB_URI, run_agent
 from services.concat_messages import debounce_messages
 from services.document_storage import resolve_path, start_cleanup_loop
 from services.summarize import summarize_conversation
-from services.update_context import add_context_messages
+from services.update_context import add_context_messages, replace_context_messages
 
 validate_environment("agents")
 AGENTS_API_KEY = os.getenv("AGENTS_API_KEY")
@@ -88,6 +88,10 @@ class ContextMessageIn(BaseModel):
 
 class ContextRequest(BaseModel):
     messages: list[ContextMessageIn] = Field(min_length=1)
+
+
+class ReplaceContextRequest(BaseModel):
+    messages: list[ContextMessageIn] = Field(default_factory=list)
 
 
 @asynccontextmanager
@@ -277,6 +281,23 @@ async def add_context(thread_id: str, body: ContextRequest):
             detail="Erro ao anexar contexto.",
         )
     return {"added": added}
+
+
+@app.put("/conversations/{thread_id}/context", dependencies=[Depends(verify_api_key)])
+async def replace_context(thread_id: str, body: ReplaceContextRequest):
+    """Recria o checkpoint sem uma resposta que foi descartada pelo worker."""
+    try:
+        replaced = await replace_context_messages(
+            thread_id,
+            [{"role": m.role, "content": m.content} for m in body.messages],
+        )
+    except Exception:
+        logger.exception("Erro ao substituir contexto | thread_id={}", thread_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao substituir contexto.",
+        )
+    return {"replaced": replaced}
 
 
 @app.post("/summaries", dependencies=[Depends(verify_api_key)])

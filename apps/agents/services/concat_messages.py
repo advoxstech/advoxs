@@ -11,6 +11,24 @@ load_dotenv()
 redis_host = os.getenv("REDIS_HOST")
 redis_port = os.getenv("REDIS_PORT")
 redis_password = os.getenv("REDIS_PASSWORD")
+DEFAULT_DEBOUNCE_SECONDS = 12
+
+
+def configured_debounce_seconds() -> int:
+    """Lê o intervalo de agrupamento sem tornar uma configuração inválida
+    capaz de interromper o atendimento."""
+    raw_value = os.getenv("MESSAGE_DEBOUNCE_SECONDS", str(DEFAULT_DEBOUNCE_SECONDS))
+    try:
+        value = int(raw_value)
+    except ValueError:
+        logger.warning("MESSAGE_DEBOUNCE_SECONDS inválido; usando padrão | value={}", raw_value)
+        return DEFAULT_DEBOUNCE_SECONDS
+    if value < 1:
+        logger.warning(
+            "MESSAGE_DEBOUNCE_SECONDS deve ser positivo; usando padrão | value={}", value
+        )
+        return DEFAULT_DEBOUNCE_SECONDS
+    return value
 
 
 async def debounce_messages(
@@ -18,8 +36,10 @@ async def debounce_messages(
     conversation_id: str,
     redis_host: str = redis_host,
     redis_port: int = redis_port,
-    debounce_seconds: int = 5,
+    debounce_seconds: int | None = None,
 ) -> dict:
+    if debounce_seconds is None:
+        debounce_seconds = configured_debounce_seconds()
     logger.info(
         "Iniciando debounce | conversation_id={} | debounce_seconds={}",
         conversation_id,

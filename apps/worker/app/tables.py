@@ -72,6 +72,15 @@ messages = Table(
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
 )
 
+conversation_processing_locks = Table(
+    "conversation_processing_locks",
+    metadata,
+    Column("conversation_id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("job_id", Uuid),
+    Column("locked_at", DateTime(timezone=True)),
+)
+
 inbound_message_jobs = Table(
     "inbound_message_jobs",
     metadata,
