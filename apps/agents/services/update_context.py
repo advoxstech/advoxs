@@ -30,3 +30,24 @@ async def add_context_messages(thread_id: str, messages: list[dict], db_uri: str
         len(lc_messages),
     )
     return len(lc_messages)
+
+
+async def replace_context_messages(
+    thread_id: str, messages: list[dict], db_uri: str = DB_URI
+) -> int:
+    """Substitui o checkpoint pelo histórico que foi realmente persistido.
+
+    É usado quando uma geração terminou depois que o contato enviou uma nova
+    mensagem. A resposta descartada não pode continuar na memória do agente,
+    pois ela nunca chegou ao WhatsApp.
+    """
+    lc_messages = [ROLE_TO_MESSAGE[m["role"]](content=m["content"]) for m in messages]
+    config = {"configurable": {"thread_id": thread_id}}
+    async with AsyncPostgresSaver.from_conn_string(db_uri) as checkpointer:
+        await checkpointer.setup()
+        await checkpointer.adelete_thread(thread_id)
+        if lc_messages:
+            agent = graph.compile(checkpointer=checkpointer)
+            await agent.aupdate_state(config, {"messages": lc_messages})
+    logger.info("Contexto substituído | thread_id={} | mensagens={}", thread_id, len(lc_messages))
+    return len(lc_messages)

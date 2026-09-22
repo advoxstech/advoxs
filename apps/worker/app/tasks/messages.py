@@ -5,12 +5,17 @@ from decimal import Decimal
 
 import httpx
 from arq.worker import Retry
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import delete, func, insert, or_, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
 from app.billing_gate import handle_billing_gate, maybe_enter_gate
-from app.clients.agents import send_message_to_agents, sync_context_to_agents
+from app.clients.agents import (
+    replace_context_to_agents,
+    send_message_to_agents,
+    sync_context_to_agents,
+)
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
@@ -30,6 +35,7 @@ logger = logging.getLogger(__name__)
 # default de max_tries do Arq também é 5 — manter em sincronia, mesmo padrão
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
+PROCESSING_LEASE = timedelta(minutes=15)
 
 
 def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
@@ -97,26 +103,125 @@ async def _sync_context(
 
 
 async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
-    """Reserva uma pendência uma única vez, mesmo se Redis a entregar duas vezes."""
+    """Reserva o turno mais antigo de uma conversa, uma única vez.
+
+    Redis pode entregar o mesmo job mais de uma vez e diversos workers podem
+    receber mensagens do mesmo contato. O bloqueio persistente e a checagem
+    de precedência mantêm uma execução de IA por conversa, em ordem.
+    """
+    now = datetime.now(UTC)
+    tenant_uuid = uuid.UUID(tenant_id)
+    job_uuid = uuid.UUID(job_id)
     async with open_system_session(ctx["system_session_factory"]) as session:
+        candidate = (
+            await session.execute(
+                select(
+                    tables.inbound_message_jobs.c.conversation_id,
+                    tables.inbound_message_jobs.c.created_at,
+                ).where(
+                    tables.inbound_message_jobs.c.id == job_uuid,
+                    tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
+                    tables.inbound_message_jobs.c.status == "pending",
+                    tables.inbound_message_jobs.c.available_at <= now,
+                )
+            )
+        ).one_or_none()
+        if candidate is None:
+            return False
+
+        lock = await session.execute(
+            pg_insert(tables.conversation_processing_locks)
+            .values(
+                conversation_id=candidate.conversation_id,
+                tenant_id=tenant_uuid,
+                job_id=job_uuid,
+                locked_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=[tables.conversation_processing_locks.c.conversation_id],
+                set_={"tenant_id": tenant_uuid, "job_id": job_uuid, "locked_at": now},
+                where=(tables.conversation_processing_locks.c.locked_at < now - PROCESSING_LEASE),
+            )
+            .returning(tables.conversation_processing_locks.c.conversation_id)
+        )
+        conversation_id = lock.scalar_one_or_none()
+        if conversation_id is None:
+            await session.rollback()
+            return False
+
+        candidate = (
+            await session.execute(
+                select(
+                    tables.inbound_message_jobs.c.conversation_id,
+                    tables.inbound_message_jobs.c.created_at,
+                ).where(
+                    tables.inbound_message_jobs.c.id == job_uuid,
+                    tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
+                    tables.inbound_message_jobs.c.status == "pending",
+                    tables.inbound_message_jobs.c.available_at <= now,
+                )
+            )
+        ).one_or_none()
+        if candidate is None:
+            await session.execute(
+                delete(tables.conversation_processing_locks).where(
+                    tables.conversation_processing_locks.c.conversation_id == conversation_id,
+                    tables.conversation_processing_locks.c.job_id == job_uuid,
+                )
+            )
+            await session.commit()
+            return False
+
+        predecessor = await session.execute(
+            select(tables.inbound_message_jobs.c.id)
+            .where(
+                tables.inbound_message_jobs.c.conversation_id == candidate.conversation_id,
+                tables.inbound_message_jobs.c.status.in_(("pending", "processing")),
+                tuple_(
+                    tables.inbound_message_jobs.c.created_at,
+                    tables.inbound_message_jobs.c.id,
+                )
+                < tuple_(candidate.created_at, job_uuid),
+            )
+            .limit(1)
+        )
+        if predecessor.scalar_one_or_none() is not None:
+            await session.execute(
+                delete(tables.conversation_processing_locks).where(
+                    tables.conversation_processing_locks.c.conversation_id == conversation_id,
+                    tables.conversation_processing_locks.c.job_id == job_uuid,
+                )
+            )
+            await session.commit()
+            return False
+
         claimed = await session.execute(
             update(tables.inbound_message_jobs)
             .where(
-                tables.inbound_message_jobs.c.id == uuid.UUID(job_id),
-                tables.inbound_message_jobs.c.tenant_id == uuid.UUID(tenant_id),
+                tables.inbound_message_jobs.c.id == job_uuid,
+                tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
                 tables.inbound_message_jobs.c.status == "pending",
-                tables.inbound_message_jobs.c.available_at <= datetime.now(UTC),
+                tables.inbound_message_jobs.c.available_at <= now,
             )
             .values(
                 status="processing",
                 attempts=tables.inbound_message_jobs.c.attempts + 1,
-                locked_at=datetime.now(UTC),
+                locked_at=now,
                 last_error=None,
             )
             .returning(tables.inbound_message_jobs.c.id)
         )
+        if claimed.scalar_one_or_none() is None:
+            await session.execute(
+                delete(tables.conversation_processing_locks).where(
+                    tables.conversation_processing_locks.c.conversation_id == conversation_id,
+                    tables.conversation_processing_locks.c.job_id == job_uuid,
+                )
+            )
+            await session.commit()
+            return False
         await session.commit()
-    return claimed.scalar_one_or_none() is not None
+    return True
 
 
 async def _finish_inbound_job(
@@ -136,7 +241,9 @@ async def _finish_inbound_job(
         await session.commit()
 
 
-async def _release_inbound_job(ctx: dict, job_id: str, error: Exception) -> None:
+async def _release_inbound_job(
+    ctx: dict, job_id: str, error: Exception, *, defer_seconds: int
+) -> None:
     async with open_system_session(ctx["system_session_factory"]) as session:
         await session.execute(
             update(tables.inbound_message_jobs)
@@ -144,11 +251,139 @@ async def _release_inbound_job(ctx: dict, job_id: str, error: Exception) -> None
             .values(
                 status="pending",
                 locked_at=None,
-                available_at=datetime.now(UTC),
+                available_at=datetime.now(UTC) + timedelta(seconds=defer_seconds),
                 last_error=str(error)[:1000],
             )
         )
         await session.commit()
+
+
+async def _release_conversation_lock(ctx: dict, conversation_id: str, job_id: str) -> None:
+    """Libera somente o bloqueio que pertence a este job.
+
+    A condição pelo job protege contra um worker antigo apagar um bloqueio já
+    recuperado e assumido por outra execução.
+    """
+    async with open_system_session(ctx["system_session_factory"]) as session:
+        await session.execute(
+            delete(tables.conversation_processing_locks).where(
+                tables.conversation_processing_locks.c.conversation_id
+                == uuid.UUID(conversation_id),
+                tables.conversation_processing_locks.c.job_id == uuid.UUID(job_id),
+            )
+        )
+        await session.commit()
+
+
+async def _enqueue_next_inbound_message_job(ctx: dict, conversation_id: str) -> None:
+    """Dispara sem espera o próximo turno já disponível da conversa."""
+    if "redis" not in ctx:
+        return
+    now = datetime.now(UTC)
+    async with open_system_session(ctx["system_session_factory"]) as session:
+        row = (
+            await session.execute(
+                select(
+                    tables.inbound_message_jobs.c.id,
+                    tables.inbound_message_jobs.c.tenant_id,
+                    tables.inbound_message_jobs.c.message_id,
+                )
+                .where(
+                    tables.inbound_message_jobs.c.conversation_id == uuid.UUID(conversation_id),
+                    tables.inbound_message_jobs.c.status == "pending",
+                    tables.inbound_message_jobs.c.available_at <= now,
+                )
+                .order_by(
+                    tables.inbound_message_jobs.c.created_at,
+                    tables.inbound_message_jobs.c.id,
+                )
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+        ).one_or_none()
+        if row is not None:
+            await session.execute(
+                update(tables.inbound_message_jobs)
+                .where(tables.inbound_message_jobs.c.id == row.id)
+                .values(last_enqueued_at=now)
+            )
+        await session.commit()
+    if row is not None:
+        await ctx["redis"].enqueue_job(
+            "process_inbound_message",
+            tenant_id=str(row.tenant_id),
+            conversation_id=conversation_id,
+            message_id=str(row.message_id),
+            job_id=str(row.id),
+        )
+
+
+async def _has_newer_contact_message(
+    session: AsyncSession, conversation_id: str, message_id: str
+) -> bool:
+    marker = (
+        await session.execute(
+            select(tables.messages.c.created_at).where(
+                tables.messages.c.id == uuid.UUID(message_id)
+            )
+        )
+    ).scalar_one_or_none()
+    if marker is None:
+        return False
+    newer = await session.execute(
+        select(tables.messages.c.id)
+        .where(
+            tables.messages.c.conversation_id == uuid.UUID(conversation_id),
+            tables.messages.c.sender_type == "contact",
+            tables.messages.c.created_at > marker,
+        )
+        .limit(1)
+    )
+    return newer.scalar_one_or_none() is not None
+
+
+async def _restore_agent_context_before_stale_response(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    tenant_id: str,
+    conversation_id: str,
+    message_id: str,
+    contact_phone_number: str,
+) -> None:
+    """Remove da memória do agente a resposta que não será entregue."""
+    marker = (
+        await session.execute(
+            select(tables.messages.c.created_at).where(
+                tables.messages.c.id == uuid.UUID(message_id)
+            )
+        )
+    ).scalar_one_or_none()
+    if marker is None:
+        raise RuntimeError("mensagem de referência não encontrada para restaurar contexto")
+    rows = (
+        await session.execute(
+            select(tables.messages.c.sender_type, tables.messages.c.content)
+            .where(
+                tables.messages.c.conversation_id == uuid.UUID(conversation_id),
+                tables.messages.c.created_at <= marker,
+                tables.messages.c.sender_type.in_(("contact", "agent", "human")),
+            )
+            .order_by(tables.messages.c.created_at, tables.messages.c.id)
+        )
+    ).all()
+    history = [
+        {
+            "role": "contact" if row.sender_type == "contact" else "attendant",
+            "content": row.content,
+        }
+        for row in rows
+    ]
+    await replace_context_to_agents(
+        http,
+        tenant_id=tenant_id,
+        contact_phone_number=contact_phone_number,
+        messages=history,
+    )
 
 
 async def process_inbound_message(
@@ -161,7 +396,13 @@ async def process_inbound_message(
         await _process_inbound_message(ctx, tenant_id, conversation_id, message_id)
     except Retry:
         if job_id is not None:
-            await _release_inbound_job(ctx, job_id, RuntimeError("tentativa reagendada"))
+            await _release_inbound_job(
+                ctx,
+                job_id,
+                RuntimeError("tentativa reagendada"),
+                defer_seconds=ctx.get("job_try", 1) * 10,
+            )
+            await _release_conversation_lock(ctx, conversation_id, job_id)
         raise
     except Exception as exc:
         if ctx.get("job_try", 1) < MAX_TRIES:
@@ -171,7 +412,10 @@ async def process_inbound_message(
                 conversation_id,
             )
             if job_id is not None:
-                await _release_inbound_job(ctx, job_id, exc)
+                await _release_inbound_job(
+                    ctx, job_id, exc, defer_seconds=ctx.get("job_try", 1) * 10
+                )
+                await _release_conversation_lock(ctx, conversation_id, job_id)
             raise Retry(defer=ctx.get("job_try", 1) * 10) from exc
 
         logger.exception(
@@ -189,9 +433,13 @@ async def process_inbound_message(
             await session.commit()
         if job_id is not None:
             await _finish_inbound_job(ctx, job_id, failed=True, error=str(exc))
+            await _release_conversation_lock(ctx, conversation_id, job_id)
+            await _enqueue_next_inbound_message_job(ctx, conversation_id)
     else:
         if job_id is not None:
             await _finish_inbound_job(ctx, job_id)
+            await _release_conversation_lock(ctx, conversation_id, job_id)
+            await _enqueue_next_inbound_message_job(ctx, conversation_id)
 
 
 async def _process_inbound_message(
@@ -351,6 +599,30 @@ async def _process_inbound_message(
     if attachment_note:
         message_content = f"{message_content}\n{attachment_note}".strip()
 
+    # Se outra mensagem já chegou antes de iniciarmos a IA, preserva a atual
+    # no checkpoint e deixa apenas o último turno pendente gerar a resposta.
+    # Isso reduz respostas intermediárias e custo em rajadas maiores que o
+    # debounce, sem perder a ordem do histórico.
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        newer_message_already_saved = await _has_newer_contact_message(
+            session, conversation_id, message_id
+        )
+    if newer_message_already_saved:
+        await sync_context_to_agents(
+            http,
+            tenant_id=tenant_id,
+            contact_phone_number=inbound.contact_phone_number,
+            role="contact",
+            content=message_content,
+        )
+        logger.info(
+            "Mensagem incorporada sem gerar resposta; há turno mais recente | "
+            "tenant=%s conversation=%s",
+            tenant_id,
+            conversation_id,
+        )
+        return
+
     try:
         result = await send_message_to_agents(
             http,
@@ -400,6 +672,31 @@ async def _process_inbound_message(
         # 202: debounce agrupou em execução já em andamento.
         logger.info(
             "Mensagem agrupada pelo debounce do agents | tenant=%s conversation=%s",
+            tenant_id,
+            conversation_id,
+        )
+        return
+
+    # O contato pode enviar informação nova enquanto o LLM ainda responde.
+    # A resposta atual não é gravada, cobrada nem enviada. Como o agents
+    # service já gravou aquela resposta no próprio checkpoint, reconstituímos
+    # a memória somente com o histórico que o cliente realmente recebeu.
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        response_became_stale = await _has_newer_contact_message(
+            session, conversation_id, message_id
+        )
+        if response_became_stale:
+            await _restore_agent_context_before_stale_response(
+                session,
+                http,
+                tenant_id,
+                conversation_id,
+                message_id,
+                inbound.contact_phone_number,
+            )
+    if response_became_stale:
+        logger.info(
+            "Resposta descartada porque chegou uma nova mensagem | tenant=%s conversation=%s",
             tenant_id,
             conversation_id,
         )

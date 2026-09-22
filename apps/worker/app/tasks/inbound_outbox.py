@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 
 from app import tables
 from app.db import open_system_session
@@ -16,6 +16,14 @@ async def recover_inbound_message_jobs(ctx: dict) -> None:
     """Reenvia pendências e libera jobs abandonados por worker interrompido."""
     now = datetime.now(UTC)
     async with open_system_session(ctx["system_session_factory"]) as session:
+        # O lease protege contra worker encerrado no meio de uma geração. O
+        # próximo job só poderá assumir a conversa depois que esta linha for
+        # removida; apagar por idade evita atendimento travado para sempre.
+        await session.execute(
+            delete(tables.conversation_processing_locks).where(
+                tables.conversation_processing_locks.c.locked_at < now - PROCESSING_LEASE
+            )
+        )
         await session.execute(
             update(tables.inbound_message_jobs)
             .where(

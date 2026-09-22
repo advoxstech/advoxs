@@ -37,7 +37,7 @@ Cliente (WhatsApp) ──▶ Meta/Z-API ──webhook──▶ api (backend gera
                               POST /messages ──▶ FastAPI (api/routes.py)
                                                       │
                                                       ▼
-                                            debounce (Redis, 5s)
+                                            debounce (Redis, 12s por padrão)
                                                       │
                                                       ▼
                                   run_agent (LangGraph + Postgres checkpoint)
@@ -107,7 +107,7 @@ api_agent/
 A aplicação FastAPI expõe 6 endpoints. O objeto exportado é `app`.
 
 **Autenticação (serviço interno):** se a env `AGENTS_API_KEY` estiver setada,
-`POST /messages`, `DELETE /conversations/{thread_id}`, `POST
+`POST /messages`, `DELETE /conversations/{thread_id}`, `POST` ou `PUT
 /conversations/{thread_id}/context` e `POST /summaries` exigem o header
 `Authorization: <AGENTS_API_KEY>` (valor cru, sem `Bearer`; comparação com
 `secrets.compare_digest`). `GET /agents` e `GET /generated-documents/{doc_id}`
@@ -165,7 +165,7 @@ mensagem de erro genérica, sem chamar o LLM.
 1. Monta o `thread_id = "{tenant_id}:{contact_phone_number}"` — chave de
    isolamento por tenant usada no debounce, no checkpoint do LangGraph e no
    escopo dos documentos de usuário no RAG.
-2. **Debounce** (`debounce_messages`) — aguarda ~5s agrupando mensagens em
+2. **Debounce** (`debounce_messages`) — aguarda 12s por padrão, agrupando mensagens em
    rajada da mesma conversa. Se outra execução mais recente assumiu o buffer,
    retorna `202 Accepted` (`{"message": "Execução em andamento"}`) e encerra.
    Falha de Redis → `503`.
@@ -260,7 +260,20 @@ conversaram.
 - Implementação: `services/update_context.py` (`aupdate_state` com o reducer
   do campo `messages` do estado, `operator.add` — ver §sobre o State).
 
-### 3.5 `POST /summaries` — Resumir uma conversa
+### 3.5 `PUT /conversations/{thread_id}/context` — Substituir o checkpoint
+
+Apaga o checkpoint atual e o reconstrói com o histórico persistido recebido no
+body. O worker usa esta rota quando descarta uma resposta produzida antes de
+uma nova mensagem do contato, para que uma resposta não enviada não fique na
+memória do agente.
+
+- Auth: mesma API key de serviço (`Authorization: <AGENTS_API_KEY>`).
+- Body: `{"messages": [{"role": "contact" | "attendant", "content": "..."}]}`;
+  aceita lista vazia.
+- Resposta: `200 {"replaced": <n>}`. `role` inválido → 422; falha de
+  checkpoint → 500.
+
+### 3.6 `POST /summaries` — Resumir uma conversa
 
 Recebe `{"messages": [{"sender_type": "contact", "content": "..."}]}` e
 gera um resumo diretamente com o LLM, sem executar o grafo nem alterar o
@@ -268,7 +281,7 @@ checkpoint. Retorna `summary`, `tokens_used`, `tokens_input` e
 `tokens_output`, usados pelo `api` para persistir o resumo e cobrar o consumo.
 Lista vazia retorna `400`; falha do modelo retorna `500`.
 
-### 3.6 `GET /generated-documents/{doc_id}` — Entregar PDF gerado
+### 3.7 `GET /generated-documents/{doc_id}` — Entregar PDF gerado
 
 Serve o PDF criado pelas tools de documento. A rota não exige a API key
 interna porque Meta/Z-API precisam buscar o arquivo pela URL pública. O
@@ -330,7 +343,7 @@ async def debounce_messages(
     message: str,
     conversation_id: str,
     redis_host=..., redis_port=...,
-    debounce_seconds: int = 5,
+    debounce_seconds: int | None = None,
 ) -> dict
 ```
 
@@ -759,4 +772,5 @@ Requisitos mínimos para a Opção B:
 | GET    | `/generated-documents/{doc_id}` | Entrega um PDF gerado por tool               | 200     | 404                  |
 | DELETE | `/conversations/{thread_id}`    | Apaga histórico da conversa                  | 200     | 403/500              |
 | POST   | `/conversations/{thread_id}/context` | Anexa mensagens ao checkpoint sem executar a IA | 200 | 403/422/500 |
+| PUT    | `/conversations/{thread_id}/context` | Substitui o checkpoint pelo histórico persistido | 200 | 403/422/500 |
 | POST   | `/summaries`                    | Gera resumo sem alterar o checkpoint         | 200     | 400/403/422/500      |
