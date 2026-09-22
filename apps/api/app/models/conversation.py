@@ -28,6 +28,10 @@ class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (
         CheckConstraint("state IN ('agent', 'human', 'billing_gate')", name="state"),
+        CheckConstraint(
+            "automation_status IN ('idle', 'processing', 'failed')",
+            name="automation_status",
+        ),
         UniqueConstraint("tenant_id", "contact_phone_number"),
     )
 
@@ -37,6 +41,9 @@ class Conversation(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'agent'"))
+    automation_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="idle", server_default=text("'idle'")
+    )
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     summary: Mapped[str | None] = mapped_column(Text)

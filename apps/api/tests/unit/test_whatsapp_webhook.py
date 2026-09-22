@@ -98,7 +98,7 @@ class TestReceiveWebhook:
     def test_persists_and_enqueues_message(self, client, fake_session, arq_pool) -> None:
         tenant_id = uuid.uuid4()
         number = MagicMock(tenant_id=tenant_id)
-        conversation = MagicMock(id=uuid.uuid4(), tenant_id=tenant_id)
+        conversation = MagicMock(id=uuid.uuid4(), tenant_id=tenant_id, state="agent")
         # Ordem dos scalar(): número -> dedup (None) -> conversa existente
         fake_session.scalar.side_effect = [number, None, conversation]
 
@@ -112,6 +112,22 @@ class TestReceiveWebhook:
         assert call.args == ("process_inbound_message",)
         assert call.kwargs["tenant_id"] == str(tenant_id)
         assert call.kwargs["conversation_id"] == str(conversation.id)
+        assert conversation.automation_status == "processing"
+
+    def test_falha_na_fila_preserva_pendencia_para_recuperacao(
+        self, client, fake_session, arq_pool
+    ) -> None:
+        tenant_id = uuid.uuid4()
+        number = MagicMock(tenant_id=tenant_id)
+        conversation = MagicMock(id=uuid.uuid4(), tenant_id=tenant_id, state="agent")
+        fake_session.scalar.side_effect = [number, None, conversation]
+        arq_pool.enqueue_job.side_effect = RuntimeError("redis indisponível")
+
+        response = client.post(WEBHOOK_PATH, json=TEXT_PAYLOAD)
+
+        assert response.status_code == 200
+        assert fake_session.commit.await_count == 1
+        assert conversation.automation_status == "processing"
 
     def test_unknown_phone_number_id_is_ignored(self, client, fake_session, arq_pool) -> None:
         fake_session.scalar.side_effect = [None]
@@ -124,7 +140,8 @@ class TestReceiveWebhook:
 
     def test_duplicate_wamid_is_ignored(self, client, fake_session, arq_pool) -> None:
         number = MagicMock(tenant_id=uuid.uuid4())
-        fake_session.scalar.side_effect = [number, uuid.uuid4()]  # dedup encontra mensagem
+        # Dedup encontra a mensagem; não há pendência ativa para reenfileirar.
+        fake_session.scalar.side_effect = [number, uuid.uuid4(), None]
 
         response = client.post(WEBHOOK_PATH, json=TEXT_PAYLOAD)
 
