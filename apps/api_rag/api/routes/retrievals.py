@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from api.security import verify_api_key
 from constants import SYSTEM_TENANT_ID
+from safe_logging import safe_error, safe_identifier
 from services.retrieval.main import RetrievalService
 
 router_retrieval = APIRouter(prefix="/retrieval")
@@ -33,19 +34,19 @@ async def retrieval_system(
 ):
     """Busca na base de conhecimento da plataforma (compartilhada), por categoria."""
     try:
-        logger.info(f"Busca sistema | base={body.base} | mensagem={body.message}")
+        logger.info("Busca sistema | base={} | caracteres={}", body.base, len(body.message))
         results = await service.search_hybrid(
             query=body.message,
             tenant_id=SYSTEM_TENANT_ID,
             extra_filters={"base": body.base},
         )
         return {"results": results}
-    except ValueError as e:
-        logger.warning(f"Erro de busca de informações: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao buscar informações: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as exc:
+        logger.warning("Parâmetros inválidos na busca | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Erro ao buscar informações | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router_retrieval.post("/users")
@@ -62,8 +63,10 @@ async def retrieval_users(
     """
     try:
         logger.info(
-            f"Busca usuário | tenant={body.tenant_id} | conversa={body.conversation_id}"
-            f" | mensagem={body.message}"
+            "Busca usuário | tenant_ref={} | conversation_ref={} | caracteres={}",
+            safe_identifier(body.tenant_id),
+            safe_identifier(body.conversation_id),
+            len(body.message),
         )
         extra_filters = {"conversation_id": body.conversation_id}
         if body.doc_ids:
@@ -74,9 +77,9 @@ async def retrieval_users(
             extra_filters=extra_filters,
         )
         return {"results": results}
-    except ValueError as e:
-        logger.warning(f"Erro de busca de informações: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao buscar informações: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as exc:
+        logger.warning("Parâmetros inválidos na busca | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Erro ao buscar informações | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

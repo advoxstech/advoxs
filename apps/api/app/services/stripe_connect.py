@@ -44,6 +44,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.safe_logging import safe_error
 from app.models import TenantBillingSettings
 from app.schemas.end_customer_billing import ConnectEarningsOut, ConnectPayoutOut
 
@@ -177,7 +178,11 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
         try:
             account = await _create_stripe_account()
         except stripe.error.StripeError as exc:
-            logger.error("Falha ao criar conta conectada | tenant=%s erro=%s", tenant_id, exc)
+            logger.error(
+                "Falha ao criar conta conectada | tenant=%s error_type=%s",
+                tenant_id,
+                safe_error(exc),
+            )
             raise ConnectApiError("Falha ao iniciar a configuração de pagamentos") from exc
 
         row.stripe_account_id = account.id
@@ -194,10 +199,10 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
         except stripe.error.StripeError as exc:
             logger.warning(
                 "Falha ao solicitar capability pix_payments (best-effort) | "
-                "tenant=%s conta=%s erro=%s",
+                "tenant=%s conta=%s error_type=%s",
                 tenant_id,
                 account.id,
-                exc,
+                safe_error(exc),
             )
 
         await session.commit()
@@ -207,10 +212,10 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
     except stripe.error.StripeError as exc:
         logger.warning(
             "Falha ao revalidar status da conta (best-effort, mantém o valor já salvo) | "
-            "tenant=%s conta=%s erro=%s",
+            "tenant=%s conta=%s error_type=%s",
             tenant_id,
             row.stripe_account_id,
-            exc,
+            safe_error(exc),
         )
     else:
         if live_status != row.stripe_account_status:
@@ -220,7 +225,11 @@ async def create_or_refresh_connect_account(session: AsyncSession, tenant_id: uu
     try:
         account_session = await _create_account_session(row.stripe_account_id)
     except stripe.error.StripeError as exc:
-        logger.error("Falha ao criar Account Session | tenant=%s erro=%s", tenant_id, exc)
+        logger.error(
+            "Falha ao criar Account Session | tenant=%s error_type=%s",
+            tenant_id,
+            safe_error(exc),
+        )
         raise ConnectApiError("Falha ao iniciar a configuração de pagamentos") from exc
 
     return account_session.client_secret
@@ -252,7 +261,11 @@ async def get_account_earnings(stripe_account_id: str) -> ConnectEarningsOut:
             limit=10,
         )
     except stripe.error.StripeError as exc:
-        logger.error("Falha ao consultar saldo/repasses | conta=%s erro=%s", stripe_account_id, exc)
+        logger.error(
+            "Falha ao consultar saldo/repasses | conta=%s error_type=%s",
+            stripe_account_id,
+            safe_error(exc),
+        )
         raise ConnectApiError("Falha ao consultar o saldo — tente novamente em instantes") from exc
 
     return ConnectEarningsOut(

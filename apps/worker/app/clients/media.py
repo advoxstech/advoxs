@@ -34,7 +34,7 @@ async def download_meta_media(media_id: str, access_token: str) -> bytes:
             file_response = await client.get(download_url, headers=headers)
             file_response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise MediaDownloadError(f"Falha ao baixar mídia da Graph API: {exc}") from exc
+        raise MediaDownloadError("Falha ao baixar mídia da Graph API") from exc
     return file_response.content
 
 
@@ -45,5 +45,5 @@ async def download_zapi_media(media_url: str, client_token: str | None = None) -
             response = await client.get(media_url, headers=headers)
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise MediaDownloadError(f"Falha ao baixar mídia da Z-API: {exc}") from exc
+        raise MediaDownloadError("Falha ao baixar mídia da Z-API") from exc
     return response.content

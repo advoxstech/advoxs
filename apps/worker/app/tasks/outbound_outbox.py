@@ -12,6 +12,7 @@ from app.clients.whatsapp import send_document_message, send_text_message
 from app.clients.zapi import send_zapi_document_message, send_zapi_text_message
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
+from app.safe_logging import safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -264,16 +265,17 @@ async def deliver_outbound_message(ctx: dict, tenant_id: str, job_id: str) -> No
             await session.commit()
     except Exception as exc:
         if ctx.get("job_try", 1) < MAX_DELIVERY_TRIES:
-            await _set_job_status(ctx, job_id, status="pending", error=str(exc))
+            await _set_job_status(ctx, job_id, status="pending", error=safe_error(exc))
             logger.warning(
-                "Falha na entrega, reagendando sem gerar nova resposta | tenant=%s job=%s erro=%s",
+                "Falha na entrega, reagendando sem gerar nova resposta | "
+                "tenant=%s job=%s error_type=%s",
                 tenant_id,
                 job_id,
-                exc,
+                safe_error(exc),
             )
             raise Retry(defer=ctx.get("job_try", 1) * 10) from exc
 
-        await _set_job_status(ctx, job_id, status="failed", error=str(exc))
+        await _set_job_status(ctx, job_id, status="failed", error=safe_error(exc))
         if message_id is not None and conversation_id is not None:
             async with open_tenant_session(ctx["session_factory"], tenant_id) as session:
                 await session.execute(
@@ -287,8 +289,11 @@ async def deliver_outbound_message(ctx: dict, tenant_id: str, job_id: str) -> No
                     .values(automation_status="failed")
                 )
                 await session.commit()
-        logger.exception(
-            "Falha definitiva ao entregar resposta | tenant=%s job=%s", tenant_id, job_id
+        logger.error(
+            "Falha definitiva ao entregar resposta | tenant=%s job=%s error_type=%s",
+            tenant_id,
+            job_id,
+            safe_error(exc),
         )
         return
 

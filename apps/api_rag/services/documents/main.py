@@ -16,6 +16,7 @@ from clients.qdrant import QdrantClient
 from constants import QDRANT_COLLECTION, SYSTEM_TENANT_ID
 from database.models import DocumentoSistema, DocumentoUsuario
 from database.repositories.documento import DocumentoRepository
+from safe_logging import safe_identifier
 
 load_dotenv()
 
@@ -72,7 +73,7 @@ class DocumentoService:
 
         chunks = self.chunker(texto)
         texts_list = [chunk.text for chunk in chunks]
-        logger.debug(f"Documento '{file_name}' dividido em {len(texts_list)} chunks")
+        logger.debug("Documento dividido | chunks={}", len(texts_list))
 
         embeddings_list = await self.emb_model.aembed_documents(texts_list)
         logger.debug(f"Embeddings gerados | total={len(embeddings_list)}")
@@ -86,7 +87,7 @@ class DocumentoService:
         os.makedirs(f"{base_dir}/{path_doc}", exist_ok=True)
         with open(f"{base_dir}/{path_doc}/{file_name}", "wb") as f:
             f.write(document_bytes)
-        logger.debug(f"Arquivo salvo em {base_dir}/{path_doc}/{file_name}")
+        logger.debug("Arquivo salvo | bytes={}", len(document_bytes))
         return base_dir, path_doc
 
     async def _salvar_qdrant(self, texts_list, embeddings_list, sparse_list, payload: dict):
@@ -111,9 +112,7 @@ class DocumentoService:
                     payload={**payload, "text": text},
                 )
             )
-        result = await self.qdrant.upsert_points(
-            collection_name=QDRANT_COLLECTION, points=points
-        )
+        result = await self.qdrant.upsert_points(collection_name=QDRANT_COLLECTION, points=points)
         if not result.get("success"):
             error = result.get("error") or "erro desconhecido"
             raise RuntimeError(f"Falha ao indexar documento no Qdrant: {error}")
@@ -188,8 +187,10 @@ class DocumentoService:
                 },
             )
             logger.info(
-                f"Documento '{doc_item['file_name']}' inserido | tenant={tenant_id}"
-                f" | conversa={conversation_id}"
+                "Documento inserido | doc_id={} | tenant_ref={} | conversation_ref={}",
+                doc.id,
+                safe_identifier(tenant_id),
+                safe_identifier(conversation_id),
             )
 
         logger.info("Processamento concluido")
@@ -199,7 +200,11 @@ class DocumentoService:
         if not tenant_id:
             raise ValueError("tenant_id é obrigatório")
 
-        logger.info(f"Deletando {len(docs_ids)} documentos | tenant={tenant_id}")
+        logger.info(
+            "Deletando documentos | total={} | tenant_ref={}",
+            len(docs_ids),
+            safe_identifier(tenant_id),
+        )
 
         for doc_id in docs_ids:
             doc = await self.repo.buscar_documento_usuario_por_id(UUID(doc_id))
@@ -213,7 +218,7 @@ class DocumentoService:
             caminho = f"{doc.path_base}/{doc.path_doc}/{doc.nome}"
             if os.path.exists(caminho):
                 os.remove(caminho)
-                logger.debug(f"Arquivo removido | caminho={caminho}")
+                logger.debug("Arquivo de documento removido | doc_id={}", doc_id)
 
             await self.qdrant.delete_points_by_filter(
                 collection_name=QDRANT_COLLECTION,
@@ -269,7 +274,7 @@ class DocumentoService:
                     "id_drive": id_drive,
                 },
             )
-            logger.info(f"Documento '{doc_item['file_name']}' inserido com sucesso | base={base}")
+            logger.info("Documento inserido com sucesso | doc_id={} | base={}", doc.id, base)
 
         logger.info("Processamento concluido")
         return
@@ -286,7 +291,7 @@ class DocumentoService:
             caminho = f"{doc.path_base}/{doc.path_doc}/{doc.nome}"
             if os.path.exists(caminho):
                 os.remove(caminho)
-                logger.debug(f"Arquivo removido | caminho={caminho}")
+                logger.debug("Arquivo de documento removido | doc_id={}", doc_id)
 
             await self.qdrant.delete_points_by_filter(
                 collection_name=QDRANT_COLLECTION,

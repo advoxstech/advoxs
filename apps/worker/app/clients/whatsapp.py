@@ -32,13 +32,11 @@ async def _post(phone_number_id: str, access_token: str, payload: dict) -> None:
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise WhatsAppSendError(f"Falha de rede ao chamar a Graph API: {exc}") from exc
+        raise WhatsAppSendError("Falha de rede ao chamar a Graph API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Graph API retornou erro | status=%s body=%s", response.status_code, response.text
-        )
-        raise WhatsAppSendError(f"Graph API HTTP {response.status_code}: {response.text}")
+        logger.warning("Graph API retornou erro | status=%s", response.status_code)
+        raise WhatsAppSendError(f"Graph API HTTP {response.status_code}")
 
 
 async def send_text_message(phone_number_id: str, access_token: str, to: str, text: str) -> None:

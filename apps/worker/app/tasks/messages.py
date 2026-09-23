@@ -24,6 +24,7 @@ from app.pricing import (
     calcular_creditos,
     get_current_pricing_config,
 )
+from app.safe_logging import safe_error
 from app.tasks.attachments import process_inbound_attachment
 from app.tasks.inbound_context import InboundContext
 from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
@@ -89,7 +90,9 @@ async def _sync_context(
         )
     except Exception as exc:
         logger.warning(
-            "Falha ao sincronizar contexto do takeover | tenant=%s erro=%s", tenant_id, exc
+            "Falha ao sincronizar contexto do takeover | tenant=%s error_type=%s",
+            tenant_id,
+            safe_error(exc),
         )
 
 
@@ -410,10 +413,11 @@ async def process_inbound_message(
         raise
     except Exception as exc:
         if ctx.get("job_try", 1) < MAX_TRIES:
-            logger.exception(
-                "Falha inesperada no turno, reagendando | tenant=%s conversation=%s",
+            logger.error(
+                "Falha inesperada no turno, reagendando | tenant=%s conversation=%s error_type=%s",
                 tenant_id,
                 conversation_id,
+                safe_error(exc),
             )
             if job_id is not None:
                 await _release_inbound_job(
@@ -422,10 +426,11 @@ async def process_inbound_message(
                 await _release_conversation_lock(ctx, conversation_id, job_id)
             raise Retry(defer=ctx.get("job_try", 1) * 10) from exc
 
-        logger.exception(
-            "Falha inesperada definitiva no turno | tenant=%s conversation=%s",
+        logger.error(
+            "Falha inesperada definitiva no turno | tenant=%s conversation=%s error_type=%s",
             tenant_id,
             conversation_id,
+            safe_error(exc),
         )
         session_factory = ctx["session_factory"]
         async with open_tenant_session(session_factory, tenant_id) as session:
@@ -436,7 +441,7 @@ async def process_inbound_message(
             )
             await session.commit()
         if job_id is not None:
-            await _finish_inbound_job(ctx, job_id, failed=True, error=str(exc))
+            await _finish_inbound_job(ctx, job_id, failed=True, error=safe_error(exc))
             await _release_conversation_lock(ctx, conversation_id, job_id)
             await _enqueue_next_inbound_message_job(ctx, conversation_id)
     else:
@@ -483,10 +488,10 @@ async def _process_inbound_message(
             # suja/abortada) — garante app.tenant_id setado de novo pra RLS.
             logger.error(
                 "Falha ao processar o billing gate, virando conversa pra human | "
-                "tenant=%s conversation=%s erro=%s",
+                "tenant=%s conversation=%s error_type=%s",
                 tenant_id,
                 conversation_id,
-                exc,
+                safe_error(exc),
             )
             async with open_tenant_session(session_factory, tenant_id) as session:
                 await session.execute(
@@ -638,10 +643,10 @@ async def _process_inbound_message(
         if ctx.get("job_try", 1) < MAX_TRIES:
             # Erro transiente (rede, 5xx): reagenda com backoff crescente.
             logger.warning(
-                "Falha ao chamar agents, reagendando | tenant=%s conversation=%s erro=%s",
+                "Falha ao chamar agents, reagendando | tenant=%s conversation=%s error_type=%s",
                 tenant_id,
                 conversation_id,
-                exc,
+                safe_error(exc),
             )
             raise Retry(defer=ctx.get("job_try", 1) * 10)
         # Última tentativa: o agente não conseguiu processar. Diferente do
@@ -651,10 +656,10 @@ async def _process_inbound_message(
         # do TTL do resultado.
         logger.error(
             "Esgotadas as tentativas de chamar agents, virando conversa pra human | "
-            "tenant=%s conversation=%s erro=%s",
+            "tenant=%s conversation=%s error_type=%s",
             tenant_id,
             conversation_id,
-            exc,
+            safe_error(exc),
         )
         async with open_tenant_session(session_factory, tenant_id) as session:
             await session.execute(
@@ -844,10 +849,12 @@ async def _process_inbound_message(
         # encontra o job pendente; não chamamos a IA nem cobramos novamente.
         try:
             await enqueue_outbound_message_jobs(ctx, outbound_job_ids)
-        except Exception:
-            logger.exception(
-                "Falha ao enfileirar entrega da resposta; recuperação assumirá | tenant=%s",
+        except Exception as exc:
+            logger.error(
+                "Falha ao enfileirar entrega da resposta; recuperação assumirá | "
+                "tenant=%s error_type=%s",
                 tenant_id,
+                safe_error(exc),
             )
 
         if saldo_tenant_zerou:

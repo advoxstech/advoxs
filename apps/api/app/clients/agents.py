@@ -6,6 +6,7 @@ import logging
 import httpx
 
 from app.core.config import settings
+from app.core.safe_logging import safe_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,7 @@ async def send_playground_message(
     if response.status_code == 202:
         return None
     if response.is_error:
-        logger.warning(
-            "agents retornou erro no playground | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("agents retornou erro no playground | status=%s", response.status_code)
         raise AgentsApiError(f"agents HTTP {response.status_code}")
 
     data = response.json()
@@ -95,7 +92,9 @@ async def delete_agent_checkpoint(thread_id: str) -> None:
             await client.delete(f"/conversations/{thread_id}", headers=_auth_headers())
     except httpx.HTTPError as exc:
         logger.warning(
-            "Falha ao apagar checkpoint do agente | thread_id=%s erro=%s", thread_id, exc
+            "Falha ao apagar checkpoint do agente | conversation_ref=%s error_type=%s",
+            safe_identifier(thread_id),
+            type(exc).__name__,
         )
 
 
@@ -115,11 +114,7 @@ async def generate_conversation_summary(messages: list[dict]) -> dict:
         raise AgentsNetworkError(f"Falha de rede ao chamar o agents: {exc}") from exc
 
     if response.is_error:
-        logger.warning(
-            "agents retornou erro ao gerar resumo | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("agents retornou erro ao gerar resumo | status=%s", response.status_code)
         raise AgentsApiError(f"agents HTTP {response.status_code}")
 
     data = response.json()
@@ -155,9 +150,5 @@ async def sync_conversation_context(
         raise AgentsNetworkError(f"Falha de rede ao sincronizar contexto: {exc}") from exc
 
     if response.is_error:
-        logger.warning(
-            "agents retornou erro no sync de contexto | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("agents retornou erro no sync de contexto | status=%s", response.status_code)
         raise AgentsApiError(f"agents retornou {response.status_code} no sync de contexto")

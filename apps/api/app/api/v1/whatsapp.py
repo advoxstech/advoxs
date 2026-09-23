@@ -40,6 +40,7 @@ from app.clients.zapi import (
 )
 from app.core.config import settings
 from app.core.crypto import decrypt_access_token, encrypt_access_token, encrypt_whatsapp_secret
+from app.core.safe_logging import safe_error
 from app.models import Tenant, WhatsAppNumber
 from app.schemas.whatsapp_connection import (
     ConnectWhatsAppRequest,
@@ -79,7 +80,7 @@ async def connect(
             body.phone_number_id, body.access_token
         )
     except WhatsAppNetworkError as exc:
-        logger.error("Falha de rede ao validar número | erro=%s", exc)
+        logger.error("Falha de rede ao validar número | error_type=%s", safe_error(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_GRAPH_ERROR_DETAIL)
     except WhatsAppApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -87,7 +88,7 @@ async def connect(
     try:
         await register_number(body.phone_number_id, body.access_token, body.pin)
     except WhatsAppNetworkError as exc:
-        logger.error("Falha de rede ao registrar número | erro=%s", exc)
+        logger.error("Falha de rede ao registrar número | error_type=%s", safe_error(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_GRAPH_ERROR_DETAIL)
     except WhatsAppApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -95,7 +96,7 @@ async def connect(
     try:
         await subscribe_app_to_waba(body.waba_id, body.access_token)
     except WhatsAppNetworkError as exc:
-        logger.error("Falha de rede ao inscrever app na WABA | erro=%s", exc)
+        logger.error("Falha de rede ao inscrever app na WABA | error_type=%s", safe_error(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_GRAPH_ERROR_DETAIL)
     except WhatsAppApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -212,7 +213,7 @@ async def get_zapi_qrcode(
     try:
         qrcode_base64 = await fetch_zapi_qrcode(number.zapi_instance_id, token, client_token)
     except ZApiNetworkError as exc:
-        logger.error("Falha de rede ao buscar QR code | erro=%s", exc)
+        logger.error("Falha de rede ao buscar QR code | error_type=%s", safe_error(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Falha ao comunicar com a Z-API — tente novamente em instantes",
@@ -310,7 +311,9 @@ async def _self_heal_zapi_status(number: WhatsAppNumber, session: AsyncSession) 
             await session.commit()
             await session.refresh(number)
     except (ZApiNetworkError, ZApiApiError) as exc:
-        logger.warning("Falha ao revalidar status Z-API (best-effort) | erro=%s", exc)
+        logger.warning(
+            "Falha ao revalidar status Z-API (best-effort) | error_type=%s", safe_error(exc)
+        )
 
     return number
 
@@ -402,7 +405,9 @@ async def disconnect(
         try:
             await disconnect_zapi_instance(number.zapi_instance_id, token, client_token)
         except (ZApiNetworkError, ZApiApiError) as exc:
-            logger.warning("Falha ao desconectar na Z-API (best-effort) | erro=%s", exc)
+            logger.warning(
+                "Falha ao desconectar na Z-API (best-effort) | error_type=%s", safe_error(exc)
+            )
 
     # Só notifica numa desconexão de verdade — clicar em "Desconectar" de
     # novo numa instância já desconectada não deve gerar aviso repetido.

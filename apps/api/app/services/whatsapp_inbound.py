@@ -14,6 +14,7 @@ from arq.connections import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.safe_logging import safe_error, safe_identifier
 from app.models import Conversation, InboundMessageJob, Message, WhatsAppNumber
 from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
 
@@ -34,7 +35,8 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
         )
         if number is None:
             logger.warning(
-                "Webhook Meta para phone_number_id desconhecido: %s", inbound.phone_number_id
+                "Webhook Meta para número desconhecido | provider_ref=%s",
+                safe_identifier(inbound.phone_number_id),
             )
             continue
         result = await _persist_inbound_message(
@@ -65,7 +67,10 @@ async def handle_meta_webhook(payload: dict, session: AsyncSession, arq: ArqRedi
         except Exception as exc:
             # A mensagem e a pendência já foram gravadas. Responder 200 evita
             # depender de uma nova entrega do provedor; o worker reenfileira.
-            logger.exception("Fila indisponível; pendência será recuperada | erro=%s", exc)
+            logger.error(
+                "Fila indisponível; pendência será recuperada | error_type=%s",
+                safe_error(exc),
+            )
 
     return {"received": len(persisted)}
 
@@ -88,8 +93,8 @@ async def handle_zapi_webhook(
     )
     if number is None or not hmac.compare_digest(number.zapi_webhook_secret or "", webhook_secret):
         logger.warning(
-            "Webhook Z-API com segredo ou instância inválidos | instance=%s",
-            inbound.zapi_instance_id,
+            "Webhook Z-API com segredo ou instância inválidos | provider_ref=%s",
+            safe_identifier(inbound.zapi_instance_id),
         )
         return {"received": 0}
 
@@ -119,7 +124,9 @@ async def handle_zapi_webhook(
             job_id=job_id,
         )
     except Exception as exc:
-        logger.exception("Fila indisponível; pendência será recuperada | erro=%s", exc)
+        logger.error(
+            "Fila indisponível; pendência será recuperada | error_type=%s", safe_error(exc)
+        )
     return {"received": 1}
 
 
@@ -138,7 +145,10 @@ async def _persist_inbound_message(
         select(Message.id).where(Message.wa_message_id == wa_message_id)
     )
     if duplicate_message_id is not None:
-        logger.info("Webhook duplicado ignorado (wamid=%s)", wa_message_id)
+        logger.info(
+            "Webhook duplicado ignorado | provider_message_ref=%s",
+            safe_identifier(wa_message_id),
+        )
         pending_job = await session.scalar(
             select(InboundMessageJob).where(
                 InboundMessageJob.message_id == duplicate_message_id,

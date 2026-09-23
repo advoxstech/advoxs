@@ -6,6 +6,7 @@ from api.security import verify_api_key
 from clients.qdrant import QdrantClient
 from database.repositories.documento import DocumentoRepository
 from database.session import get_session
+from safe_logging import safe_error
 from services.documents.main import DocumentoService
 
 router_doc_system = APIRouter(prefix="/documents/system")
@@ -42,12 +43,12 @@ async def inserir_documento(
         logger.info(f"Recebendo {len(files)} arquivos | base={base}")
         await service.inserir_documento_sistema(files, base, id_drive)
         return {"mensagem": "Documentos inseridos com sucesso"}
-    except ValueError as e:
-        logger.warning(f"Erro de validação ao inserir documento: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao inserir documento: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as exc:
+        logger.warning("Erro de validação ao inserir documento | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Erro ao inserir documento | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router_doc_system.delete("/delete")
@@ -56,14 +57,14 @@ async def deletar_documentos(
     service: DocumentoService = Depends(get_service),
     security: str = Depends(verify_api_key),
 ):
-    logger.info(f"Deletando documentos {docs_ids}")
+    logger.info("Deletando documentos | total={}", len(docs_ids))
     try:
         await service.deletar_documento_sistema(docs_ids)
         logger.info(f"Documentos | total={len(docs_ids)} deletados com sucesso")
         return {"mensagem": "Documentos deletados com sucesso"}
-    except ValueError as e:
-        logger.warning(str(e))
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Erro ao deletar documentos: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as exc:
+        logger.warning("Erro de validação ao deletar documentos | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Erro ao deletar documentos | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

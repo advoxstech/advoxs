@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_system_session
+from app.core.safe_logging import safe_error
 from app.services.billing import process_checkout_completed
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def receive_webhook(
             raw_body, stripe_signature, settings.stripe_webhook_secret
         )
     except (ValueError, stripe.error.SignatureVerificationError) as exc:
-        logger.warning("Assinatura de webhook inválida | erro=%s", exc)
+        logger.warning("Assinatura de webhook inválida | error_type=%s", safe_error(exc))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assinatura inválida")
 
     if event["type"] == "checkout.session.completed":

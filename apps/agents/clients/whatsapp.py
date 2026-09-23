@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from clients.ratelimit import acquire_rate_limit_slot
+from core.safe_logging import safe_error, safe_identifier, safe_url
 
 load_dotenv()
 
@@ -31,7 +32,9 @@ class WhatsAppClient:
         self._access_token = access_token
         self._base_url = f"{GRAPH_API_BASE_URL}/{GRAPH_API_VERSION}"
         self._client: httpx.AsyncClient | None = None
-        logger.info("WhatsAppClient inicializado | phone_number_id={}", phone_number_id)
+        logger.info(
+            "WhatsAppClient inicializado | provider_ref={}", safe_identifier(phone_number_id)
+        )
 
     # ---------- SESSION LIFECYCLE ----------
     async def __aenter__(self):
@@ -74,23 +77,22 @@ class WhatsAppClient:
                 logger.info(
                     "Executando requisição à Graph API | method={} url={} tentativa={}",
                     method,
-                    url,
+                    safe_url(url),
                     attempt,
                 )
                 response = await client.request(method, url, **kwargs)
 
                 if response.is_error:
                     logger.warning(
-                        "Resposta HTTP não OK | method={} url={} status={} body={}",
+                        "Resposta HTTP não OK | method={} url={} status={}",
                         method,
-                        url,
+                        safe_url(url),
                         response.status_code,
-                        response.text,
                     )
                     last_error = {
                         "success": False,
                         "data": None,
-                        "error": f"HTTP {response.status_code}: {response.text}",
+                        "error": f"HTTP {response.status_code}",
                     }
                     if response.status_code < 500:
                         # 4xx não é transitório — falha imediata, sem retry.
@@ -109,7 +111,7 @@ class WhatsAppClient:
                 logger.info(
                     "Requisição concluída | method={} url={} status={} elapsed={}s",
                     method,
-                    url,
+                    safe_url(url),
                     response.status_code,
                     elapsed,
                 )
@@ -119,7 +121,7 @@ class WhatsAppClient:
                 logger.error(
                     "Timeout ao acessar Graph API | method={} url={} tentativa={}",
                     method,
-                    url,
+                    safe_url(url),
                     attempt,
                 )
                 last_error = {
@@ -132,31 +134,37 @@ class WhatsAppClient:
                     continue
                 return last_error
 
-            except httpx.ConnectError as e:
+            except httpx.ConnectError as exc:
                 logger.error(
                     "Erro de conexão com Graph API | method={} url={} error={} tentativa={}",
                     method,
-                    url,
-                    e,
+                    safe_url(url),
+                    safe_error(exc),
                     attempt,
                 )
-                last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
+                last_error = {"success": False, "data": None, "error": "Erro de conexão"}
                 if attempt < _MAX_ATTEMPTS:
                     await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
                     continue
                 return last_error
 
-            except httpx.RequestError as e:
+            except httpx.RequestError as exc:
                 logger.error(
-                    "Erro de requisição à Graph API | method={} url={} error={}", method, url, e
+                    "Erro de requisição à Graph API | method={} url={} error_type={}",
+                    method,
+                    safe_url(url),
+                    safe_error(exc),
                 )
-                return {"success": False, "data": None, "error": f"Erro de requisição: {e}"}
+                return {"success": False, "data": None, "error": "Erro de requisição"}
 
-            except Exception as e:
-                logger.exception(
-                    "Erro inesperado ao acessar Graph API | method={} url={}", method, url
+            except Exception as exc:
+                logger.error(
+                    "Erro inesperado ao acessar Graph API | method={} url={} error_type={}",
+                    method,
+                    safe_url(url),
+                    safe_error(exc),
                 )
-                return {"success": False, "data": None, "error": f"Erro inesperado: {e}"}
+                return {"success": False, "data": None, "error": "Erro inesperado"}
 
         return last_error
 
@@ -170,7 +178,7 @@ class WhatsAppClient:
     # ---------- MESSAGES ----------
     async def send_text_message(self, to: str, text: str):
         url = f"{self._base_url}/{self._phone_number_id}/messages"
-        logger.info("Enviando mensagem de texto | to={}", to)
+        logger.info("Enviando mensagem de texto | contact_ref={}", safe_identifier(to))
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -184,7 +192,11 @@ class WhatsAppClient:
         self, to: str, link: str, filename: str | None = None, caption: str | None = None
     ):
         url = f"{self._base_url}/{self._phone_number_id}/messages"
-        logger.info("Enviando documento | to={} link={}", to, link)
+        logger.info(
+            "Enviando documento | contact_ref={} document_url={}",
+            safe_identifier(to),
+            safe_url(link),
+        )
         document: dict = {"link": link}
         if filename:
             document["filename"] = filename

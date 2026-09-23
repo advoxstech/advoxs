@@ -6,6 +6,8 @@ import httpx
 from dotenv import load_dotenv
 from loguru import logger
 
+from core.safe_logging import safe_error, safe_identifier
+
 load_dotenv()
 
 RAG_API_URL = os.getenv("RAG_API_URL")
@@ -35,15 +37,14 @@ async def retrieval_sistema(base: str, message: str) -> list[dict]:
             logger.debug("Retrieval sistema retornou {} chunks | base={}", len(results), base)
             return results
 
-    except httpx.HTTPStatusError as e:
+    except httpx.HTTPStatusError as exc:
         logger.error(
-            "Erro HTTP no retrieval sistema | status={} | response={}",
-            e.response.status_code,
-            e.response.text,
+            "Erro HTTP no retrieval sistema | status={}",
+            exc.response.status_code,
         )
         return []
-    except Exception as e:
-        logger.error("Erro ao consultar retrieval sistema | error={}", str(e))
+    except Exception as exc:
+        logger.error("Erro ao consultar retrieval sistema | error_type={}", safe_error(exc))
         return []
 
 
@@ -59,7 +60,8 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
     tenant_id, sep, contact_id = str(conversation_id).partition(":")
     if not sep:
         logger.warning(
-            "conversation_id sem tenant_id (esperado 'tenant:contato'): {}", conversation_id
+            "conversation_id sem tenant_id | conversation_ref={}",
+            safe_identifier(conversation_id),
         )
         contact_id = tenant_id
 
@@ -79,21 +81,20 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
             data = response.json()
             results = data.get("results", [])
             logger.debug(
-                "Retrieval usuário retornou {} chunks | conversation_id={}",
+                "Retrieval usuário retornou {} chunks | conversation_ref={}",
                 len(results),
-                conversation_id,
+                safe_identifier(conversation_id),
             )
             return results
 
-    except httpx.HTTPStatusError as e:
+    except httpx.HTTPStatusError as exc:
         logger.error(
-            "Erro HTTP no retrieval usuário | status={} | response={}",
-            e.response.status_code,
-            e.response.text,
+            "Erro HTTP no retrieval usuário | status={}",
+            exc.response.status_code,
         )
         return []
-    except Exception as e:
-        logger.error("Erro ao consultar retrieval usuário | error={}", str(e))
+    except Exception as exc:
+        logger.error("Erro ao consultar retrieval usuário | error_type={}", safe_error(exc))
         return []
 
 
@@ -141,13 +142,12 @@ async def retrieval_escritorio(
             )
             return results
 
-    except httpx.HTTPStatusError as e:
+    except httpx.HTTPStatusError as exc:
         logger.error(
-            "Erro HTTP no retrieval escritório | status={} | response={}",
-            e.response.status_code,
-            e.response.text,
+            "Erro HTTP no retrieval escritório | status={}",
+            exc.response.status_code,
         )
         return []
-    except Exception as e:
-        logger.error("Erro ao consultar retrieval escritório | error={}", str(e))
+    except Exception as exc:
+        logger.error("Erro ao consultar retrieval escritório | error_type={}", safe_error(exc))
         return []

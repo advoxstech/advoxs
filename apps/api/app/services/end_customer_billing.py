@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.whatsapp import WhatsAppSendError
 from app.core.config import settings
 from app.core.crypto import decrypt_tenant_secret
+from app.core.safe_logging import safe_error, safe_identifier
 from app.models import (
     Conversation,
     EndCustomerBalance,
@@ -157,7 +158,7 @@ async def create_end_customer_checkout_session(
                 cancel_url=f"{settings.web_app_url}/pagamento-confirmado?status=cancelado",
             )
     except stripe.error.StripeError as exc:
-        logger.error("Falha ao criar checkout do cliente final | erro=%s", exc)
+        logger.error("Falha ao criar checkout do cliente final | error_type=%s", safe_error(exc))
         raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc
 
     return checkout_session.url
@@ -289,9 +290,9 @@ async def _notify_end_customer(
         )
         if number is None or conversation is None:
             logger.warning(
-                "Sem número/conversa pra notificar o cliente final | tenant=%s contato=%s",
+                "Sem número/conversa pra notificar o cliente final | tenant=%s contact_ref=%s",
                 tenant_id,
-                contact_phone_number,
+                safe_identifier(contact_phone_number),
             )
             return
 
@@ -315,17 +316,20 @@ async def _notify_end_customer(
             conversation.billing_gate_retries = 0
             conversation.billing_gate_checkout_url = None
         await session.commit()
-    except WhatsAppSendError:
-        logger.exception(
-            "Falha ao notificar o cliente final via WhatsApp | tenant=%s contato=%s",
+    except WhatsAppSendError as exc:
+        logger.error(
+            "Falha ao notificar o cliente final via WhatsApp | "
+            "tenant=%s contact_ref=%s error_type=%s",
             tenant_id,
-            contact_phone_number,
+            safe_identifier(contact_phone_number),
+            safe_error(exc),
         )
-    except Exception:
-        logger.exception(
-            "Erro inesperado ao notificar o cliente final | tenant=%s contato=%s",
+    except Exception as exc:
+        logger.error(
+            "Erro inesperado ao notificar o cliente final | tenant=%s contact_ref=%s error_type=%s",
             tenant_id,
-            contact_phone_number,
+            safe_identifier(contact_phone_number),
+            safe_error(exc),
         )
 
 

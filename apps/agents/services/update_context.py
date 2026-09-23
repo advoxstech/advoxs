@@ -3,6 +3,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from loguru import logger
 
 from agents.workflow import graph
+from core.safe_logging import safe_identifier
 from services.call_agent import DB_URI
 
 # contact = o cliente final (HumanMessage); attendant = o atendente do
@@ -25,8 +26,8 @@ async def add_context_messages(thread_id: str, messages: list[dict], db_uri: str
         agent = graph.compile(checkpointer=checkpointer)
         await agent.aupdate_state(config, {"messages": lc_messages})
     logger.info(
-        "Contexto anexado ao checkpoint | thread_id={} | mensagens={}",
-        thread_id,
+        "Contexto anexado ao checkpoint | conversation_ref={} | mensagens={}",
+        safe_identifier(thread_id),
         len(lc_messages),
     )
     return len(lc_messages)
@@ -49,5 +50,9 @@ async def replace_context_messages(
         if lc_messages:
             agent = graph.compile(checkpointer=checkpointer)
             await agent.aupdate_state(config, {"messages": lc_messages})
-    logger.info("Contexto substituído | thread_id={} | mensagens={}", thread_id, len(lc_messages))
+    logger.info(
+        "Contexto substituído | conversation_ref={} | mensagens={}",
+        safe_identifier(thread_id),
+        len(lc_messages),
+    )
     return len(lc_messages)

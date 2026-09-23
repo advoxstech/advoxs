@@ -17,6 +17,7 @@ import httpx
 from app.clients.media import MediaDownloadError, download_meta_media, download_zapi_media
 from app.clients.rag import ingest_document
 from app.config import settings
+from app.safe_logging import safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,9 @@ async def process_inbound_attachment(
         else:
             file_bytes = await download_meta_media(media_ref, access_token or "")
     except MediaDownloadError as exc:
-        logger.warning("Falha ao baixar anexo | tenant=%s erro=%s", tenant_id, exc)
+        logger.warning(
+            "Falha ao baixar anexo | tenant=%s error_type=%s", tenant_id, safe_error(exc)
+        )
         return _NOTA_FALHA_DOWNLOAD
 
     if len(file_bytes) > settings.attachment_max_bytes:
@@ -101,7 +104,11 @@ async def process_inbound_attachment(
             conversation_id=conversation_id,
         )
     except httpx.HTTPError as exc:
-        logger.warning("Falha ao ingerir anexo no api_rag | tenant=%s erro=%s", tenant_id, exc)
+        logger.warning(
+            "Falha ao ingerir anexo no api_rag | tenant=%s error_type=%s",
+            tenant_id,
+            safe_error(exc),
+        )
         return _NOTA_FALHA_INGESTAO
 
     logger.info(

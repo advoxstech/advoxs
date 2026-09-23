@@ -109,7 +109,4 @@ async def run_agent(
         current_agent,
         elapsed,
     )
-    for i, ans in enumerate(answers):
-        logger.debug("Resposta {} | conversation_id={} | content={}", i + 1, conversation_id, ans)
-
     return answers, usage, current_agent, current_agent_id, generated_documents

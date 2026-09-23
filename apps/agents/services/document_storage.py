@@ -18,6 +18,7 @@ import uuid
 from loguru import logger
 
 from clients.document_generation import DocumentGenerationError
+from core.safe_logging import safe_error, safe_identifier
 
 GENERATED_DOCUMENTS_DIR = os.getenv("GENERATED_DOCUMENTS_DIR", "/data/generated_documents")
 AGENTS_PUBLIC_URL = os.getenv("AGENTS_PUBLIC_URL", "")
@@ -73,7 +74,11 @@ def cleanup_old_files(max_age_hours: int = RETENTION_HOURS) -> int:
                 os.remove(path)
                 removed += 1
         except OSError as exc:
-            logger.warning("Falha ao limpar documento gerado | path={} erro={}", path, exc)
+            logger.warning(
+                "Falha ao limpar documento gerado | doc_ref={} erro={}",
+                safe_identifier(name),
+                safe_error(exc),
+            )
     if removed:
         logger.info("Limpeza de documentos gerados | removidos={}", removed)
     return removed
@@ -87,5 +92,8 @@ async def start_cleanup_loop() -> None:
         await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
         try:
             cleanup_old_files()
-        except Exception:
-            logger.exception("Erro inesperado na limpeza de documentos gerados")
+        except Exception as exc:
+            logger.error(
+                "Erro inesperado na limpeza de documentos gerados | error_type={}",
+                safe_error(exc),
+            )

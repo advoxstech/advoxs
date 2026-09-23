@@ -13,6 +13,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -p test_production_config.py -v
+      - run: python scripts/check_sensitive_logs.py
 
   changes:
     runs-on: ubuntu-latest

@@ -10,6 +10,7 @@ from loguru import logger
 
 from clients.qdrant import QdrantClient
 from constants import QDRANT_COLLECTION
+from safe_logging import safe_error
 
 load_dotenv()
 
@@ -115,7 +116,7 @@ class RetrievalService:
         )
 
         if not result["success"]:
-            logger.error(f"Falha na busca híbrida: {result['error']}")
+            logger.error("Falha na busca híbrida | qdrant_error=true")
             return []
 
         hits = result["data"].points
@@ -158,17 +159,20 @@ Exemplo de saída:
   "keywords": ["JWT", "autenticação", "token", "assinatura", "bearer"]
 }}"""
 
-        logger.info(f"Transformando query via LLM: '{query}'")
+        logger.info("Transformando query via LLM | caracteres={}", len(query))
         response = await self._openai.ainvoke([HumanMessage(content=prompt)])
 
         try:
             parsed = json.loads(response.content)
             hyde_doc = parsed["hyde"]
             keywords = parsed["keywords"]
-            logger.info(f"HyDE gerado ({len(hyde_doc)} chars) | Keywords: {keywords}")
+            logger.info("HyDE gerado | caracteres={} | keywords={}", len(hyde_doc), len(keywords))
             return hyde_doc, keywords
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Falha ao parsear resposta do LLM: {e}. Usando fallback.")
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.warning(
+                "Falha ao parsear resposta do LLM; usando fallback | error_type={}",
+                safe_error(exc),
+            )
             return query, query.split()
 
     async def _embed_dense(self, text: str) -> list[float]:

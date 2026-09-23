@@ -82,14 +82,10 @@ async def check_zapi_status(instance_id: str, token: str, client_token: str | No
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.get(url, headers=_headers(client_token))
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao consultar status na Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao consultar status na Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (status) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (status) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível validar as credenciais com a Z-API")
         )
@@ -115,13 +111,12 @@ async def configure_zapi_webhook(
                 url, headers=_headers(client_token), json={"value": webhook_url}
             )
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao configurar webhook na Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao configurar webhook na Z-API") from exc
 
     if response.is_error:
         logger.warning(
-            "Z-API (update-webhook-received) retornou erro | status=%s body=%s",
+            "Z-API (update-webhook-received) retornou erro | status=%s",
             response.status_code,
-            response.text,
         )
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível configurar o webhook na Z-API")
@@ -133,10 +128,7 @@ async def configure_zapi_webhook(
         # payload rejeitado) — nunca confiar só no status HTTP aqui. É
         # exatamente esse comportamento que mascarou o bug do endpoint
         # antigo por toda a vida desta feature até agora.
-        logger.warning(
-            "Z-API (update-webhook-received) respondeu 200 com erro no corpo | body=%s",
-            response.text,
-        )
+        logger.warning("Z-API (update-webhook-received) respondeu 200 com erro no corpo")
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível configurar o webhook na Z-API")
         )
@@ -149,14 +141,10 @@ async def fetch_zapi_qrcode(instance_id: str, token: str, client_token: str | No
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.get(url, headers=_headers(client_token))
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao buscar QR code na Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao buscar QR code na Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (qr-code-image) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (qr-code-image) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível obter o QR code da Z-API")
         )
@@ -169,9 +157,7 @@ async def fetch_zapi_qrcode(instance_id: str, token: str, client_token: str | No
         # caso antes de chegar aqui (ver check_zapi_status), mas nunca confiar
         # só nisso — sem essa checagem, isso vira um KeyError não tratado.
         logger.warning(
-            "Z-API (qr-code-image) resposta sem QR code | status=%s body=%s",
-            response.status_code,
-            response.text,
+            "Z-API (qr-code-image) resposta sem QR code | status=%s", response.status_code
         )
         raise ZApiApiError(
             _zapi_error_message(
@@ -191,14 +177,10 @@ async def fetch_zapi_connected_phone(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.get(url, headers=_headers(client_token))
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao buscar dispositivo na Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao buscar dispositivo na Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (device) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (device) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(
                 response, "Não foi possível consultar o dispositivo conectado na Z-API"
@@ -216,14 +198,10 @@ async def disconnect_zapi_instance(instance_id: str, token: str, client_token: s
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.post(url, headers=_headers(client_token))
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao desconectar na Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao desconectar na Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (disconnect) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (disconnect) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível desconectar a instância na Z-API")
         )
@@ -242,14 +220,10 @@ async def send_zapi_text_message(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.post(url, headers=_headers(client_token), json=payload)
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao enviar mensagem pela Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao enviar mensagem pela Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (send-text) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (send-text) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível enviar a mensagem pela Z-API")
         )

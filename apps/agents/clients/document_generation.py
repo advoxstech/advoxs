@@ -11,6 +11,8 @@ import httpx
 from dotenv import load_dotenv
 from loguru import logger
 
+from core.safe_logging import safe_error
+
 load_dotenv()
 
 DOCUMENT_API_BASE_URL = os.getenv("DOCUMENT_API_BASE_URL", "https://api_advoxs.rootlab.com.br")
@@ -115,7 +117,7 @@ async def _draft_document(client: httpx.AsyncClient, tipo: str, text_payload: st
         response = await client.post(url, headers=_headers(), json={"text": text_payload})
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.error("Falha ao redigir documento | tipo={} erro={}", tipo, exc)
+        logger.error("Falha ao redigir documento | tipo={} error_type={}", tipo, safe_error(exc))
         raise DocumentGenerationError(
             f"Falha ao redigir o documento (etapa de redação, tipo={tipo})."
         ) from exc
@@ -136,7 +138,7 @@ async def _draft_to_latex(client: httpx.AsyncClient, texto: str) -> str:
         response = await client.post(url, headers=_headers(), json={"text": texto})
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.error("Falha ao gerar LaTeX | erro={}", exc)
+        logger.error("Falha ao gerar LaTeX | error_type={}", safe_error(exc))
         raise DocumentGenerationError("Falha ao gerar o documento (etapa de formatação).") from exc
 
     # Diferente de make_{tipo}_llm (JSON), este endpoint devolve a fonte
@@ -160,7 +162,7 @@ async def _compile_pdf(client: httpx.AsyncClient, latex: str) -> bytes:
         response = await client.post(url, headers=headers, content=latex.encode("utf-8"))
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.error("Falha ao compilar PDF | erro={}", exc)
+        logger.error("Falha ao compilar PDF | error_type={}", safe_error(exc))
         raise DocumentGenerationError("Falha ao gerar o documento (etapa de compilação).") from exc
 
     if not response.content:

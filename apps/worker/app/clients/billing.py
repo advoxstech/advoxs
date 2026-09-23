@@ -30,10 +30,10 @@ async def create_end_customer_checkout(
                 headers=headers,
             )
     except httpx.HTTPError as exc:
-        raise BillingCheckoutError(f"Falha de rede ao gerar o link de pagamento: {exc}") from exc
+        raise BillingCheckoutError("Falha de rede ao gerar o link de pagamento") from exc
 
     if response.is_error:
         raise BillingCheckoutError(
-            f"Falha ao gerar o link de pagamento — HTTP {response.status_code}: {response.text}"
+            f"Falha ao gerar o link de pagamento — HTTP {response.status_code}"
         )
     return response.json()["checkout_url"]
