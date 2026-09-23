@@ -1,50 +1,75 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { backendFetch } from "@/lib/client-api";
+import type { OnboardingProgress } from "@/lib/onboarding";
 
-/** Gate do tutorial de primeira abertura: tenant sem onboarding completado é
- * levado pro wizard /boas-vindas. Fail-open — erro na checagem nunca tranca o
- * painel (o tutorial é nice-to-have). */
 export function OnboardingGate({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [state, setState] = useState<"checking" | "allowed">("checking");
+  const [progress, setProgress] = useState<OnboardingProgress | null>(null);
+  const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    async function check() {
+    async function load() {
       try {
         const response = await backendFetch("onboarding");
-        if (response.ok) {
-          const body = await response.json();
-          if (!cancelled && body.completed === false) {
-            router.replace("/boas-vindas");
-            return;
-          }
-        }
+        if (response.ok) setProgress(await response.json());
       } catch {
-        // fail-open
-      }
-      if (!cancelled) {
-        setState("allowed");
+        // O acompanhamento é opcional. Falhas nunca escondem nem bloqueiam o painel.
       }
     }
-    void check();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
+    void load();
+  }, []);
 
-  if (state === "checking") {
-    // div, não <main>: o gate vive DENTRO do <main> da página /inicio —
-    // um segundo landmark main seria HTML inválido.
-    return (
-      <div className="flex flex-1 items-center justify-center bg-ground text-sm text-muted">
-        Carregando...
-      </div>
-    );
+  async function dismiss() {
+    setHidden(true);
+    try {
+      await backendFetch("onboarding/complete", { method: "POST" });
+    } catch {
+      // Oculto nesta sessão; se o POST falhar, poderá reaparecer mais tarde.
+    }
   }
-  return <>{children}</>;
+
+  const showReminder = progress && !progress.completed && !hidden;
+
+  return (
+    <>
+      {showReminder && (
+        <section className="mx-6 mt-6 rounded-sm border border-line bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                Configuração inicial · {progress.completed_steps} de {progress.total_steps}
+              </p>
+              <h2 className="mt-2 font-display text-xl font-semibold text-ink">
+                {progress.main_configuration_complete
+                  ? "Configuração principal concluída"
+                  : "Continue configurando no seu ritmo"}
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-muted">
+                Este acompanhamento é opcional e não impede o acesso nem o atendimento.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/boas-vindas"
+                className="rounded-sm bg-accent px-4 py-2 text-sm font-medium text-surface transition-colors hover:bg-ink"
+              >
+                Ver progresso
+              </Link>
+              <button
+                type="button"
+                onClick={() => void dismiss()}
+                className="text-sm text-muted underline transition-colors hover:text-ink"
+              >
+                Ocultar
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+      {children}
+    </>
+  );
 }

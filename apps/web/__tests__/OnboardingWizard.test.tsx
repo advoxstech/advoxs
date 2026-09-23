@@ -4,16 +4,54 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { backendFetch } from "@/lib/client-api";
 
-vi.mock("@/lib/client-api", () => ({
-  backendFetch: vi.fn(),
-}));
-
+vi.mock("@/lib/client-api", () => ({ backendFetch: vi.fn() }));
 const backendFetchMock = vi.mocked(backendFetch);
 const locationAssign = vi.fn();
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
-}
+const progress = {
+  completed: false,
+  main_configuration_complete: false,
+  completed_steps: 2,
+  total_steps: 6,
+  steps: [
+    {
+      key: "agent",
+      label: "Agente configurado",
+      description: "Revise o agente.",
+      kind: "main",
+      completed: true,
+      action_label: "Ver agentes",
+      action_href: "/agentes",
+    },
+    {
+      key: "whatsapp",
+      label: "WhatsApp conectado",
+      description: "Conecte um número.",
+      kind: "main",
+      completed: false,
+      action_label: "Configurar WhatsApp",
+      action_href: "/configuracoes/whatsapp",
+    },
+    {
+      key: "knowledge_base",
+      label: "Base de conhecimento preparada",
+      description: "Adicione um arquivo.",
+      kind: "recommended",
+      completed: false,
+      action_label: "Abrir base",
+      action_href: "/base-de-conhecimento",
+    },
+    {
+      key: "first_attendance",
+      label: "Primeiro atendimento recebido",
+      description: "Aguarde uma conversa real.",
+      kind: "milestone",
+      completed: false,
+      action_label: "Ver conversas",
+      action_href: "/conversas",
+    },
+  ],
+};
 
 beforeEach(() => {
   backendFetchMock.mockReset();
@@ -23,168 +61,62 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
-  backendFetchMock.mockImplementation(async (path: string) => {
-    if (String(path) === "whatsapp/webhook-config") {
-      return jsonResponse({
-        callback_url: "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
-        verify_token: "meu-verify-token",
-      });
-    }
-    return jsonResponse(null, 204);
-  });
+  backendFetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => progress,
+  } as Response);
 });
 
 describe("OnboardingWizard", () => {
-  it("navega do passo 1 ao 3 e conclui marcando completo", async () => {
+  it("mostra o progresso real e links para as configurações", async () => {
     render(<OnboardingWizard />);
 
-    expect(screen.getByText("Bem-vindo à Advoxs")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: "Conectar o WhatsApp Business" }),
-      ).toBeInTheDocument(),
+    expect(await screen.findByText("2 de 6 etapas")).toBeInTheDocument();
+    expect(screen.getByText("Agente configurado")).toBeInTheDocument();
+    expect(screen.getByText("WhatsApp conectado")).toBeInTheDocument();
+    expect(screen.getByText("Base de conhecimento preparada")).toBeInTheDocument();
+    expect(screen.getByText("Primeiro atendimento recebido")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Configurar WhatsApp" })).toHaveAttribute(
+      "href",
+      "/configuracoes/whatsapp",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Próximo" }));
+  });
 
-    expect(screen.getByText(/Cobrança de clientes/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Concluir" }));
+  it("informa claramente que não bloqueia o painel nem o atendimento", async () => {
+    render(<OnboardingWizard />);
 
-    await waitFor(() =>
-      expect(
-        backendFetchMock.mock.calls.some(
-          ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
-        ),
-      ).toBe(true),
-    );
+    expect(
+      await screen.findByText(/não bloqueia o painel nem o atendimento dos clientes/i),
+    ).toBeInTheDocument();
+  });
+
+  it("atualiza a lista quando o usuário pede", async () => {
+    render(<OnboardingWizard />);
+    await screen.findByText("2 de 6 etapas");
+
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar progresso" }));
+
+    await waitFor(() => expect(backendFetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("permite continuar mesmo quando a API de conclusão falha", async () => {
+    backendFetchMock.mockImplementation(async (path: string) => {
+      if (path === "onboarding/complete") throw new Error("rede fora");
+      return { ok: true, json: async () => progress } as Response;
+    });
+    render(<OnboardingWizard />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continuar para o painel" }));
+
     await waitFor(() => expect(locationAssign).toHaveBeenCalledWith("/inicio"));
   });
 
-  it("mostra a callback URL e o verify token no passo do WhatsApp", async () => {
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-
-    await waitFor(() =>
-      expect(screen.getByLabelText("Callback URL")).toHaveValue(
-        "https://api.exemplo.com.br/api/v1/webhooks/whatsapp",
-      ),
-    );
-    expect(screen.getByLabelText("Verify token")).toHaveValue("meu-verify-token");
-  });
-
-  it("Configurar WhatsApp agora completa e navega pra config", async () => {
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Configurar WhatsApp agora" }),
-    );
-
-    await waitFor(() =>
-      expect(locationAssign).toHaveBeenCalledWith("/configuracoes/whatsapp"),
-    );
-    expect(
-      backendFetchMock.mock.calls.some(
-        ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
-      ),
-    ).toBe(true);
-  });
-
-  it("Pular e testar os agentes está em todos os passos e navega pra aba Testes", async () => {
+  it("oferece nova tentativa quando o progresso não pode ser carregado", async () => {
+    backendFetchMock.mockRejectedValue(new Error("rede fora"));
     render(<OnboardingWizard />);
 
-    expect(screen.getByText("Pular e testar os agentes")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Pular e testar os agentes"));
-
-    await waitFor(() =>
-      expect(locationAssign).toHaveBeenCalledWith("/conversas?aba=testes"),
-    );
-  });
-
-  it("POST falhando não impede a navegação", async () => {
-    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        throw new Error("rede fora");
-      }
-      return jsonResponse(null);
-    });
-
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByText("Pular e testar os agentes"));
-
-    await waitFor(() =>
-      expect(locationAssign).toHaveBeenCalledWith("/conversas?aba=testes"),
-    );
-  });
-
-  it("Configurar cobrança completa e navega pra config de cobrança", async () => {
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Próximo" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Configurar cobrança" }));
-
-    await waitFor(() =>
-      expect(locationAssign).toHaveBeenCalledWith("/configuracoes/cobranca-clientes"),
-    );
-    expect(
-      backendFetchMock.mock.calls.some(
-        ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
-      ),
-    ).toBe(true);
-  });
-
-  it("mostra as instruções da Z-API ao escolher esse provedor, e some com as da Meta", async () => {
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Z-API" })).toBeInTheDocument(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Z-API" }));
-
-    expect(screen.getByRole("link", { name: /app\.z-api\.io/i })).toHaveAttribute(
-      "href",
-      "https://app.z-api.io/app/auth/new-account",
-    );
-    expect(screen.queryByLabelText("Callback URL")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/conta de sistema/i, { exact: false }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("falha no webhook-config não quebra o passo 2 (campos somem, texto fica)", async () => {
-    backendFetchMock.mockImplementation(async (path: string) => {
-      if (String(path) === "whatsapp/webhook-config") {
-        return jsonResponse(null, 500);
-      }
-      return jsonResponse(null, 204);
-    });
-
-    render(<OnboardingWizard />);
-    fireEvent.click(screen.getByRole("button", { name: "Começar" }));
-
-    await waitFor(() =>
-      expect(screen.getByText("Conectar o WhatsApp Business")).toBeInTheDocument(),
-    );
-    expect(screen.queryByLabelText("Callback URL")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Próximo" })).toBeInTheDocument();
-  });
-
-  it("duplo-clique num botão de saída dispara um único POST", async () => {
-    render(<OnboardingWizard />);
-
-    const skip = screen.getByText("Pular e testar os agentes");
-    fireEvent.click(skip);
-    fireEvent.click(skip);
-
-    await waitFor(() =>
-      expect(locationAssign).toHaveBeenCalledWith("/conversas?aba=testes"),
-    );
-    const posts = backendFetchMock.mock.calls.filter(
-      ([p, init]) => String(p) === "onboarding/complete" && init?.method === "POST",
-    );
-    expect(posts).toHaveLength(1);
+    expect(await screen.findByText("Não foi possível consultar o progresso agora.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continuar para o painel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
   });
 });
