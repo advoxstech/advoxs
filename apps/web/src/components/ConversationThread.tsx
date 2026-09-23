@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
+import { usePaginatedMessages } from "@/hooks/usePaginatedMessages";
 import { backendFetch } from "@/lib/client-api";
 import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 
+function formatUpdateTime(date: Date): string {
+  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 interface ConversationThreadProps {
   conversation: Conversation;
   onConversationUpdate: (conversation: Conversation) => void;
   onDeleted?: () => void;
+  onBack?: () => void;
   pollMs?: number;
 }
 
@@ -19,14 +25,28 @@ export function ConversationThread({
   conversation,
   onConversationUpdate,
   onDeleted,
+  onBack,
   pollMs = 4000,
 }: ConversationThreadProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const {
+    messages,
+    loaded: messagesLoaded,
+    loadingOlder,
+    hasOlder,
+    loadError,
+    lastUpdatedAt,
+    newMessageCount,
+    refreshing,
+    listRef,
+    refresh,
+    loadOlder,
+    handleScroll,
+    scrollToLatest,
+    appendMessages,
+  } = usePaginatedMessages(conversation.id, pollMs);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   const isManual = conversation.state === "human";
 
@@ -83,40 +103,6 @@ export function ConversationThread({
     }
   };
 
-  const loadMessages = useCallback(async () => {
-    try {
-      const response = await backendFetch(`conversations/${conversation.id}/messages`);
-      if (response.ok) {
-        const data: Message[] = await response.json();
-        // A API devolve da mais recente para a mais antiga; o chat lê em ordem.
-        setMessages(data.slice().reverse());
-      }
-    } catch {
-      // rede indisponível: tenta no próximo ciclo
-    } finally {
-      setMessagesLoaded(true);
-    }
-  }, [conversation.id]);
-
-  useEffect(() => {
-    void loadMessages();
-    if (!pollMs) {
-      return;
-    }
-    const interval = setInterval(() => void loadMessages(), pollMs);
-    return () => clearInterval(interval);
-  }, [loadMessages, pollMs]);
-
-  useEffect(() => {
-    // Rola só a lista de mensagens — scrollIntoView rolaria TODOS os
-    // ancestrais (inclusive os overflow-hidden do layout), deslocando a
-    // página inteira sem como o usuário desfazer (visto em produção).
-    const list = bottomRef.current?.parentElement;
-    if (list) {
-      list.scrollTop = list.scrollHeight;
-    }
-  }, [messages.length]);
-
   const toggleState = async () => {
     setError(null);
     const response = await backendFetch(`conversations/${conversation.id}`, {
@@ -164,7 +150,7 @@ export function ConversationThread({
       });
       if (response.ok) {
         const message: Message = await response.json();
-        setMessages((prev) => [...prev, message]);
+        appendMessages(message);
         setDraft("");
       } else if (response.status === 502) {
         setError("O WhatsApp não recebeu a mensagem. Tente novamente.");
@@ -178,8 +164,17 @@ export function ConversationThread({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center justify-between gap-4 border-b border-line bg-surface px-6 py-3.5">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3.5 md:px-6">
+        <div className="flex min-w-0 items-center gap-3 md:gap-4">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="shrink-0 rounded-sm border border-line px-2.5 py-1.5 text-xs font-medium text-ink md:hidden"
+            >
+              Voltar
+            </button>
+          ) : null}
           <h2 className="font-mono text-sm font-medium">
             {formatPhone(conversation.contact_phone_number)}
           </h2>
@@ -196,7 +191,7 @@ export function ConversationThread({
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex w-full flex-wrap items-center justify-end gap-3 md:w-auto md:gap-4">
           {conversation.end_customer_billing_enabled ? (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-muted">Cobrança gratuita</span>
@@ -241,6 +236,26 @@ export function ConversationThread({
         <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
           {exemptionError}
         </p>
+      ) : null}
+
+      {loadError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 border-b border-brass/30 bg-brass-soft px-4 py-2 text-xs text-ink md:px-6"
+        >
+          <span>
+            Não foi possível atualizar.
+            {lastUpdatedAt ? ` Exibindo dados de ${formatUpdateTime(lastUpdatedAt)}.` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="font-medium text-accent disabled:opacity-50"
+          >
+            {refreshing ? "Atualizando…" : "Tentar novamente"}
+          </button>
+        </div>
       ) : null}
 
       <section className="border-b border-line bg-surface px-6 py-3">
@@ -295,14 +310,42 @@ export function ConversationThread({
         ) : null}
       </section>
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
+      <ul
+        ref={listRef}
+        onScroll={handleScroll}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-5 md:px-6"
+      >
+        {!messagesLoaded ? (
+          <li className="py-4 text-center text-sm text-muted">Carregando mensagens…</li>
+        ) : null}
+        {hasOlder && messagesLoaded && messages.length > 0 ? (
+          <li className="flex justify-center pb-2">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              {loadingOlder ? "Carregando…" : "Carregar mensagens anteriores"}
+            </button>
+          </li>
+        ) : null}
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
-        <div ref={bottomRef} aria-hidden />
       </ul>
 
-      <footer className="border-t border-line bg-surface px-6 py-4">
+      {newMessageCount > 0 ? (
+        <button
+          type="button"
+          onClick={scrollToLatest}
+          className="mx-auto mb-3 rounded-full bg-ink px-4 py-2 text-xs font-medium text-ground shadow-lg"
+        >
+          {newMessageCount} {newMessageCount === 1 ? "mensagem nova" : "mensagens novas"}
+        </button>
+      ) : null}
+
+      <footer className="border-t border-line bg-surface px-4 py-4 md:px-6">
         {error ? (
           <p role="alert" className="mb-2 text-xs text-danger">
             {error}

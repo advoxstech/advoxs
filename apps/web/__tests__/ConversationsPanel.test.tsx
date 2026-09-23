@@ -97,4 +97,51 @@ describe("ConversationsPanel — abas", () => {
     );
     expect(screen.getByText("Nova conversa de teste")).toBeInTheDocument();
   });
+
+  it("carrega conversas anteriores usando o próximo offset", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => conversation(`r${index}`, false));
+    backendFetchMock.mockImplementation(async (path: string) => {
+      if (String(path).includes("offset=50")) return jsonResponse([conversation("antiga", false)]);
+      return jsonResponse(firstPage);
+    });
+
+    render(<ConversationsPanel pollMs={0} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Carregar conversas anteriores" }));
+
+    await waitFor(() =>
+      expect(backendFetchMock).toHaveBeenCalledWith(
+        "conversations?origin=real&limit=50&offset=50",
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Carregar conversas anteriores" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("diferencia falha de rede de lista vazia e permite tentar novamente", async () => {
+    backendFetchMock.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(jsonResponse([]));
+
+    render(<ConversationsPanel pollMs={0} />);
+
+    expect(await screen.findByText("Não foi possível atualizar.")).toBeInTheDocument();
+    expect(screen.queryByText(/Nenhuma conversa por aqui/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByText(/Nenhuma conversa por aqui/)).toBeInTheDocument();
+    expect(screen.queryByText("Não foi possível atualizar.")).not.toBeInTheDocument();
+  });
+
+  it("oferece voltar da conversa para a lista no celular", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([conversation("r1", false)]));
+
+    render(<ConversationsPanel pollMs={0} />);
+
+    fireEvent.click(await screen.findByText("+55 11 99999-8888"));
+    fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
+
+    expect(screen.queryByRole("button", { name: "Voltar" })).not.toBeInTheDocument();
+    expect(screen.getByText("+55 11 99999-8888")).toBeInTheDocument();
+  });
 });

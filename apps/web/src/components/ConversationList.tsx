@@ -10,6 +10,10 @@ interface ConversationListProps {
   loaded: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  loadFailed?: boolean;
 }
 
 export function ConversationList({
@@ -17,7 +21,17 @@ export function ConversationList({
   loaded,
   selectedId,
   onSelect,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  loadFailed = false,
 }: ConversationListProps) {
+  if (!loaded) {
+    return <p className="px-5 py-6 text-sm text-muted">Carregando conversas…</p>;
+  }
+
+  if (loaded && loadFailed && conversations.length === 0) return null;
+
   if (loaded && conversations.length === 0) {
     return (
       <p className="px-5 py-6 text-sm leading-relaxed text-muted">
@@ -73,6 +87,18 @@ export function ConversationList({
           </li>
         );
       })}
+      {hasMore && onLoadMore ? (
+        <li className="p-4 text-center">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            {loadingMore ? "Carregando…" : "Carregar conversas anteriores"}
+          </button>
+        </li>
+      ) : null}
     </ul>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
@@ -10,6 +10,17 @@ import { ConversationThread } from "./ConversationThread";
 import { TestConversationThread } from "./TestConversationThread";
 
 type Tab = "real" | "test";
+const PAGE_SIZE = 50;
+
+function mergeConversations(current: Conversation[], incoming: Conversation[]): Conversation[] {
+  const incomingIds = new Set(incoming.map((conversation) => conversation.id));
+  return [...incoming, ...current.filter((conversation) => !incomingIds.has(conversation.id))];
+}
+
+function appendConversations(current: Conversation[], incoming: Conversation[]): Conversation[] {
+  const currentIds = new Set(current.map((conversation) => conversation.id));
+  return [...current, ...incoming.filter((conversation) => !currentIds.has(conversation.id))];
+}
 
 export function ConversationsPanel({
   pollMs = 5000,
@@ -23,19 +34,63 @@ export function ConversationsPanel({
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshSequenceRef = useRef(0);
+  const conversationsRef = useRef<Conversation[]>([]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   const loadConversations = useCallback(async () => {
+    const sequence = ++refreshSequenceRef.current;
+    setRefreshing(true);
     try {
-      const response = await backendFetch(`conversations?origin=${tab}`);
-      if (response.ok) {
-        setConversations(await response.json());
+      const response = await backendFetch(
+        `conversations?origin=${tab}&limit=${PAGE_SIZE}&offset=0`,
+      );
+      if (!response.ok) throw new Error("conversations request failed");
+      const data: Conversation[] = await response.json();
+      if (sequence !== refreshSequenceRef.current) return;
+      setConversations((current) => mergeConversations(current, data));
+      if (conversationsRef.current.length <= PAGE_SIZE) {
+        setHasMore(data.length === PAGE_SIZE);
       }
+      setLoadError(false);
+      setLastUpdatedAt(new Date());
     } catch {
-      // rede indisponível: mantém a lista atual e tenta no próximo ciclo
+      if (sequence === refreshSequenceRef.current) setLoadError(true);
     } finally {
-      setLoaded(true);
+      if (sequence === refreshSequenceRef.current) {
+        setLoaded(true);
+        setRefreshing(false);
+      }
     }
   }, [tab]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const response = await backendFetch(
+        `conversations?origin=${tab}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
+      );
+      if (!response.ok) throw new Error("older conversations request failed");
+      const data: Conversation[] = await response.json();
+      setConversations((current) => appendConversations(current, data));
+      setHasMore(data.length === PAGE_SIZE);
+      setLoadError(false);
+      setLastUpdatedAt(new Date());
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     setLoaded(false);
@@ -58,6 +113,10 @@ export function ConversationsPanel({
     setTab(next);
     setSelectedId(null);
     setConversations([]);
+    setLoaded(false);
+    setHasMore(true);
+    setLoadError(false);
+    setLastUpdatedAt(null);
   };
 
   const createTestConversation = async () => {
@@ -108,8 +167,32 @@ export function ConversationsPanel({
         </div>
       </header>
 
+      {loadError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 border-b border-brass/30 bg-brass-soft px-4 py-2 text-xs text-ink md:px-5"
+        >
+          <span>
+            Não foi possível atualizar.
+            {lastUpdatedAt
+              ? ` Exibindo dados de ${lastUpdatedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.`
+              : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadConversations()}
+            disabled={refreshing}
+            className="shrink-0 font-medium text-accent disabled:opacity-50"
+          >
+            {refreshing ? "Atualizando…" : "Tentar novamente"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 min-w-0 flex-1">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-line">
+        <aside
+          className={`${selected ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-r border-line md:w-80`}
+        >
           <div className="flex items-center justify-end px-5 py-3">
             <span className="font-mono text-xs text-muted">{conversations.length}</span>
           </div>
@@ -128,16 +211,23 @@ export function ConversationsPanel({
             loaded={loaded}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={() => void loadMore()}
+            loadFailed={loadError}
           />
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col bg-surface/40">
+        <section
+          className={`${selected ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col bg-surface/40`}
+        >
           {selected ? (
             selected.is_test ? (
               <TestConversationThread
                 key={selected.id}
                 conversation={selected}
                 onDeleted={() => handleDeleted(selected.id)}
+                onBack={() => setSelectedId(null)}
               />
             ) : (
               <ConversationThread
@@ -145,6 +235,7 @@ export function ConversationsPanel({
                 conversation={selected}
                 onConversationUpdate={handleConversationUpdate}
                 onDeleted={() => handleDeleted(selected.id)}
+                onBack={() => setSelectedId(null)}
               />
             )
           ) : (
