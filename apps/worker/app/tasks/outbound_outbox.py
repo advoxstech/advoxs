@@ -78,7 +78,9 @@ async def _set_job_status(ctx: dict, job_id: str, *, status: str, error: str | N
     values: dict[str, object] = {
         "status": status,
         "locked_at": None,
-        "completed_at": datetime.now(UTC) if status in {"delivered", "failed"} else None,
+        "completed_at": (
+            datetime.now(UTC) if status in {"delivered", "failed", "cancelled"} else None
+        ),
         "last_error": (error or "")[:1000] if error else None,
     }
     if status == "pending":
@@ -121,6 +123,32 @@ async def _load_delivery(session, message_id: str):
             )
         )
     ).one_or_none()
+
+
+async def _cancel_if_automation_paused(
+    session, conversation_id: uuid.UUID, message_id: uuid.UUID
+) -> bool:
+    """Cancela a entrega sob o mesmo lock usado pela troca de atendimento."""
+    state = (
+        await session.execute(
+            select(tables.conversations.c.state)
+            .where(tables.conversations.c.id == conversation_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if state == "agent":
+        return False
+
+    await session.execute(
+        update(tables.messages)
+        .where(
+            tables.messages.c.id == message_id,
+            tables.messages.c.delivery_status == "pending",
+        )
+        .values(delivery_status="cancelled")
+    )
+    await session.commit()
+    return True
 
 
 def _document_filename(content: str) -> str | None:
@@ -194,6 +222,19 @@ async def deliver_outbound_message(ctx: dict, tenant_id: str, job_id: str) -> No
             conversation_id = job.conversation_id
 
         async with open_tenant_session(ctx["session_factory"], tenant_id) as session:
+            if await _cancel_if_automation_paused(session, conversation_id, message_id):
+                await _set_job_status(
+                    ctx,
+                    job_id,
+                    status="cancelled",
+                    error="automação pausada antes da entrega",
+                )
+                logger.info(
+                    "Entrega cancelada porque a automação foi pausada | tenant=%s job=%s",
+                    tenant_id,
+                    job_id,
+                )
+                return
             delivery = await _load_delivery(session, str(message_id))
             if delivery is None:
                 raise RuntimeError("mensagem ou número WhatsApp conectado não encontrado")

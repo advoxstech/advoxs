@@ -26,12 +26,14 @@ def _conversation(
     is_test: bool = False,
     end_customer_billing_exempt: bool = False,
     current_agent_id: uuid.UUID | None = None,
+    automation_status: str = "idle",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=CONVERSATION_ID,
         tenant_id=TENANT_ID,
         contact_phone_number="5511999998888",
         state=state,
+        automation_status=automation_status,
         last_message_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
         summary=summary,
@@ -41,6 +43,7 @@ def _conversation(
         end_customer_billing_exempt=end_customer_billing_exempt,
         billing_gate_step=None,
         billing_gate_retries=0,
+        billing_gate_checkout_url=None,
         current_agent_id=current_agent_id,
     )
 
@@ -129,6 +132,29 @@ class TestListConversations:
         assert len(body) == 1
         assert body[0]["id"] == str(CONVERSATION_ID)
         assert body[0]["state"] == "agent"
+        assert body[0]["status"] == "agent"
+
+    @pytest.mark.parametrize(
+        ("state", "automation_status", "expected"),
+        [
+            ("agent", "processing", "processing"),
+            ("agent", "failed", "failed"),
+            ("human", "idle", "human"),
+            ("billing_gate", "idle", "billing_gate"),
+            ("billing_gate", "failed", "failed"),
+        ],
+    )
+    def test_status_reflete_estado_persistido(
+        self, client, session, state, automation_status, expected
+    ) -> None:
+        session.execute.return_value = _execute_returning(
+            [_conversation(state=state, automation_status=automation_status)]
+        )
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["status"] == expected
 
 
 class TestOriginFilter:
@@ -198,7 +224,29 @@ class TestTakeover:
 
         assert response.status_code == 200
         assert conversation.state == "human"
+        assert conversation.automation_status == "idle"
         session.commit.assert_awaited_once()
+        statements = [
+            str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+            for call in session.execute.await_args_list
+            if hasattr(call.args[0], "compile")
+        ]
+        assert any("delivery_status='cancelled'" in statement for statement in statements)
+        assert any("status='cancelled'" in statement for statement in statements)
+
+    def test_devolver_para_ia_nao_cancela_entregas(self, client, session) -> None:
+        conversation = _conversation(state="human")
+        session.scalar.return_value = conversation
+
+        response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "agent"})
+
+        assert response.status_code == 200
+        statements = [
+            str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+            for call in session.execute.await_args_list
+            if hasattr(call.args[0], "compile")
+        ]
+        assert not any("cancelled" in statement for statement in statements)
 
     def test_estado_invalido_retorna_422(self, client) -> None:
         response = client.patch(f"/api/v1/conversations/{CONVERSATION_ID}", json={"state": "robo"})
@@ -223,6 +271,14 @@ class TestHeartbeat:
         response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/heartbeat")
 
         assert response.status_code == 404
+
+    def test_rejeita_heartbeat_fora_do_atendimento_humano(self, client, session) -> None:
+        session.scalar.return_value = _conversation(state="agent")
+
+        response = client.post(f"/api/v1/conversations/{CONVERSATION_ID}/heartbeat")
+
+        assert response.status_code == 409
+        session.commit.assert_not_awaited()
 
 
 class TestPatchSetaPresenca:
@@ -290,7 +346,8 @@ class TestSendMessage:
         whatsapp_send.assert_not_awaited()
 
     def test_falha_na_graph_api_retorna_502(self, client, session, whatsapp_send) -> None:
-        session.scalar.side_effect = [_conversation(state="human"), _number()]
+        conversation = _conversation(state="human")
+        session.scalar.side_effect = [conversation, _number()]
         whatsapp_send.side_effect = WhatsAppSendError("HTTP 500")
 
         response = client.post(
@@ -298,6 +355,8 @@ class TestSendMessage:
         )
 
         assert response.status_code == 502
+        assert conversation.automation_status == "failed"
+        session.commit.assert_awaited_once()
         session.add.assert_not_called()
 
     def test_conteudo_vazio_retorna_422(self, client) -> None:
@@ -671,6 +730,8 @@ class TestEndCustomerBalance:
         conversation = _conversation(state="agent")
         session.scalar.return_value = conversation
         session.execute.side_effect = [
+            MagicMock(),
+            MagicMock(),
             _balance_result(
                 [SimpleNamespace(contact_phone_number="5511999998888", credit_balance=Decimal("7"))]
             ),

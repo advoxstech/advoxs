@@ -1,9 +1,16 @@
 export type ConversationState = "agent" | "human" | "billing_gate";
+export type ConversationStatus =
+  | "agent"
+  | "human"
+  | "billing_gate"
+  | "processing"
+  | "failed";
 
 export interface Conversation {
   id: string;
   contact_phone_number: string;
   state: ConversationState;
+  status?: ConversationStatus;
   is_test: boolean;
   last_message_at: string | null;
   created_at: string;
@@ -25,7 +32,7 @@ export interface Message {
   content: string;
   media_url: string | null;
   media_type: string | null;
-  delivery_status: "pending" | "sent" | "failed" | null;
+  delivery_status: "pending" | "sent" | "failed" | "cancelled" | null;
   created_at: string;
 }
 

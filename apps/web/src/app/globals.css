@@ -10,10 +10,10 @@
   --text: #14231c;
   --muted: #5c6b62;
   --line: #d8dbd0;
-  /* Verde-lombada — ações e estado "agente respondendo" */
+  /* Verde-lombada — ações e estados disponíveis da IA */
   --accent: #166950;
   --accent-soft: #e3efe7;
-  /* Latão — exclusivo do estado de atendimento manual (takeover) */
+  /* Latão — estados que exigem atenção humana */
   --brass: #9c6b33;
   --brass-soft: #f3eadd;
   --danger: #96372b;

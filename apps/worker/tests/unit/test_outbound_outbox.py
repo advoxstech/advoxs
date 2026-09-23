@@ -1,5 +1,6 @@
+import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from app.tasks import outbound_outbox
 
@@ -52,3 +53,35 @@ async def test_entrega_zapi_de_documento_mantem_nome(monkeypatch) -> None:
 
 async def test_sem_redis_a_entrega_fica_disponivel_para_recuperacao() -> None:
     await outbound_outbox.enqueue_outbound_message_jobs({}, [])
+
+
+async def test_cancela_entrega_quando_atendimento_nao_esta_com_ia() -> None:
+    session = AsyncMock()
+    state_result = MagicMock()
+    state_result.scalar_one_or_none.return_value = "human"
+    session.execute.side_effect = [state_result, MagicMock()]
+
+    cancelled = await outbound_outbox._cancel_if_automation_paused(
+        session, uuid.uuid4(), uuid.uuid4()
+    )
+
+    assert cancelled is True
+    assert session.execute.await_count == 2
+    update_statement = session.execute.await_args_list[1].args[0]
+    compiled = str(update_statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "delivery_status='cancelled'" in compiled
+    session.commit.assert_awaited_once()
+
+
+async def test_mantem_entrega_quando_atendimento_esta_com_ia() -> None:
+    session = AsyncMock()
+    state_result = MagicMock()
+    state_result.scalar_one_or_none.return_value = "agent"
+    session.execute.return_value = state_result
+
+    cancelled = await outbound_outbox._cancel_if_automation_paused(
+        session, uuid.uuid4(), uuid.uuid4()
+    )
+
+    assert cancelled is False
+    session.commit.assert_not_awaited()

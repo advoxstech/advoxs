@@ -36,10 +36,6 @@ class Settings(BaseSettings):
     # Conversão de consumo: 1 crédito = N tokens (arredondamento sempre pra
     # cima). Valor de partida — calibrar com o custo real do LLM + margem.
 
-    # Takeover humano: sem heartbeat do painel há mais que N segundos, a IA
-    # reassume a conversa na chegada da próxima mensagem do contato.
-    human_takeover_timeout_seconds: int = 180
-
     # api_rag (ingestão da base de conhecimento)
     rag_api_url: str = "http://api_rag:8000"
     rag_api_key: str = ""

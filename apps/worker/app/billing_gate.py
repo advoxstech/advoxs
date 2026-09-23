@@ -37,7 +37,13 @@ async def maybe_enter_gate(
             await session.execute(
                 update(tables.conversations)
                 .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-                .values(state="agent", billing_gate_step=None, billing_gate_retries=0)
+                .values(
+                    state="agent",
+                    automation_status="idle",
+                    billing_gate_step=None,
+                    billing_gate_retries=0,
+                    billing_gate_checkout_url=None,
+                )
             )
             await session.commit()
             return False
@@ -52,7 +58,13 @@ async def maybe_enter_gate(
         await session.execute(
             update(tables.conversations)
             .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-            .values(state="billing_gate", billing_gate_step=None, billing_gate_retries=0)
+            .values(
+                state="billing_gate",
+                automation_status="idle",
+                billing_gate_step=None,
+                billing_gate_retries=0,
+                billing_gate_checkout_url=None,
+            )
         )
         await session.commit()
         return True
@@ -227,7 +239,13 @@ async def _escalate_to_human(session: AsyncSession, conversation_id: str) -> Non
     await session.execute(
         update(tables.conversations)
         .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-        .values(state="human", billing_gate_step=None, billing_gate_retries=0)
+        .values(
+            state="human",
+            automation_status="idle",
+            billing_gate_step=None,
+            billing_gate_retries=0,
+            billing_gate_checkout_url=None,
+        )
     )
     await session.commit()
 

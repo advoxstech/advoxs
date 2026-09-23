@@ -96,6 +96,7 @@ def patched(monkeypatch):
         "attachment": AsyncMock(return_value=None),
         "has_newer": AsyncMock(return_value=False),
         "restore_context": AsyncMock(),
+        "allows_automation": AsyncMock(return_value=True),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
@@ -115,6 +116,9 @@ def patched(monkeypatch):
     monkeypatch.setattr(messages_task, "_has_newer_contact_message", mocks["has_newer"])
     monkeypatch.setattr(
         messages_task, "_restore_agent_context_before_stale_response", mocks["restore_context"]
+    )
+    monkeypatch.setattr(
+        messages_task, "_conversation_allows_automation", mocks["allows_automation"]
     )
     return mocks
 
@@ -343,26 +347,46 @@ async def test_human_nao_expirado_sincroniza_contexto(patched) -> None:
     patched["send"].assert_not_awaited()
 
 
-async def test_human_expirado_reativa_ia_e_chama_agente(patched) -> None:
+async def test_human_continua_pausado_mesmo_sem_heartbeat_recente(patched) -> None:
     patched["load"].return_value = _inbound(
         state="human", human_last_seen_at=datetime.now(UTC) - timedelta(seconds=999)
     )
-    ctx = _ctx()
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
-    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
-
-    session = ctx["session_factory"].return_value.__aenter__.return_value
-    session.execute.assert_awaited()  # UPDATE state='agent'
-    patched["send"].assert_awaited_once()
-    patched["persist"].assert_awaited_once()
+    patched["sync"].assert_awaited_once()
+    patched["send"].assert_not_awaited()
+    patched["persist"].assert_not_awaited()
 
 
-async def test_human_sem_last_seen_e_tratado_como_expirado(patched) -> None:
+async def test_human_sem_last_seen_continua_pausado(patched) -> None:
     patched["load"].return_value = _inbound(state="human", human_last_seen_at=None)
 
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
+    patched["sync"].assert_awaited_once()
+    patched["send"].assert_not_awaited()
+
+
+async def test_takeover_antes_da_ia_impede_execucao(patched) -> None:
+    patched["allows_automation"].return_value = False
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["sync"].assert_awaited_once()
+    patched["send"].assert_not_awaited()
+    patched["persist"].assert_not_awaited()
+
+
+async def test_takeover_durante_a_ia_descarta_resposta_sem_cobrar(patched) -> None:
+    patched["allows_automation"].side_effect = [True, False]
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
     patched["send"].assert_awaited_once()
+    patched["restore_context"].assert_awaited_once()
+    patched["persist"].assert_not_awaited()
+    patched["debitar"].assert_not_awaited()
+    patched["enqueue_outbound"].assert_not_awaited()
 
 
 async def test_saldo_esgotado_sincroniza_contexto(patched) -> None:

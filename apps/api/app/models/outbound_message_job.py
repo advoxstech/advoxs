@@ -30,7 +30,7 @@ class OutboundMessageJob(Base):
     __tablename__ = "outbound_message_jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'processing', 'delivered', 'failed')",
+            "status IN ('pending', 'processing', 'delivered', 'failed', 'cancelled')",
             name="outbound_message_jobs_status",
         ),
         Index("ix_outbound_message_jobs_recovery", "status", "available_at", "last_enqueued_at"),
