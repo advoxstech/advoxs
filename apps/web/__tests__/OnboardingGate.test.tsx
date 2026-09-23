@@ -1,93 +1,72 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OnboardingGate } from "@/components/OnboardingGate";
 import { backendFetch } from "@/lib/client-api";
 
-vi.mock("@/lib/client-api", () => ({
-  backendFetch: vi.fn(),
-}));
-
-const replaceMock = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: replaceMock }),
-}));
-
+vi.mock("@/lib/client-api", () => ({ backendFetch: vi.fn() }));
 const backendFetchMock = vi.mocked(backendFetch);
 
-beforeEach(() => {
-  backendFetchMock.mockReset();
-  replaceMock.mockReset();
-});
+const progress = {
+  completed: false,
+  main_configuration_complete: false,
+  completed_steps: 2,
+  total_steps: 6,
+  steps: [],
+};
+
+beforeEach(() => backendFetchMock.mockReset());
 
 describe("OnboardingGate", () => {
-  it("redireciona pra /boas-vindas quando o onboarding não foi completado", async () => {
+  it("mostra o painel imediatamente e oferece acompanhamento opcional", async () => {
     backendFetchMock.mockResolvedValue({
       ok: true,
-      status: 200,
-      json: async () => ({ completed: false }),
+      json: async () => progress,
     } as Response);
 
-    render(
-      <OnboardingGate>
-        <p>conteudo do dashboard</p>
-      </OnboardingGate>,
-    );
+    render(<OnboardingGate><p>conteudo do dashboard</p></OnboardingGate>);
 
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/boas-vindas"));
-    expect(screen.queryByText("conteudo do dashboard")).not.toBeInTheDocument();
+    expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument();
+    expect(await screen.findByText("Continue configurando no seu ritmo")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver progresso" })).toHaveAttribute(
+      "href",
+      "/boas-vindas",
+    );
   });
 
-  it("renderiza os children quando completado", async () => {
+  it("não exibe lembrete quando ele já foi dispensado", async () => {
     backendFetchMock.mockResolvedValue({
       ok: true,
-      status: 200,
-      json: async () => ({ completed: true }),
+      json: async () => ({ ...progress, completed: true }),
     } as Response);
 
-    render(
-      <OnboardingGate>
-        <p>conteudo do dashboard</p>
-      </OnboardingGate>,
-    );
+    render(<OnboardingGate><p>conteudo do dashboard</p></OnboardingGate>);
 
-    await waitFor(() =>
-      expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument(),
-    );
-    expect(replaceMock).not.toHaveBeenCalled();
+    expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument();
+    await waitFor(() => expect(backendFetchMock).toHaveBeenCalledWith("onboarding"));
+    expect(screen.queryByText("Continue configurando no seu ritmo")).not.toBeInTheDocument();
   });
 
-  it("fail-open: erro de rede renderiza os children", async () => {
-    backendFetchMock.mockRejectedValue(new Error("rede fora"));
-
-    render(
-      <OnboardingGate>
-        <p>conteudo do dashboard</p>
-      </OnboardingGate>,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument(),
-    );
-    expect(replaceMock).not.toHaveBeenCalled();
-  });
-
-  it("fail-open: resposta 500 (não-ok) renderiza os children sem redirecionar", async () => {
+  it("oculta o lembrete sem esconder o painel", async () => {
     backendFetchMock.mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: async () => ({ detail: "erro interno" }),
+      ok: true,
+      json: async () => progress,
     } as Response);
 
-    render(
-      <OnboardingGate>
-        <p>conteudo do dashboard</p>
-      </OnboardingGate>,
-    );
+    render(<OnboardingGate><p>conteudo do dashboard</p></OnboardingGate>);
+    fireEvent.click(await screen.findByRole("button", { name: "Ocultar" }));
 
-    await waitFor(() =>
-      expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument(),
-    );
-    expect(replaceMock).not.toHaveBeenCalled();
+    expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Continue configurando no seu ritmo")).not.toBeInTheDocument();
+    expect(backendFetchMock).toHaveBeenCalledWith("onboarding/complete", { method: "POST" });
+  });
+
+  it("falha aberta quando a API fica indisponível", async () => {
+    backendFetchMock.mockResolvedValue({ ok: false, status: 503 } as Response);
+
+    render(<OnboardingGate><p>conteudo do dashboard</p></OnboardingGate>);
+
+    expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument();
+    await waitFor(() => expect(backendFetchMock).toHaveBeenCalled());
   });
 });

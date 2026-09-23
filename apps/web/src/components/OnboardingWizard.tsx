@@ -1,425 +1,184 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
+import type { OnboardingProgress, OnboardingStep } from "@/lib/onboarding";
 
-type WebhookConfig = { callback_url: string; verify_token: string };
-
-type Provider = "meta" | "zapi";
+const sectionLabels: Record<OnboardingStep["kind"], string> = {
+  main: "Configuração principal",
+  recommended: "Recomendado",
+  milestone: "Primeiro atendimento",
+};
 
 export function OnboardingWizard() {
-  const [step, setStep] = useState(1);
-  const [provider, setProvider] = useState<Provider>("meta");
-  const [webhookConfig, setWebhookConfig] = useState<WebhookConfig | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [progress, setProgress] = useState<OnboardingProgress | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
-  async function completeAndGo(href: string) {
-    // Guard de duplo-clique (mesmo padrão do /creditos): a navegação não é
-    // instantânea, então sem isso um segundo clique dispararia outro POST.
+  const loadProgress = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const response = await backendFetch("onboarding");
+      if (!response.ok) throw new Error("Não foi possível carregar o progresso");
+      setProgress(await response.json());
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProgress();
+    window.addEventListener("focus", loadProgress);
+    return () => window.removeEventListener("focus", loadProgress);
+  }, [loadProgress]);
+
+  async function continueLater() {
     if (leaving) return;
     setLeaving(true);
     try {
       await backendFetch("onboarding/complete", { method: "POST" });
     } catch {
-      // Best-effort: pior caso o wizard reaparece no próximo login.
+      // A navegação continua: o onboarding não pode bloquear o escritório.
     }
-    window.location.assign(href);
-  }
-
-  useEffect(() => {
-    async function loadConfig() {
-      try {
-        const response = await backendFetch("whatsapp/webhook-config");
-        if (response.ok) {
-          const config = await response.json().catch(() => null);
-          if (config?.callback_url && config?.verify_token) {
-            setWebhookConfig(config);
-          }
-        }
-      } catch {
-        // sem config, o passo 2 fica só com o texto
-      }
-    }
-    void loadConfig();
-  }, []);
-
-  async function handleCopy(field: string, value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(field);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      // clipboard indisponível — sem feedback, sem quebrar
-    }
+    window.location.assign("/inicio");
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-ground px-6 py-10">
-      <div className="w-full max-w-2xl">
+    <main className="min-h-screen bg-ground px-6 py-10">
+      <div className="mx-auto w-full max-w-3xl">
         <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
-          Configurações iniciais · passo {step} de 3
+          Configuração inicial
+        </p>
+        <h1 className="mt-3 font-display text-3xl font-semibold text-ink">
+          Prepare seu primeiro atendimento
+        </h1>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+          Acompanhe o que já está pronto e abra diretamente cada configuração pendente.
+          Você pode sair desta página a qualquer momento: este roteiro não bloqueia o painel
+          nem o atendimento dos clientes.
         </p>
 
-        {step === 1 && (
-          <section className="mt-4">
-            <h1 className="font-display text-3xl font-semibold text-ink">
-              Bem-vindo à Advoxs
-            </h1>
-            <p className="mt-4 text-sm leading-relaxed text-ink">
-              Seu escritório agora tem agentes de IA prontos pra atender clientes pelo
-              WhatsApp: uma secretária faz a triagem e especialistas respondem dúvidas
-              jurídicas, consultando a base de conhecimento que você subir. O consumo é
-              pago em créditos — o pacote que você comprou já está na sua conta.
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-muted">
-              Vamos passar pelas duas configurações principais. Você pode fazer agora ou
-              depois — tudo fica em Configurações.
-            </p>
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink"
-              >
-                Começar
-              </button>
-            </div>
+        {loading && !progress && (
+          <p className="mt-8 text-sm text-muted">Verificando sua configuração...</p>
+        )}
+
+        {error && !progress && (
+          <section className="mt-8 rounded-sm border border-line bg-surface p-5">
+            <p className="text-sm text-ink">Não foi possível consultar o progresso agora.</p>
+            <button
+              type="button"
+              onClick={() => void loadProgress()}
+              className="mt-3 text-sm text-accent underline"
+            >
+              Tentar novamente
+            </button>
           </section>
         )}
 
-        {step === 2 && (
-          <section className="mt-4">
-            <h1 className="font-display text-3xl font-semibold text-ink">
-              Conectar o WhatsApp Business
-            </h1>
-            <p className="mt-4 text-sm leading-relaxed text-ink">
-              É pelo WhatsApp que os agentes vão atender seus clientes. Tem duas formas de
-              conectar — escolha a que fizer mais sentido pro escritório.
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setProvider("meta")}
-                aria-pressed={provider === "meta"}
-                className={`rounded-sm border px-3 py-2 text-xs font-medium transition-colors ${
-                  provider === "meta"
-                    ? "border-accent bg-accent-soft text-accent"
-                    : "border-line text-muted hover:border-accent"
-                }`}
-              >
-                WhatsApp Business oficial
-              </button>
-              <button
-                type="button"
-                onClick={() => setProvider("zapi")}
-                aria-pressed={provider === "zapi"}
-                className={`rounded-sm border px-3 py-2 text-xs font-medium transition-colors ${
-                  provider === "zapi"
-                    ? "border-accent bg-accent-soft text-accent"
-                    : "border-line text-muted hover:border-accent"
-                }`}
-              >
-                Z-API
-              </button>
-            </div>
+        {progress && (
+          <>
+            <section className="mt-8 rounded-sm border border-line bg-surface p-5">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                    Progresso real
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-semibold text-ink">
+                    {progress.completed_steps} de {progress.total_steps} etapas
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadProgress()}
+                  disabled={loading}
+                  className="text-sm text-accent underline disabled:opacity-50"
+                >
+                  {loading ? "Atualizando..." : "Atualizar progresso"}
+                </button>
+              </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-ground">
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{
+                    width: `${(progress.completed_steps / progress.total_steps) * 100}%`,
+                  }}
+                />
+              </div>
+              {progress.main_configuration_complete && (
+                <p className="mt-4 rounded-sm bg-accent-soft px-4 py-3 text-sm text-accent">
+                  A configuração principal está pronta. As demais etapas ajudam a validar e
+                  acompanhar o primeiro atendimento.
+                </p>
+              )}
+            </section>
 
-            {provider === "meta" ? (
-              <>
-                <p className="mt-4 text-sm leading-relaxed text-ink">
-                  Essa conexão é feita direto com a Meta (a empresa dona do WhatsApp) — é
-                  uma configuração técnica, mas só precisa ser feita uma vez.
-                </p>
-                <p className="mt-3 rounded-sm border border-line bg-surface px-4 py-3 text-sm leading-relaxed text-muted">
-                  Se travar em qualquer passo abaixo, manda um print pra gente que ajudamos a
-                  configurar — não precisa resolver sozinho.
-                </p>
-                <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
-                  <li>
-                    Consiga um número de telefone que ainda não esteja em uso no WhatsApp
-                    comum nem no WhatsApp Business App — pode ser um chip novo, comprado só
-                    pra isso, ou um número que o escritório já tenha disponível.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      É esse número que vai enviar e receber as mensagens dos seus clientes
-                      — ele fica exclusivo pra isso, então recomendamos não ser o número
-                      pessoal de ninguém.
-                    </span>
-                  </li>
-                  <li>
-                    Acesse{" "}
-                    <a
-                      href="https://developers.facebook.com/apps/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent underline"
-                    >
-                      developers.facebook.com
-                    </a>{" "}
-                    e crie um app pro seu escritório.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      É gratuito e leva 1 minuto — só um cadastro técnico exigido pelo
-                      WhatsApp, não afeta seu uso normal do Facebook.
-                    </span>
-                  </li>
-                  <li>
-                    Dentro do app, você vai criar uma{" "}
-                    <a
-                      href="https://business.facebook.com/settings/system-users"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent underline"
-                    >
-                      &quot;conta de sistema&quot;
-                    </a>
-                    .
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Pense nela como um crachá de acesso que representa seu escritório
-                      perante o WhatsApp, separado da sua conta pessoal.
-                    </span>
-                  </li>
-                  <li>
-                    Gere uma chave de acesso pra essa conta — é como uma senha que a
-                    plataforma vai usar pra mandar e receber mensagens em nome do seu
-                    escritório. Marque as duas opções de permissão do WhatsApp que
-                    aparecerem.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Não tem erro — são só essas duas opções mesmo, pode marcar as duas.
-                    </span>
-                  </li>
-                  <li>
-                    Cadastre o{" "}
-                    <a
-                      href="https://business.facebook.com/wa/manage/phone-numbers/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent underline"
-                    >
-                      número de telefone
-                    </a>{" "}
-                    do escritório. A Meta vai pedir um código de 6 dígitos pra confirmar.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Você inventa esse código na hora — só serve pra essa confirmação, não
-                      precisa anotar.
-                    </span>
-                  </li>
-                  <li>
-                    Depois de conectar o número, cole os dois valores exibidos na configuração
-                    da Advoxs em uma tela de configuração do
-                    WhatsApp (chamada &quot;Webhooks&quot;, dentro do mesmo app que você criou):
-                    <span className="mt-0.5 block text-xs text-muted">
-                      É isso que liga o número de vocês na nossa plataforma — depois disso,
-                      as mensagens já chegam automaticamente.
-                    </span>
-                  </li>
-                </ol>
-                {webhookConfig && (
-                  <div className="mt-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        readOnly
-                        aria-label="Callback URL"
-                        value={webhookConfig.callback_url}
-                        className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Copiar Callback URL"
-                        onClick={() => void handleCopy("url", webhookConfig.callback_url)}
-                        className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
-                      >
-                        {copied === "url" ? "Copiado!" : "Copiar"}
-                      </button>
+            <div className="mt-6 flex flex-col gap-6">
+              {(["main", "recommended", "milestone"] as const).map((kind) => {
+                const steps = progress.steps.filter((step) => step.kind === kind);
+                if (steps.length === 0) return null;
+                return (
+                  <section key={kind}>
+                    <h2 className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
+                      {sectionLabels[kind]}
+                    </h2>
+                    <div className="mt-2 divide-y divide-line rounded-sm border border-line bg-surface">
+                      {steps.map((step) => (
+                        <div
+                          key={step.key}
+                          className="flex flex-wrap items-center justify-between gap-4 p-4"
+                        >
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span
+                              aria-label={step.completed ? "Concluído" : "Pendente"}
+                              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                                step.completed
+                                  ? "bg-accent text-surface"
+                                  : "border border-line text-muted"
+                              }`}
+                            >
+                              {step.completed ? "✓" : "·"}
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium text-ink">{step.label}</p>
+                              <p className="mt-1 text-xs leading-relaxed text-muted">
+                                {step.description}
+                              </p>
+                            </div>
+                          </div>
+                          <Link
+                            href={step.action_href}
+                            className="shrink-0 text-sm text-accent underline"
+                          >
+                            {step.action_label}
+                          </Link>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        readOnly
-                        aria-label="Verify token"
-                        value={webhookConfig.verify_token}
-                        className="flex-1 rounded border border-line bg-surface px-3 py-2 font-mono text-xs text-ink"
-                      />
-                      <button
-                        type="button"
-                        aria-label="Copiar Verify token"
-                        onClick={() => void handleCopy("token", webhookConfig.verify_token)}
-                        className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
-                      >
-                        {copied === "token" ? "Copiado!" : "Copiar"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <p className="mt-3 text-sm leading-relaxed text-muted">
-                  Com tudo pronto na Meta, cole as credenciais na página de configuração — a
-                  plataforma valida, registra o número e ativa o recebimento automaticamente.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mt-4 text-sm leading-relaxed text-ink">
-                  A Z-API é um provedor independente (não é a Meta) — a conexão é por QR
-                  code, sem aprovação de negócio. Mais simples, e você não precisa configurar
-                  nenhum webhook manualmente.
-                </p>
-                <ol className="mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
-                  <li>
-                    Crie uma conta em{" "}
-                    <a
-                      href="https://app.z-api.io/app/auth/new-account"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent underline"
-                    >
-                      app.z-api.io
-                    </a>{" "}
-                    (ou entre, se já tiver uma) e crie uma instância.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Leva menos de 1 minuto e tem período de teste gratuito.
-                    </span>
-                  </li>
-                  <li>
-                    Clique em <span className="font-medium">Editar</span> na instância
-                    criada — a tela mostra o{" "}
-                    <span className="font-medium">Instance ID</span> e o{" "}
-                    <span className="font-medium">Token</span>.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Não compartilhe esses dois valores com ninguém.
-                    </span>
-                  </li>
-                  <li>
-                    Cole os dois na página de configuração da Advoxs e escaneie o QR code
-                    com o WhatsApp do número que vai atender.
-                    <span className="mt-0.5 block text-xs text-muted">
-                      Diferente da Meta, não tem nenhum passo manual de webhook — a Advoxs
-                      configura isso automaticamente na Z-API no momento da conexão.
-                    </span>
-                  </li>
-                </ol>
-              </>
-            )}
-            <div className="mt-6 flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => void completeAndGo("/configuracoes/whatsapp")}
-                disabled={leaving}
-                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
-              >
-                Configurar WhatsApp agora
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep(3)}
-                className="rounded-sm border border-line px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent"
-              >
-                Próximo
-              </button>
+                  </section>
+                );
+              })}
             </div>
-          </section>
+          </>
         )}
 
-        {step === 3 && (
-          <section className="mt-4">
-            <h1 className="font-display text-3xl font-semibold text-ink">
-              Cobrança de clientes (opcional)
-            </h1>
-            <p className="mt-4 text-sm leading-relaxed text-ink">
-              Se quiser, o escritório pode cobrar os próprios clientes pelo atendimento dos
-              agentes: eles compram créditos seus, pagos direto na SUA conta Stripe — a
-              plataforma nunca toca nesse dinheiro.
-            </p>
-            <ol className="mt-3 flex list-decimal flex-col gap-3 pl-5 text-sm text-ink">
-              <li>
-                Se seu escritório ainda não tem conta na{" "}
-                <a
-                  href="https://dashboard.stripe.com/register"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  Stripe
-                </a>
-                , crie uma.
-                <span className="mt-0.5 block text-xs text-muted">
-                  É a plataforma de pagamento que processa as cobranças dos seus
-                  clientes com segurança — grátis pra criar, só cobra uma taxa pequena
-                  quando processar um pagamento de verdade.
-                </span>
-              </li>
-              <li>
-                No painel da Stripe, gere uma{" "}
-                <a
-                  href="https://dashboard.stripe.com/apikeys"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  chave restrita de API
-                </a>
-                , marcando só a permissão &quot;Checkout Sessions: Write&quot;.
-                <span className="mt-0.5 block text-xs text-muted">
-                  Isso limita o que essa chave pode fazer caso ela vaze algum dia —
-                  mais seguro do que usar a chave secreta completa da sua conta.
-                </span>
-              </li>
-              <li>
-                Cadastre os pacotes de crédito que você quer vender pros seus clientes
-                (nome, preço e quantidade de créditos) — isso é feito aqui mesmo na
-                Advoxs.
-              </li>
-              <li>
-                Ainda no painel da Stripe, crie um{" "}
-                <a
-                  href="https://dashboard.stripe.com/webhooks"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline"
-                >
-                  destino de evento (webhook)
-                </a>
-                , escolhendo &quot;Sua conta&quot; como escopo e o evento{" "}
-                <code className="rounded bg-surface px-1">checkout.session.completed</code>.
-                <span className="mt-0.5 block text-xs text-muted">
-                  É isso que avisa a gente quando um cliente seu termina de pagar.
-                </span>
-              </li>
-              <li>
-                Por fim, cole a chave (passo 2) e a URL + segredo desse webhook (passo
-                4) na tela de cobrança da Advoxs, usando o botão abaixo.
-              </li>
-            </ol>
-            <p className="mt-3 text-sm leading-relaxed text-muted">
-              Sem configurar, os agentes atendem seus clientes normalmente, sem cobrança.
-            </p>
-            <div className="mt-6 flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => void completeAndGo("/configuracoes/cobranca-clientes")}
-                disabled={leaving}
-                className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
-              >
-                Configurar cobrança
-              </button>
-              <button
-                type="button"
-                onClick={() => void completeAndGo("/inicio")}
-                disabled={leaving}
-                className="rounded-sm border border-line px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent disabled:opacity-50"
-              >
-                Concluir
-              </button>
-            </div>
-          </section>
-        )}
-
-        <footer className="mt-10 border-t border-line pt-4">
+        <footer className="mt-8 flex flex-wrap items-center gap-4 border-t border-line pt-5">
           <button
             type="button"
-            onClick={() => void completeAndGo("/conversas?aba=testes")}
+            onClick={() => void continueLater()}
             disabled={leaving}
-            className="text-sm text-muted underline transition-colors hover:text-ink disabled:opacity-50"
+            className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
           >
-            Pular e testar os agentes
+            Continuar para o painel
           </button>
+          <p className="text-xs text-muted">
+            Você pode voltar por este acompanhamento enquanto ele estiver visível no início.
+          </p>
         </footer>
       </div>
     </main>
