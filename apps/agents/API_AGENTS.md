@@ -110,10 +110,11 @@ A aplicação FastAPI expõe 6 endpoints. O objeto exportado é `app`.
 `POST /messages`, `DELETE /conversations/{thread_id}`, `POST` ou `PUT
 /conversations/{thread_id}/context` e `POST /summaries` exigem o header
 `Authorization: <AGENTS_API_KEY>` (valor cru, sem `Bearer`; comparação com
-`secrets.compare_digest`). `GET /agents` e `GET /generated-documents/{doc_id}`
-não usam essa dependência. Em development/test, a chave vazia permite o modo
-local. Em production, a inicialização rejeita a ausência ou valor de exemplo
-da chave. Consulte ../../docs/configuracao-producao.md.
+`secrets.compare_digest`). `GET /agents` não usa essa dependência. A rota de
+documentos usa um token temporário próprio na URL, pois Meta/Z-API precisam
+buscar o arquivo diretamente. Em development/test, a chave interna vazia
+permite o modo local. Em production, a inicialização rejeita a ausência ou
+valor de exemplo da chave. Consulte ../../docs/configuracao-producao.md.
 
 ### 3.1 `POST /messages` — Recebimento de mensagens (contrato interno)
 
@@ -284,10 +285,14 @@ Lista vazia retorna `400`; falha do modelo retorna `500`.
 ### 3.7 `GET /generated-documents/{doc_id}` — Entregar PDF gerado
 
 Serve o PDF criado pelas tools de documento. A rota não exige a API key
-interna porque Meta/Z-API precisam buscar o arquivo pela URL pública. O
-identificador aleatório do documento é hoje a única proteção; links
-temporários e autenticação de entrega permanecem como melhoria planejada.
-Documento inexistente ou expirado retorna `404`.
+interna porque Meta/Z-API precisam buscar o arquivo pela URL pública, mas
+exige o parâmetro `token` aleatório emitido durante a geração. O token e o
+arquivo expiram em 24 horas; token ausente, incorreto, expirado ou documento
+inexistente retornam o mesmo `404`, sem revelar qual validação falhou. O PDF e
+seus metadados de vínculo com o tenant/conversa ficam no volume privado e são
+gravados de forma atômica. Durante o primeiro deploy, links criados pela versão
+anterior continuam disponíveis somente pelo restante da retenção original de
+24 horas, evitando perder entregas que já estavam pendentes.
 
 ---
 
@@ -513,7 +518,7 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 | `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
 | `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. A base é opcional: sem arquivo ou resultado, o agente usa seu conhecimento nativo. |
 | `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
-| `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
+| `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. O PDF fica em volume privado e o link exige token temporário. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
 
 A lista `tools` exportada (usada pelo `tool_node`) contém as 3 primeiras da
 tabela. As 6 tools de documento não entram nela — são bindadas por
@@ -778,7 +783,7 @@ Requisitos mínimos para a Opção B:
 |--------|---------------------------------|----------------------------------------------|---------|----------------------|
 | POST   | `/messages`                     | Mensagem do cliente (contrato interno, via `api`) | 200 | 202/400/403/422/503/500 |
 | GET    | `/agents`                       | Lista agentes e ferramentas                  | 200     | —                    |
-| GET    | `/generated-documents/{doc_id}` | Entrega um PDF gerado por tool               | 200     | 404                  |
+| GET    | `/generated-documents/{doc_id}?token=...` | Entrega temporária de PDF gerado por tool | 200 | 404 |
 | DELETE | `/conversations/{thread_id}`    | Apaga histórico da conversa                  | 200     | 403/500              |
 | POST   | `/conversations/{thread_id}/context` | Anexa mensagens ao checkpoint sem executar a IA | 200 | 403/422/500 |
 | PUT    | `/conversations/{thread_id}/context` | Substitui o checkpoint pelo histórico persistido | 200 | 403/422/500 |

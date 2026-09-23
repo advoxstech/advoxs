@@ -172,6 +172,29 @@ def test_api_key_correta_passa(client, monkeypatch):
     assert response.status_code == 202
 
 
+def test_documento_gerado_exige_token_temporario(client, monkeypatch, tmp_path):
+    pdf_path = tmp_path / "documento.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+    resolver = MagicMock(return_value=str(pdf_path))
+    monkeypatch.setattr(routes, "resolve_authorized_path", resolver)
+
+    response = client.get("/generated-documents/doc-123?token=token-temporario")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    resolver.assert_called_once_with("doc-123", "token-temporario")
+
+
+def test_documento_gerado_sem_autorizacao_retorna_404(client, monkeypatch):
+    resolver = MagicMock(return_value=None)
+    monkeypatch.setattr(routes, "resolve_authorized_path", resolver)
+
+    response = client.get("/generated-documents/doc-123")
+
+    assert response.status_code == 404
+    resolver.assert_called_once_with("doc-123", None)
+
+
 def test_resumo_sem_mensagens_retorna_400(client) -> None:
     response = client.post("/summaries", json={"messages": []})
     assert response.status_code == 400
