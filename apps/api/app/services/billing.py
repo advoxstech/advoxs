@@ -20,8 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.security import hash_password
-from app.models import CreditPackage, CreditTransaction, Tenant, User
-from app.schemas.billing import SpendingByMonthOut, SpendingReportOut
+from app.models import CreditPackage, CreditTransaction, Tenant, UsageRecord, User
+from app.schemas.billing import (
+    SpendingByMonthOut,
+    SpendingReportOut,
+    UsageRecordOut,
+    UsageReportOut,
+    UsageSummaryOut,
+)
 from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
 from app.services.email_notifications import send_new_tenant_notification
@@ -150,15 +156,22 @@ async def process_checkout_completed(session: AsyncSession, stripe_session: dict
     # .get(), só acesso via []/in — to_dict() normaliza pra dict puro.
     raw_metadata = stripe_session["metadata"] if "metadata" in stripe_session else {}
     metadata = raw_metadata.to_dict() if hasattr(raw_metadata, "to_dict") else dict(raw_metadata)
+    amount_total = stripe_session["amount_total"] if "amount_total" in stripe_session else None
+    amount_brl = Decimal(amount_total) / 100 if amount_total is not None else None
 
     if metadata.get("flow") == "recompra":
-        await _process_recompra(session, session_id, metadata)
+        await _process_recompra(session, session_id, metadata, amount_brl)
         return
 
-    await _process_signup(session, session_id, metadata)
+    await _process_signup(session, session_id, metadata, amount_brl)
 
 
-async def _process_signup(session: AsyncSession, session_id: str, metadata: dict) -> None:
+async def _process_signup(
+    session: AsyncSession,
+    session_id: str,
+    metadata: dict,
+    amount_brl: Decimal | None,
+) -> None:
     tenant_name = metadata.get("tenant_name")
     email = metadata.get("email")
     password_hash = metadata.get("password_hash")
@@ -200,6 +213,7 @@ async def _process_signup(session: AsyncSession, session_id: str, metadata: dict
             amount_credits=package.credits_granted,
             credit_package_id=package.id,
             stripe_payment_id=session_id,
+            amount_brl=amount_brl if amount_brl is not None else package.price_brl,
             description=f"Compra do pacote {package.name}",
         )
     )
@@ -240,7 +254,12 @@ async def _process_signup(session: AsyncSession, session_id: str, metadata: dict
         logger.warning("Falha ao gravar token de auto-login | session=%s erro=%s", session_id, exc)
 
 
-async def _process_recompra(session: AsyncSession, session_id: str, metadata: dict) -> None:
+async def _process_recompra(
+    session: AsyncSession,
+    session_id: str,
+    metadata: dict,
+    amount_brl: Decimal | None,
+) -> None:
     tenant_id_raw = metadata.get("tenant_id")
     credit_package_id = metadata.get("credit_package_id")
     if not all([tenant_id_raw, credit_package_id]):
@@ -279,6 +298,7 @@ async def _process_recompra(session: AsyncSession, session_id: str, metadata: di
             amount_credits=package.credits_granted,
             credit_package_id=package.id,
             stripe_payment_id=session_id,
+            amount_brl=amount_brl if amount_brl is not None else package.price_brl,
             description=f"Compra do pacote {package.name}",
         )
     )
@@ -298,10 +318,11 @@ async def _process_recompra(session: AsyncSession, session_id: str, metadata: di
 async def get_spending_report(
     session: AsyncSession, tenant_id: uuid.UUID, date_from: date, date_to: date
 ) -> SpendingReportOut:
-    """Quanto o tenant gastou comprando créditos da Advoxs, agregado por mês.
-    Mesma ressalva já documentada no CLAUDE.md pro dashboard de admin:
-    price_brl reflete o preço do pacote no momento da consulta, não
-    necessariamente o pago na época (a transação não guarda o preço pago)."""
+    """Quanto o tenant gastou comprando créditos da Advoxs, por mês.
+
+    Compras novas usam o valor gravado na transação. O preço atual do pacote
+    é apenas um fallback para registros anteriores à migração 0035.
+    """
     upper_bound = datetime.combine(date_to, time.max, tzinfo=UTC)
     lower_bound = datetime.combine(date_from, time.min, tzinfo=UTC)
 
@@ -309,7 +330,7 @@ async def get_spending_report(
         await session.execute(
             select(
                 func.date_trunc("month", CreditTransaction.created_at),
-                CreditPackage.price_brl,
+                func.coalesce(CreditTransaction.amount_brl, CreditPackage.price_brl),
             )
             .join(CreditPackage, CreditPackage.id == CreditTransaction.credit_package_id)
             .where(
@@ -331,4 +352,60 @@ async def get_spending_report(
             SpendingByMonthOut(month=month_key, total_brl=float(total))
             for month_key, total in sorted(by_month.items())
         ]
+    )
+
+
+async def get_usage_report(
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+    limit: int,
+) -> UsageReportOut:
+    """Consolida custo real, cobrança e origem de pagamento das execuções."""
+    upper_bound = datetime.combine(date_to, time.max, tzinfo=UTC)
+    lower_bound = datetime.combine(date_from, time.min, tzinfo=UTC)
+    records = (
+        (
+            await session.execute(
+                select(UsageRecord)
+                .where(
+                    UsageRecord.tenant_id == tenant_id,
+                    UsageRecord.created_at >= lower_bound,
+                    UsageRecord.created_at <= upper_bound,
+                )
+                .order_by(UsageRecord.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    def total(field: str, *, source: str | None = None) -> Decimal:
+        return sum(
+            (
+                Decimal(getattr(record, field))
+                for record in records
+                if source is None or record.funding_source == source
+            ),
+            Decimal(0),
+        )
+
+    summary = UsageSummaryOut(
+        executions=len(records),
+        operational_credits=float(total("operational_credits")),
+        billed_credits=float(total("billed_credits")),
+        shortfall_credits=float(total("shortfall_credits")),
+        subscription_credits=float(
+            total("operational_credits", source="end_customer_subscription")
+        ),
+        tenant_credits=float(total("operational_credits", source="tenant")),
+        end_customer_credits=float(total("operational_credits", source="end_customer_credits")),
+        document_credits=float(total("document_credits")),
+        tokens_input=sum(record.tokens_input for record in records),
+        tokens_output=sum(record.tokens_output for record in records),
+    )
+    return UsageReportOut(
+        summary=summary,
+        items=[UsageRecordOut.model_validate(record) for record in records[:limit]],
     )

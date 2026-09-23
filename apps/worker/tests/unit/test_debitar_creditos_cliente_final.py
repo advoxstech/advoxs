@@ -35,7 +35,7 @@ class FakeSession:
 async def test_lanca_consumption_negativo_e_atualiza_saldo() -> None:
     session = FakeSession()
 
-    await messages_task._debitar_creditos_cliente_final(
+    cobrado = await messages_task._debitar_creditos_cliente_final(
         session,
         TENANT_ID,
         CONTACT,
@@ -58,6 +58,7 @@ async def test_lanca_consumption_negativo_e_atualiza_saldo() -> None:
     assert transaction["tokens_output"] == 600
     assert transaction["pricing_config_id"] == PRICING_CONFIG_ID
     assert "token" not in transaction["description"].lower()
+    assert cobrado == Decimal("2.0000")
 
 
 async def test_debito_do_tenant_grava_tokens_brutos_e_config() -> None:
@@ -101,21 +102,24 @@ async def test_sem_breakdown_grava_null_em_tokens() -> None:
 async def test_debito_que_zera_o_saldo_retorna_true() -> None:
     session = FakeSession(saldo_antes=Decimal("1.5"))
 
-    zerou = await messages_task._debitar_creditos(
+    zerou, cobrado = await messages_task._debitar_creditos(
         session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
     )
 
     assert zerou is True
+    assert cobrado == Decimal("1.5")
+    assert session.insert_params()["amount_credits"] == Decimal("-1.5")
 
 
 async def test_debito_que_nao_zera_o_saldo_retorna_false() -> None:
     session = FakeSession(saldo_antes=Decimal("100"))
 
-    zerou = await messages_task._debitar_creditos(
+    zerou, cobrado = await messages_task._debitar_creditos(
         session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
     )
 
     assert zerou is False
+    assert cobrado == Decimal("2.0000")
 
 
 async def test_debito_quando_saldo_ja_estava_zerado_nao_conta_como_nova_transicao() -> None:
@@ -123,8 +127,26 @@ async def test_debito_quando_saldo_ja_estava_zerado_nao_conta_como_nova_transica
     deve gerar notificação de novo (ver process_inbound_message)."""
     session = FakeSession(saldo_antes=Decimal("0"))
 
-    zerou = await messages_task._debitar_creditos(
+    zerou, cobrado = await messages_task._debitar_creditos(
         session, TENANT_ID, MESSAGE_ID, tokens_used=2000, credits=Decimal("2.0000")
     )
 
     assert zerou is False
+    assert cobrado == 0
+    assert len(session.executed) == 1
+
+
+async def test_cliente_final_cobra_so_ate_o_saldo_disponivel() -> None:
+    session = FakeSession(saldo_antes=Decimal("0.75"))
+
+    cobrado = await messages_task._debitar_creditos_cliente_final(
+        session,
+        TENANT_ID,
+        CONTACT,
+        MESSAGE_ID,
+        tokens_used=2000,
+        credits=Decimal("2.0000"),
+    )
+
+    assert cobrado == Decimal("0.75")
+    assert session.insert_params()["amount_credits"] == Decimal("-0.75")

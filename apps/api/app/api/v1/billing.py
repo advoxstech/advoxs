@@ -17,12 +17,14 @@ from app.schemas.billing import (
     BillingStatusOut,
     BillingTransactionOut,
     SpendingReportOut,
+    UsageReportOut,
 )
 from app.services.billing import (
     InvalidPackageError,
     StripeApiError,
     create_recompra_checkout_session,
     get_spending_report,
+    get_usage_report,
 )
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -100,3 +102,19 @@ async def spending_report(
             detail="'to' não pode ser anterior a 'from'",
         )
     return await get_spending_report(session, ctx.tenant_id, from_, to)
+
+
+@router.get("/usage")
+async def usage_report(
+    from_: date = Query(..., alias="from"),
+    to: date = Query(...),
+    limit: int = Query(default=20, ge=1, le=100),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> UsageReportOut:
+    if to < from_:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'to' não pode ser anterior a 'from'",
+        )
+    return await get_usage_report(session, ctx.tenant_id, from_, to, limit)

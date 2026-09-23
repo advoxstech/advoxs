@@ -306,7 +306,7 @@ def _checkout_session(**metadata_overrides) -> dict:
         "kind": "end_customer_purchase",
     }
     metadata.update(metadata_overrides)
-    return {"id": "cs_end_999", "metadata": metadata}
+    return {"id": "cs_end_999", "metadata": metadata, "amount_total": 3990}
 
 
 class TestProcessEndCustomerCheckoutCompleted:
@@ -368,6 +368,7 @@ class TestProcessEndCustomerCheckoutCompleted:
         assert balance.credit_balance == package.credits_granted
         assert transaction.type == "purchase"
         assert transaction.amount_credits == package.credits_granted
+        assert transaction.amount_brl == Decimal("39.9")
         assert transaction.stripe_payment_id == "cs_end_999"
         assert message.sender_type == "system"
         send.assert_awaited_once()

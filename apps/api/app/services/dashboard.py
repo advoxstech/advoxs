@@ -124,7 +124,17 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
     if end_customer_connected:
         purchases_total = (
             await session.scalar(
-                select(func.coalesce(func.sum(EndCustomerCreditPackage.price_brl), 0))
+                select(
+                    func.coalesce(
+                        func.sum(
+                            func.coalesce(
+                                EndCustomerCreditTransaction.amount_brl,
+                                EndCustomerCreditPackage.price_brl,
+                            )
+                        ),
+                        0,
+                    )
+                )
                 .select_from(EndCustomerCreditTransaction)
                 .join(
                     EndCustomerCreditPackage,
