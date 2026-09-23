@@ -28,6 +28,7 @@ from app.models import (
     EndCustomerBalance,
     EndCustomerCreditTransaction,
     Message,
+    OutboundMessageJob,
     Tenant,
     TenantBillingSettings,
     WhatsAppNumber,
@@ -131,12 +132,42 @@ async def update_state(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> ConversationOut:
-    """Toggle de takeover: em modo `human`, o worker não aciona o agente."""
-    conversation = await _get_conversation(conversation_id, ctx, session)
+    """Altera explicitamente entre atendimento humano e atendimento pela IA."""
+    conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
     conversation.state = body.state
+    conversation.automation_status = "idle"
+    conversation.billing_gate_step = None
+    conversation.billing_gate_retries = 0
+    conversation.billing_gate_checkout_url = None
     if body.state == "human":
-        # Takeover começa "presente" — o heartbeat do painel mantém depois.
         conversation.human_last_seen_at = datetime.now(UTC)
+        pending_message_ids = select(OutboundMessageJob.message_id).where(
+            OutboundMessageJob.conversation_id == conversation.id,
+            OutboundMessageJob.status.in_(("pending", "processing")),
+        )
+        await session.execute(
+            update(Message)
+            .where(
+                Message.id.in_(pending_message_ids),
+                Message.delivery_status == "pending",
+            )
+            .values(delivery_status="cancelled")
+        )
+        await session.execute(
+            update(OutboundMessageJob)
+            .where(
+                OutboundMessageJob.conversation_id == conversation.id,
+                OutboundMessageJob.status.in_(("pending", "processing")),
+            )
+            .values(
+                status="cancelled",
+                locked_at=None,
+                completed_at=datetime.now(UTC),
+                last_error="atendimento humano assumido",
+            )
+        )
+    else:
+        conversation.human_last_seen_at = None
     await session.commit()
     balances = await _end_customer_balances_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
@@ -166,7 +197,7 @@ async def update_billing_exemption(
     final — o tenant absorve o custo enquanto isento (mesma regra já
     aplicada hoje pra qualquer tenant sem a cobrança habilitada). Cancela o
     billing gate em andamento, se houver, ao isentar."""
-    conversation = await _get_conversation(conversation_id, ctx, session)
+    conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
 
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     if not billing_enabled:
@@ -197,8 +228,10 @@ async def update_billing_exemption(
     if body.exempt:
         if conversation.state == "billing_gate":
             conversation.state = "agent"
+            conversation.automation_status = "idle"
             conversation.billing_gate_step = None
             conversation.billing_gate_retries = 0
+            conversation.billing_gate_checkout_url = None
         conversation.end_customer_billing_exempt = True
         notice_text = (
             "A partir de agora, essa conversa é gratuita — você não será cobrado pelo atendimento."
@@ -259,10 +292,13 @@ async def heartbeat(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> None:
-    """Presença do atendente: o painel envia a cada ciclo de polling enquanto
-    a conversa está aberta em modo human. O worker usa human_last_seen_at pra
-    decidir se a IA reassume (timeout)."""
+    """Registra presença para compatibilidade; não altera o modo de atendimento."""
     conversation = await _get_conversation(conversation_id, ctx, session)
+    if conversation.state != "human":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Heartbeat permitido somente durante atendimento humano",
+        )
     conversation.human_last_seen_at = datetime.now(UTC)
     await session.commit()
 
@@ -275,7 +311,7 @@ async def send_message(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> MessageOut:
     """Resposta manual do escritório (takeover) — envia via Graph API e persiste."""
-    conversation = await _get_conversation(conversation_id, ctx, session)
+    conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
     if conversation.state != "human":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -301,6 +337,8 @@ async def send_message(
             text=body.content,
         )
     except WhatsAppSendError as exc:
+        conversation.automation_status = "failed"
+        await session.commit()
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
     message = Message(
@@ -312,6 +350,7 @@ async def send_message(
     )
     session.add(message)
     conversation.last_message_at = datetime.now(UTC)
+    conversation.automation_status = "idle"
     await session.commit()
     await session.refresh(message)
 
@@ -619,6 +658,17 @@ def _to_conversation_out(
     agent_names: dict[uuid.UUID, str] | None = None,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
+    automation_status = getattr(conversation, "automation_status", "idle")
+    if automation_status == "failed":
+        out.status = "failed"
+    elif conversation.state == "billing_gate":
+        out.status = "billing_gate"
+    elif conversation.state == "human":
+        out.status = "human"
+    elif automation_status == "processing":
+        out.status = "processing"
+    else:
+        out.status = "agent"
     out.end_customer_balance = (
         float(end_customer_balance) if end_customer_balance is not None else None
     )
@@ -632,14 +682,19 @@ def _to_conversation_out(
 
 
 async def _get_conversation(
-    conversation_id: uuid.UUID, ctx: TenantContext, session: AsyncSession
+    conversation_id: uuid.UUID,
+    ctx: TenantContext,
+    session: AsyncSession,
+    *,
+    for_update: bool = False,
 ) -> Conversation:
-    conversation = await session.scalar(
-        select(Conversation).where(
-            Conversation.id == conversation_id,
-            Conversation.tenant_id == ctx.tenant_id,
-        )
+    statement = select(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.tenant_id == ctx.tenant_id,
     )
+    if for_update:
+        statement = statement.with_for_update()
+    conversation = await session.scalar(statement)
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada")
     return conversation

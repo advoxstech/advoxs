@@ -11,6 +11,7 @@ class ConversationOut(BaseModel):
     id: uuid.UUID
     contact_phone_number: str
     state: Literal["agent", "human", "billing_gate"]
+    status: Literal["agent", "human", "billing_gate", "processing", "failed"] = "agent"
     is_test: bool
     last_message_at: datetime | None
     created_at: datetime
@@ -32,7 +33,7 @@ class MessageOut(BaseModel):
     content: str
     media_url: str | None
     media_type: str | None
-    delivery_status: Literal["pending", "sent", "failed"] | None
+    delivery_status: Literal["pending", "sent", "failed", "cancelled"] | None
     created_at: datetime
 
 

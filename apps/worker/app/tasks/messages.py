@@ -16,7 +16,6 @@ from app.clients.agents import (
     send_message_to_agents,
     sync_context_to_agents,
 )
-from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
 from app.email_notifications import send_tenant_out_of_credits_notification
@@ -36,14 +35,6 @@ logger = logging.getLogger(__name__)
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
 PROCESSING_LEASE = timedelta(minutes=15)
-
-
-def _takeover_expirado(human_last_seen_at: datetime | None) -> bool:
-    """Sem heartbeat recente do painel, a presença expirou (NULL = expirado)."""
-    if human_last_seen_at is None:
-        return True
-    idade = (datetime.now(UTC) - human_last_seen_at).total_seconds()
-    return idade > settings.human_takeover_timeout_seconds
 
 
 async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
@@ -342,6 +333,19 @@ async def _has_newer_contact_message(
     return newer.scalar_one_or_none() is not None
 
 
+async def _conversation_allows_automation(
+    session: AsyncSession, conversation_id: str, *, lock: bool = False
+) -> bool:
+    """Lê a fonte de verdade; com lock, serializa com o takeover da API."""
+    statement = select(tables.conversations.c.state).where(
+        tables.conversations.c.id == uuid.UUID(conversation_id)
+    )
+    if lock:
+        statement = statement.with_for_update()
+    state = (await session.execute(statement)).scalar_one_or_none()
+    return state == "agent"
+
+
 async def _restore_agent_context_before_stale_response(
     session: AsyncSession,
     http: httpx.AsyncClient,
@@ -500,35 +504,15 @@ async def _process_inbound_message(
         return
 
     if inbound.conversation_state != "agent":
-        if not _takeover_expirado(inbound.human_last_seen_at):
-            # Takeover ativo: a mensagem aparece no painel e entra no
-            # checkpoint do agente (memória do takeover) — mas a IA não responde.
-            logger.info(
-                "Conversa em modo humano, agente não acionado | tenant=%s conversation=%s",
-                tenant_id,
-                conversation_id,
-            )
-            await _sync_context(
-                http, tenant_id, inbound.contact_phone_number, inbound.message_content
-            )
-            return
-        # Presença do atendente expirou: a IA reassume nesta mesma execução.
+        # O takeover persiste até o atendente devolver a conversa à IA.
         logger.info(
-            "Takeover expirado, IA reassume | tenant=%s conversation=%s",
+            "Automação pausada, agente não acionado | tenant=%s conversation=%s state=%s",
             tenant_id,
             conversation_id,
+            inbound.conversation_state,
         )
-        async with open_tenant_session(session_factory, tenant_id) as session:
-            await session.execute(
-                update(tables.conversations)
-                .where(tables.conversations.c.id == uuid.UUID(conversation_id))
-                .values(
-                    state="agent",
-                    automation_status="processing",
-                    human_last_seen_at=None,
-                )
-            )
-            await session.commit()
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        return
 
     # Moeda única: turno custeado pelo cliente final (cobrança habilitada e
     # saldo positivo) roda mesmo com o estoque do tenant zerado — esse crédito
@@ -623,6 +607,19 @@ async def _process_inbound_message(
         )
         return
 
+    # O estado carregado no início do job pode ter mudado enquanto o anexo
+    # era processado. Revalidamos antes de iniciar uma execução cobrada da IA.
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        automation_allowed = await _conversation_allows_automation(session, conversation_id)
+    if not automation_allowed:
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
+        logger.info(
+            "Automação pausada antes da chamada à IA | tenant=%s conversation=%s",
+            tenant_id,
+            conversation_id,
+        )
+        return
+
     try:
         result = await send_message_to_agents(
             http,
@@ -710,6 +707,29 @@ async def _process_inbound_message(
     documents = result.get("documents", [])
 
     async with open_tenant_session(session_factory, tenant_id) as session:
+        # Este lock usa a mesma linha bloqueada pelo PATCH de takeover. Assim,
+        # uma resposta pronta não pode ser persistida e cobrada depois que o
+        # atendimento humano foi confirmado.
+        automation_allowed = await _conversation_allows_automation(
+            session, conversation_id, lock=True
+        )
+        if not automation_allowed:
+            await session.rollback()
+            await _restore_agent_context_before_stale_response(
+                session,
+                http,
+                tenant_id,
+                conversation_id,
+                message_id,
+                inbound.contact_phone_number,
+            )
+            logger.info(
+                "Resposta descartada após takeover humano | tenant=%s conversation=%s",
+                tenant_id,
+                conversation_id,
+            )
+            return
+
         # Tokens ponderados -> créditos fracionados, pela config vigente, mais
         # o custo fixo de cada documento gerado nesta execução (ver
         # agents/tools.py) — a cobrança independe da entrega do documento ter

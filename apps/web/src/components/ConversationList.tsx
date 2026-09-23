@@ -3,6 +3,8 @@
 import { formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation } from "@/lib/types";
 
+import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+
 interface ConversationListProps {
   conversations: Conversation[];
   loaded: boolean;
@@ -29,17 +31,6 @@ export function ConversationList({
     <ul className="flex-1 overflow-y-auto">
       {conversations.map((conversation) => {
         const isSelected = conversation.id === selectedId;
-        const isManual = conversation.state === "human";
-        const isBillingGate = conversation.state === "billing_gate";
-        const needsAttention = isManual || isBillingGate;
-        let statusLabel = conversation.current_agent_name
-          ? `${conversation.current_agent_name} respondendo`
-          : "agente respondendo";
-        if (isManual) {
-          statusLabel = "atendimento manual";
-        } else if (isBillingGate) {
-          statusLabel = "Aguardando pagamento";
-        }
         return (
           <li key={conversation.id} className="border-b border-line">
             <button
@@ -65,19 +56,7 @@ export function ConversationList({
                 ) : null}
               </span>
               <span className="flex items-center justify-between gap-2">
-                <span
-                  className={`flex items-center gap-1.5 text-xs ${
-                    needsAttention ? "text-brass" : "text-muted"
-                  }`}
-                >
-                  <span
-                    aria-hidden
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      needsAttention ? "bg-brass" : "bg-accent"
-                    }`}
-                  />
-                  {statusLabel}
-                </span>
+                <ConversationStatusIndicator conversation={conversation} />
                 {conversation.end_customer_balance != null ? (
                   <span className="font-mono text-[11px] text-muted">
                     {formatCredits(conversation.end_customer_balance)} créditos

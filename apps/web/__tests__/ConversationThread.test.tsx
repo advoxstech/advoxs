@@ -87,7 +87,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+    expect(await screen.findByText("Condominial disponível")).toBeInTheDocument();
   });
 
   it("mostra o texto genérico quando current_agent_name é null", async () => {
@@ -101,7 +101,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+    expect(await screen.findByText("IA disponível")).toBeInTheDocument();
   });
 
   it("carrega e exibe as mensagens em ordem de leitura", async () => {
@@ -122,7 +122,7 @@ describe("ConversationThread", () => {
     expect(screen.getByText("Agente")).toBeInTheDocument();
   });
 
-  it("em modo agente, o campo de resposta fica habilitado e o switch está ligado", async () => {
+  it("em modo agente, exige ação explícita para assumir o atendimento", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -133,15 +133,14 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Resposta")).not.toBeDisabled();
+    expect(screen.getByLabelText("Resposta")).toBeDisabled();
     expect(
-      screen.getByText("Começar a digitar pausa a IA e você assume a conversa."),
+      screen.getByText("Assuma o atendimento para responder manualmente."),
     ).toBeInTheDocument();
-    const switchControl = screen.getByRole("switch", { name: "IA respondendo" });
-    expect(switchControl).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Assumir atendimento" })).toBeInTheDocument();
   });
 
-  it("composer fica habilitado mesmo em modo agent", async () => {
+  it("composer fica bloqueado em modo agent", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -152,12 +151,10 @@ describe("ConversationThread", () => {
       />,
     );
 
-    await waitFor(() =>
-      expect(screen.getByLabelText("Resposta")).not.toBeDisabled(),
-    );
+    expect(screen.getByLabelText("Resposta")).toBeDisabled();
   });
 
-  it("focar o composer em modo agent assume a conversa e mostra o popup", async () => {
+  it("assumir atendimento envia PATCH para human", async () => {
     const onUpdate = vi.fn();
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
@@ -174,19 +171,18 @@ describe("ConversationThread", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByLabelText("Resposta")).not.toBeDisabled());
-    fireEvent.focus(screen.getByLabelText("Resposta"));
+    fireEvent.click(screen.getByRole("button", { name: "Assumir atendimento" }));
 
-    await waitFor(() => expect(screen.getByText("IA pausada")).toBeInTheDocument());
-    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ state: "human" }));
-    expect(
-      backendFetchMock.mock.calls.some(
-        ([path, init]) => path === "conversations/c1" && init?.method === "PATCH",
-      ),
-    ).toBe(true);
+    await waitFor(() =>
+      expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ state: "human" })),
+    );
+    expect(backendFetchMock).toHaveBeenCalledWith(
+      "conversations/c1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ state: "human" }) }),
+    );
   });
 
-  it("Devolver pra IA faz o PATCH de volta pra agent", async () => {
+  it("Devolver para IA faz o PATCH de volta para agent", async () => {
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
@@ -197,11 +193,12 @@ describe("ConversationThread", () => {
 
     render(<Harness initial={conversation("agent")} />);
 
-    await waitFor(() => expect(screen.getByLabelText("Resposta")).not.toBeDisabled());
-    fireEvent.focus(screen.getByLabelText("Resposta"));
-    await waitFor(() => expect(screen.getByText("IA pausada")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Assumir atendimento" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Devolver para IA" })).toBeInTheDocument(),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Devolver pra IA" }));
+    fireEvent.click(screen.getByRole("button", { name: "Devolver para IA" }));
 
     await waitFor(() =>
       expect(
@@ -213,36 +210,14 @@ describe("ConversationThread", () => {
         ),
       ).toBe(true),
     );
-    expect(screen.queryByText("IA pausada")).not.toBeInTheDocument();
   });
 
-  it("envia heartbeat no ciclo de polling quando em modo human", async () => {
+  it("não depende de heartbeat para manter o modo human", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
       <ConversationThread
         conversation={conversation("human")}
-        onConversationUpdate={vi.fn()}
-        pollMs={40}
-      />,
-    );
-
-    await waitFor(() =>
-      expect(
-        backendFetchMock.mock.calls.some(
-          ([path, init]) =>
-            path === "conversations/c1/heartbeat" && init?.method === "POST",
-        ),
-      ).toBe(true),
-    );
-  });
-
-  it("não envia heartbeat em modo agent", async () => {
-    backendFetchMock.mockResolvedValue(jsonResponse([]));
-
-    render(
-      <ConversationThread
-        conversation={conversation("agent")}
         onConversationUpdate={vi.fn()}
         pollMs={40}
       />,
@@ -258,7 +233,7 @@ describe("ConversationThread", () => {
     ).toBe(false);
   });
 
-  it("em modo manual, o switch aparece desligado", async () => {
+  it("em modo manual, mostra a ação de devolver para IA", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -269,11 +244,11 @@ describe("ConversationThread", () => {
       />,
     );
 
-    const switchControl = screen.getByRole("switch", { name: "IA respondendo" });
-    expect(switchControl).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Devolver para IA" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Resposta")).not.toBeDisabled();
   });
 
-  it("acionar o switch envia PATCH e propaga a conversa atualizada", async () => {
+  it("acionar assumir atendimento envia PATCH e propaga a conversa atualizada", async () => {
     const updated = conversation("human");
     backendFetchMock.mockImplementation(async (path, init) => {
       if (init?.method === "PATCH") {
@@ -291,7 +266,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "IA respondendo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assumir atendimento" }));
 
     await waitFor(() => {
       expect(onConversationUpdate).toHaveBeenCalledWith(updated);
@@ -327,7 +302,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(screen.getByText("Atendimento manual")).toBeInTheDocument();
+    expect(screen.getByText("Atendimento humano")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Resposta"), {
       target: { value: "Bom dia, aqui é o advogado." },

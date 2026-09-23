@@ -28,7 +28,10 @@ class Message(Base):
             "sender_type IN ('agent', 'human', 'contact', 'system')",
             name="sender_type",
         ),
-        CheckConstraint("delivery_status IN ('pending', 'sent', 'failed')", name="delivery_status"),
+        CheckConstraint(
+            "delivery_status IN ('pending', 'sent', 'failed', 'cancelled')",
+            name="delivery_status",
+        ),
         # Queries do painel de conversas.
         Index("ix_messages_tenant_id_created_at", "tenant_id", "created_at"),
     )

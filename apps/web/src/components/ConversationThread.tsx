@@ -6,6 +6,8 @@ import { backendFetch } from "@/lib/client-api";
 import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
+import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+
 interface ConversationThreadProps {
   conversation: Conversation;
   onConversationUpdate: (conversation: Conversation) => void;
@@ -24,7 +26,6 @@ export function ConversationThread({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showTakeoverToast, setShowTakeoverToast] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isManual = conversation.state === "human";
@@ -116,21 +117,6 @@ export function ConversationThread({
     }
   }, [messages.length]);
 
-  useEffect(() => {
-    if (!pollMs || conversation.state !== "human") {
-      return;
-    }
-    const sendHeartbeat = () =>
-      void backendFetch(`conversations/${conversation.id}/heartbeat`, {
-        method: "POST",
-      }).catch(() => {
-        // presença é best-effort; tenta no próximo ciclo
-      });
-    sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, pollMs);
-    return () => clearInterval(interval);
-  }, [conversation.id, conversation.state, pollMs]);
-
   const toggleState = async () => {
     setError(null);
     const response = await backendFetch(`conversations/${conversation.id}`, {
@@ -141,23 +127,6 @@ export function ConversationThread({
       onConversationUpdate(await response.json());
     } else {
       setError("Não foi possível alterar o atendimento. Tente novamente.");
-    }
-  };
-
-  const handleComposerFocus = async () => {
-    if (isManual) {
-      return;
-    }
-    setError(null);
-    const response = await backendFetch(`conversations/${conversation.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ state: "human" }),
-    });
-    if (response.ok) {
-      onConversationUpdate(await response.json());
-      setShowTakeoverToast(true);
-    } else {
-      setError("Não foi possível assumir a conversa. Tente novamente.");
     }
   };
 
@@ -214,18 +183,7 @@ export function ConversationThread({
           <h2 className="font-mono text-sm font-medium">
             {formatPhone(conversation.contact_phone_number)}
           </h2>
-          {isManual ? (
-            <span className="-rotate-2 select-none border-[3px] border-double border-brass px-2 py-0.5 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-brass">
-              Atendimento manual
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-muted">
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-              {conversation.current_agent_name
-                ? `${conversation.current_agent_name} respondendo`
-                : "agente respondendo"}
-            </span>
-          )}
+          <ConversationStatusIndicator conversation={conversation} />
           {conversation.end_customer_balance != null ? (
             <span className="font-mono text-xs text-muted">
               saldo do cliente: {formatCredits(conversation.end_customer_balance)} créditos
@@ -263,26 +221,13 @@ export function ConversationThread({
               </button>
             </div>
           ) : null}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted">IA respondendo</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={!isManual}
-              aria-label="IA respondendo"
-              onClick={() => void toggleState()}
-              className={`relative h-5 w-9 rounded-full transition-colors ${
-                !isManual ? "bg-accent" : "bg-line"
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
-                  !isManual ? "translate-x-4" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void toggleState()}
+            className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+          >
+            {isManual ? "Devolver para IA" : "Assumir atendimento"}
+          </button>
           <button
             type="button"
             onClick={() => void handleDelete()}
@@ -296,39 +241,6 @@ export function ConversationThread({
         <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
           {exemptionError}
         </p>
-      ) : null}
-
-      {showTakeoverToast ? (
-        <div
-          role="status"
-          className="fixed right-6 top-20 z-50 w-72 rounded border border-brass bg-surface p-4 shadow-lg"
-        >
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-brass">
-            IA pausada
-          </p>
-          <p className="mt-1 text-sm leading-relaxed text-ink">
-            Você assumiu esta conversa. A IA reassume após 3 minutos sem atividade.
-          </p>
-          <div className="mt-3 flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => {
-                setShowTakeoverToast(false);
-                void toggleState();
-              }}
-              className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-            >
-              Devolver pra IA
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowTakeoverToast(false)}
-              className="text-xs text-muted transition-colors hover:text-ink"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
       ) : null}
 
       <section className="border-b border-line bg-surface px-6 py-3">
@@ -401,10 +313,9 @@ export function ConversationThread({
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={sending}
-            placeholder="Escreva sua resposta…"
+            disabled={!isManual || sending}
+            placeholder={isManual ? "Escreva sua resposta…" : "Assuma o atendimento para responder"}
             aria-label="Resposta"
-            onFocus={() => void handleComposerFocus()}
             className="flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
           />
           <button
@@ -416,9 +327,7 @@ export function ConversationThread({
           </button>
         </form>
         {!isManual ? (
-          <p className="mt-2 text-xs text-muted">
-            Começar a digitar pausa a IA e você assume a conversa.
-          </p>
+          <p className="mt-2 text-xs text-muted">Assuma o atendimento para responder manualmente.</p>
         ) : null}
       </footer>
     </div>
@@ -466,6 +375,10 @@ function MessageBubble({ message }: { message: Message }) {
         {message.delivery_status === "failed" ? (
           <span className="rounded-sm bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-danger">
             Não entregue
+          </span>
+        ) : message.delivery_status === "cancelled" ? (
+          <span className="rounded-sm bg-muted/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+            Cancelado
           </span>
         ) : message.delivery_status === "pending" ? (
           <span className="rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-brass">

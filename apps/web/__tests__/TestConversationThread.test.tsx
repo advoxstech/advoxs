@@ -57,7 +57,7 @@ describe("TestConversationThread", () => {
       />,
     );
 
-    expect(await screen.findByText("Condominial respondendo")).toBeInTheDocument();
+    expect(await screen.findByText("Condominial disponível")).toBeInTheDocument();
   });
 
   it("mostra o texto genérico quando current_agent_name é null", async () => {
@@ -65,7 +65,7 @@ describe("TestConversationThread", () => {
 
     render(<TestConversationThread conversation={conversation} onDeleted={() => {}} pollMs={0} />);
 
-    expect(await screen.findByText("agente respondendo")).toBeInTheDocument();
+    expect(await screen.findByText("IA disponível")).toBeInTheDocument();
   });
 
   it("envia mensagem e renderiza a resposta do agente", async () => {

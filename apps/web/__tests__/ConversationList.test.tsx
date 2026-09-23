@@ -44,8 +44,8 @@ describe("ConversationList", () => {
       />,
     );
 
-    expect(screen.getByText("agente respondendo")).toBeInTheDocument();
-    expect(screen.getByText("atendimento manual")).toBeInTheDocument();
+    expect(screen.getByText("IA disponível")).toBeInTheDocument();
+    expect(screen.getByText("Atendimento humano")).toBeInTheDocument();
     expect(screen.getByText("+55 11 99999-8888")).toBeInTheDocument();
   });
 
@@ -59,7 +59,7 @@ describe("ConversationList", () => {
       />,
     );
 
-    expect(screen.getByText("Condominial respondendo")).toBeInTheDocument();
+    expect(screen.getByText("Condominial disponível")).toBeInTheDocument();
   });
 
   it("mostra aguardando pagamento quando a conversa está no billing gate", () => {
@@ -79,8 +79,24 @@ describe("ConversationList", () => {
     );
 
     expect(screen.getByText("Aguardando pagamento")).toBeInTheDocument();
-    expect(screen.queryByText("Condominial respondendo")).not.toBeInTheDocument();
-    expect(screen.queryByText("agente respondendo")).not.toBeInTheDocument();
+    expect(screen.queryByText("Condominial disponível")).not.toBeInTheDocument();
+    expect(screen.queryByText("IA disponível")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["processing", "IA processando"],
+    ["failed", "Falha no atendimento"],
+  ] as const)("mostra o status operacional %s", (status, label) => {
+    render(
+      <ConversationList
+        conversations={[{ ...conversations[0], status }]}
+        loaded
+        selectedId={null}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 
   it("chama onSelect com o id da conversa clicada", () => {

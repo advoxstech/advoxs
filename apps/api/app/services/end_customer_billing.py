@@ -310,8 +310,10 @@ async def _notify_end_customer(
 
         if exit_billing_gate and conversation.state == "billing_gate":
             conversation.state = "agent"
+            conversation.automation_status = "idle"
             conversation.billing_gate_step = None
             conversation.billing_gate_retries = 0
+            conversation.billing_gate_checkout_url = None
         await session.commit()
     except WhatsAppSendError:
         logger.exception(

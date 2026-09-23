@@ -2,6 +2,9 @@
 
 ## Fontes atuais
 
+- [Configuração de produção](configuracao-producao.md): segredos obrigatórios,
+  integrações habilitadas e verificação anterior ao deploy.
+
 - [`../README.md`](../README.md): visão do produto, estado funcional, serviços
   e comandos de desenvolvimento.
 - [`../CLAUDE.md`](../CLAUDE.md): contexto técnico detalhado, decisões e
@@ -12,6 +15,8 @@
   atual do serviço de RAG.
 - [`sugestoes-chatgpt-2026-09-21.md`](sugestoes-chatgpt-2026-09-21.md): backlog
   de melhorias sugeridas pelo ChatGPT após a reunião de 21/09/2026.
+- [`melhorias-recomendadas-2026-09-21.md`](melhorias-recomendadas-2026-09-21.md):
+  resumo com dez melhorias selecionadas e três novas funcionalidades recomendadas.
 
 ## Registros históricos
 
