@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_access_token_expires_minutes: int = 15
     jwt_refresh_token_expires_days: int = 30
+    login_max_attempts_per_account: int = 5
+    login_max_attempts_per_ip: int = 20
+    login_attempt_window_seconds: int = 15 * 60
     agents_service_url: str = "http://agents:8001"
     # Auth de serviço com o agents (playground de admin — o worker usa a
     # mesma env, mas cada serviço lê o próprio settings).

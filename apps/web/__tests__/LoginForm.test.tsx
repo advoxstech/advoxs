@@ -25,4 +25,12 @@ describe("LoginForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ocultar" }));
     expect(passwordInput).toHaveAttribute("type", "password");
   });
+
+  it("mostra o aviso recebido após uma troca de senha", () => {
+    render(<LoginForm notice="Senha alterada. Entre novamente com sua nova senha." />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Senha alterada. Entre novamente com sua nova senha.",
+    );
+  });
 });

@@ -15,7 +15,7 @@ def _tenant(name: str = "Escritório Antigo") -> SimpleNamespace:
 
 
 def _user(password: str = "senha-atual") -> SimpleNamespace:
-    return SimpleNamespace(id=USER_ID, password_hash=hash_password(password))
+    return SimpleNamespace(id=USER_ID, password_hash=hash_password(password), session_version=0)
 
 
 class FakeSession:
@@ -62,4 +62,5 @@ class TestChangePassword:
         await change_password(session, USER_ID, "senha-atual", "nova-senha-123")
 
         assert user.password_hash != old_hash
+        assert user.session_version == 1
         assert session.committed is True

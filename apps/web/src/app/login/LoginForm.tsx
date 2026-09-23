@@ -7,7 +7,7 @@ import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = { error: null };
 
-export function LoginForm() {
+export function LoginForm({ notice }: { notice?: string }) {
   const [state, formAction, pending] = useActionState(login, initialState);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -68,6 +68,12 @@ export function LoginForm() {
           </div>
         </div>
       </div>
+
+      {notice ? (
+        <p role="status" className="border-l-2 border-auth-accent pl-3 text-sm text-ink">
+          {notice}
+        </p>
+      ) : null}
 
       {state.error ? (
         <p role="alert" className="border-l-2 border-danger pl-3 text-sm text-danger">

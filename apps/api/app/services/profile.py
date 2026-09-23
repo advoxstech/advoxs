@@ -26,4 +26,5 @@ async def change_password(
     if not verify_password(current_password, user.password_hash):
         raise InvalidCurrentPasswordError("Senha atual incorreta")
     user.password_hash = hash_password(new_password)
+    user.session_version += 1
     await session.commit()

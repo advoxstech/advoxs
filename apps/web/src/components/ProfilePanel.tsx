@@ -16,7 +16,6 @@ export function ProfilePanel() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [passwordSaved, setPasswordSaved] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [logoVersion, setLogoVersion] = useState(0);
 
@@ -54,7 +53,6 @@ export function ProfilePanel() {
 
   async function handleChangePassword() {
     setPasswordError(null);
-    setPasswordSaved(false);
     if (newPassword !== confirmPassword) {
       setPasswordError("As senhas não coincidem.");
       return;
@@ -64,10 +62,7 @@ export function ProfilePanel() {
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     });
     if (response.ok) {
-      setPasswordSaved(true);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+      window.location.assign("/login?password_changed=1");
     } else {
       const body = await response.json().catch(() => null);
       setPasswordError(
@@ -197,7 +192,6 @@ export function ProfilePanel() {
           />
         </div>
         {passwordError && <p className="text-sm text-danger">{passwordError}</p>}
-        {passwordSaved && <p className="text-sm text-accent">Senha alterada.</p>}
         <button
           type="button"
           onClick={() => void handleChangePassword()}

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -23,6 +24,7 @@ def _user():
     user.tenant_id = TENANT_ID
     user.role = "admin"
     user.password_hash = hash_password(PASSWORD)
+    user.session_version = 0
     return user
 
 
@@ -41,7 +43,10 @@ def session():
 @pytest.fixture
 def redis():
     mock = AsyncMock()
-    mock.exists.return_value = 0
+    mock.get.return_value = None
+    mock.set.return_value = True
+    mock.incr.return_value = 1
+    mock.ttl.return_value = 900
     return mock
 
 
@@ -84,6 +89,16 @@ class TestLogin:
 
         assert response.status_code == 401
 
+    def test_limite_de_tentativas_retorna_429(self, client, redis) -> None:
+        redis.get.side_effect = ["5", None]
+
+        response = client.post(
+            "/api/v1/auth/login", json={"email": "a@b.com", "password": "errada"}
+        )
+
+        assert response.status_code == 429
+        assert response.headers["retry-after"] == "900"
+
     def test_email_desconhecido_retorna_401(self, client, session) -> None:
         session.scalar.return_value = None
 
@@ -115,16 +130,28 @@ class TestRefresh:
         assert response.status_code == 200
         body = response.json()
         assert decode_token(body["refresh_token"])["jti"] != old_jti
-        blacklist_key = redis.set.await_args.args[0]
+        blacklist_key = redis.set.await_args_list[0].args[0]
         assert blacklist_key == f"{BLACKLIST_PREFIX}{old_jti}"
 
     def test_refresh_revogado_retorna_401(self, client, redis) -> None:
-        redis.exists.return_value = 1
+        redis.set.return_value = False
+        redis.get.return_value = None
         token = create_refresh_token(str(USER_ID))
 
         response = client.post("/api/v1/auth/refresh", json={"refresh_token": token})
 
         assert response.status_code == 401
+
+    def test_refresh_de_versao_anterior_retorna_401(self, client, session) -> None:
+        user = _user()
+        user.session_version = 2
+        session.get.return_value = user
+        token = create_refresh_token(str(USER_ID), session_version=1)
+
+        response = client.post("/api/v1/auth/refresh", json={"refresh_token": token})
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Sessão revogada"
 
     def test_access_token_no_lugar_de_refresh_retorna_401(self, client) -> None:
         token = create_access_token(str(USER_ID), str(TENANT_ID), "admin")
@@ -137,6 +164,40 @@ class TestRefresh:
         response = client.post("/api/v1/auth/refresh", json={"refresh_token": "lixo"})
 
         assert response.status_code == 401
+
+    async def test_duas_renovacoes_simultaneas_recebem_o_mesmo_novo_par(self) -> None:
+        class MemoryRedis:
+            def __init__(self):
+                self.values = {}
+                self.lock = asyncio.Lock()
+
+            async def set(self, key, value, *, ex=None, nx=False):
+                async with self.lock:
+                    if nx and key in self.values:
+                        return False
+                    self.values[key] = value
+                    return True
+
+            async def get(self, key):
+                return self.values.get(key)
+
+        user = _user()
+        tenant = _tenant()
+        session = AsyncMock()
+
+        async def get(model, _identifier):
+            return user if model is User else tenant
+
+        session.get = get
+        redis = MemoryRedis()
+        token = create_refresh_token(str(USER_ID), user.session_version)
+
+        first, second = await asyncio.gather(
+            auth_service_module.refresh(token, session, redis),
+            auth_service_module.refresh(token, session, redis),
+        )
+
+        assert first == second
 
 
 class TestLogout:
