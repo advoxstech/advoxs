@@ -7,6 +7,7 @@ from api.routes.documents.users import get_service
 from api.routes.retrievals import get_retrieval
 from constants import SYSTEM_TENANT_ID
 from main import app
+from services.retrieval.main import RetrievalUnavailableError
 
 HEADERS = {"Authorization": "test-api-key"}
 
@@ -107,6 +108,20 @@ class TestRetrievalUsers:
             tenant_id="t1",
             extra_filters={"conversation_id": "kb"},
         )
+
+    def test_falha_tecnica_retorna_indisponibilidade(self, client, retrieval_service) -> None:
+        retrieval_service.search_hybrid.side_effect = RetrievalUnavailableError(
+            "vector store unavailable"
+        )
+
+        response = client.post(
+            "/retrieval/users",
+            json={"tenant_id": "t1", "conversation_id": "kb", "message": "regimento"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Serviço de busca temporariamente indisponível"
 
 
 class TestRetrievalSystem:

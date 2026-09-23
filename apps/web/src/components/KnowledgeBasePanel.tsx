@@ -198,6 +198,17 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         </p>
       </header>
 
+      <div
+        role="note"
+        aria-label="Como os agentes usam a base de conhecimento"
+        className="border-b border-line bg-accent-soft px-8 py-3 text-sm text-ink"
+      >
+        <strong>A base de conhecimento é opcional.</strong> Sem documentos anexados, os agentes
+        continuam respondendo com o conhecimento próprio da IA. Adicione arquivos para fornecer
+        informações, regras e orientações específicas do escritório; cada agente acessa somente os
+        documentos anexados a ele.
+      </div>
+
       {feedback && (
         <p role="alert" className="border-b border-line bg-danger/5 px-8 py-3 text-sm text-danger">
           {feedback}

@@ -1,9 +1,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 import clients.retrieval as retrieval_module
-from clients.retrieval import retrieval_escritorio, retrieval_usuario
+from clients.retrieval import RetrievalUnavailableError, retrieval_escritorio, retrieval_usuario
 
 
 class FakeAsyncClient:
@@ -95,3 +96,27 @@ async def test_retrieval_escritorio_sem_doc_ids_nao_inclui_chave(monkeypatch) ->
 
     body = client.post.await_args.kwargs["json"]
     assert "doc_ids" not in body
+
+
+async def test_retrieval_escritorio_diferencia_resultado_vazio_de_falha(monkeypatch) -> None:
+    _mock_async_client(monkeypatch, {"results": []})
+
+    results = await retrieval_escritorio("tenant-1:5511999998888", "regimento", doc_ids=["f1"])
+
+    assert results == []
+
+
+async def test_retrieval_escritorio_levanta_erro_tipado_quando_rag_falha(monkeypatch) -> None:
+    client = AsyncMock()
+    request = httpx.Request("POST", "http://rag/retrieval/users")
+    response = httpx.Response(503, request=request)
+    client.post.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "unavailable", request=request, response=response
+    )
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(retrieval_module.httpx, "AsyncClient", MagicMock(return_value=cm))
+
+    with pytest.raises(RetrievalUnavailableError):
+        await retrieval_escritorio("tenant-1:5511999998888", "regimento", doc_ids=["f1"])

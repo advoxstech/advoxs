@@ -3,7 +3,7 @@ from langgraph.types import Command
 from loguru import logger
 
 from clients.document_generation import DocumentGenerationError, generate_pdf
-from clients.retrieval import retrieval_escritorio, retrieval_usuario
+from clients.retrieval import RetrievalUnavailableError, retrieval_escritorio, retrieval_usuario
 from services.document_storage import build_public_url, save_pdf
 
 # Custo fixo em créditos por documento gerado (contrato/multa/etc), somado ao
@@ -44,13 +44,14 @@ async def buscar_base_conhecimento_agente(
     query: str,
     conversation_id: str,
     knowledge_base_file_ids: list[str] | None = None,
-) -> str:
+) -> str | list[dict]:
     """Busca na base de conhecimento anexada a este agente.
 
-    Use quando a pergunta envolver documentos, materiais, modelos ou
-    orientações que você tenha na sua própria base de conhecimento — cada
-    agente só tem acesso aos arquivos que foram anexados especificamente a
-    ele, nunca à base de outro agente.
+    A base é opcional e complementa seu conhecimento nativo. Use quando a
+    pergunta envolver documentos, materiais, modelos ou orientações que você
+    tenha na sua própria base. Quando houver conteúdo relevante, priorize-o.
+    Quando não houver arquivos ou resultados, responda normalmente com seu
+    conhecimento nativo. Cada agente só acessa os arquivos anexados a ele.
 
     Args:
         query: Pergunta ou tema a ser pesquisado.
@@ -58,8 +59,27 @@ async def buscar_base_conhecimento_agente(
         knowledge_base_file_ids: preenchido automaticamente pelo sistema.
     """
     if not knowledge_base_file_ids:
-        return "Este agente não tem nenhuma base de conhecimento anexada."
-    return await retrieval_escritorio(conversation_id, query, doc_ids=knowledge_base_file_ids)
+        return (
+            "Nenhum documento está anexado a este agente. Responda normalmente usando seu "
+            "conhecimento nativo, sem dizer ao cliente que falta uma base de conhecimento."
+        )
+
+    try:
+        results = await retrieval_escritorio(
+            conversation_id, query, doc_ids=knowledge_base_file_ids
+        )
+    except RetrievalUnavailableError:
+        return (
+            "A base de conhecimento está temporariamente indisponível. Responda com seu "
+            "conhecimento nativo e não afirme que consultou ou encontrou algo nos documentos."
+        )
+
+    if not results:
+        return (
+            "A busca foi concluída, mas não encontrou conteúdo relevante. Responda normalmente "
+            "usando seu conhecimento nativo e não diga que a informação veio dos documentos."
+        )
+    return results
 
 
 @tool("bucar_base_conhecimento_usuario")

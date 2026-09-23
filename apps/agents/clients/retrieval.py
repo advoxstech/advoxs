@@ -16,6 +16,10 @@ RAG_API_KEY = os.getenv("RAG_API_KEY")
 HEADERS = {"Authorization": RAG_API_KEY}
 
 
+class RetrievalUnavailableError(RuntimeError):
+    """Indica que a busca não terminou por uma falha técnica no serviço de RAG."""
+
+
 async def retrieval_sistema(base: str, message: str) -> list[dict]:
     """Busca documentos gerais do sistema.
 
@@ -147,7 +151,7 @@ async def retrieval_escritorio(
             "Erro HTTP no retrieval escritório | status={}",
             exc.response.status_code,
         )
-        return []
+        raise RetrievalUnavailableError("knowledge base search unavailable") from exc
     except Exception as exc:
         logger.error("Erro ao consultar retrieval escritório | error_type={}", safe_error(exc))
-        return []
+        raise RetrievalUnavailableError("knowledge base search unavailable") from exc

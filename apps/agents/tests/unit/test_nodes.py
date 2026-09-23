@@ -187,6 +187,21 @@ async def test_prompt_inclui_regra_de_continuidade_no_especialista(monkeypatch) 
     assert "Regra de continuidade de atendimento" in prompt_arg.content
 
 
+@pytest.mark.asyncio
+async def test_prompt_explica_fallback_para_conhecimento_nativo(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state())
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Regra da base de conhecimento" in prompt_arg.content
+    assert "conhecimento nativo" in prompt_arg.content
+    assert "nunca afirme que consultou" in prompt_arg.content
+
+
 # ──────────────────────────────────────────────
 # agent_node — agente não-entry-point (equivalente aos especialistas de antes)
 # ──────────────────────────────────────────────

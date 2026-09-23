@@ -39,6 +39,15 @@ _CONTINUITY_RULE = (
     "use o que já foi contado."
 )
 
+_KNOWLEDGE_BASE_RULE = (
+    "\n\n---\n"
+    "**Regra da base de conhecimento:** a base é opcional e complementa seu conhecimento. "
+    "Quando a busca trouxer conteúdo relevante, priorize as informações do escritório. "
+    "Quando não houver documentos ou resultados relevantes, responda normalmente usando seu "
+    "conhecimento nativo. Se a busca estiver indisponível, você também pode responder com seu "
+    "conhecimento nativo, mas nunca afirme que consultou ou encontrou algo nos documentos."
+)
+
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
 # o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
 # documento (ver agents/tools.py) usam conversation_id só pra log/rastreio,
@@ -105,7 +114,7 @@ async def agent_node(state: dict) -> Command:
         ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
-    prompt = current["instructions"] + _CONTINUITY_RULE
+    prompt = current["instructions"] + _CONTINUITY_RULE + _KNOWLEDGE_BASE_RULE
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
     if other_agents:
         roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)

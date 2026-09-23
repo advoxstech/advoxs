@@ -252,7 +252,9 @@ curl -X POST http://localhost:8000/retrieval/system \
 }
 ```
 Cada item corresponde ao dataclass `RetrievalResult` (`chunk_id`, `score`, `text`, `metadata`).
-Lista vazia (`{"results": []}`) quando a busca no Qdrant falha ou não há hits.
+Lista vazia (`{"results": []}`) significa que a busca foi concluída e não encontrou hits.
+Uma falha técnica no mecanismo de busca retorna `503`, para não ser confundida com ausência de
+conteúdo relevante.
 
 ---
 
@@ -434,6 +436,7 @@ uv run ruff check .
 | 403    | API Key inválida ou ausente                                |
 | 404    | Documento não encontrado (delete / retrieval)              |
 | 422    | Corpo/parâmetros mal formados (validação do FastAPI)       |
+| 503    | Mecanismo de busca temporariamente indisponível            |
 | 500    | Erro interno (Qdrant, OpenAI, filesystem, banco, etc.)     |
 
 ---
