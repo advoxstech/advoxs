@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
+import { usePaginatedMessages } from "@/hooks/usePaginatedMessages";
 import { backendFetch } from "@/lib/client-api";
 import { formatMessageTime } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
@@ -11,6 +12,7 @@ import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 interface TestConversationThreadProps {
   conversation: Conversation;
   onDeleted: () => void;
+  onBack?: () => void;
   pollMs?: number;
 }
 
@@ -19,47 +21,31 @@ const ACCEPTED_ATTACHMENT = ".pdf,.docx,.txt";
 export function TestConversationThread({
   conversation,
   onDeleted,
+  onBack,
   pollMs = 4000,
 }: TestConversationThreadProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const {
+    messages,
+    loaded,
+    loadingOlder,
+    hasOlder,
+    loadError,
+    lastUpdatedAt,
+    newMessageCount,
+    refreshing,
+    listRef,
+    refresh,
+    loadOlder,
+    handleScroll,
+    scrollToLatest,
+    appendMessages,
+  } = usePaginatedMessages(conversation.id, pollMs);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const loadMessages = useCallback(async () => {
-    try {
-      const response = await backendFetch(`conversations/${conversation.id}/messages`);
-      if (response.ok) {
-        const data: Message[] = await response.json();
-        setMessages(data.slice().reverse());
-      }
-    } catch {
-      // rede indisponível: tenta no próximo ciclo
-    }
-  }, [conversation.id]);
-
-  useEffect(() => {
-    void loadMessages();
-    if (!pollMs) {
-      return;
-    }
-    const interval = setInterval(() => void loadMessages(), pollMs);
-    return () => clearInterval(interval);
-  }, [loadMessages, pollMs]);
-
-  useEffect(() => {
-    // Rola só a lista de mensagens — scrollIntoView rolaria TODOS os
-    // ancestrais (inclusive os overflow-hidden do layout), deslocando a
-    // página inteira sem como o usuário desfazer (visto em produção).
-    const list = bottomRef.current?.parentElement;
-    if (list) {
-      list.scrollTop = list.scrollHeight;
-    }
-  }, [messages.length]);
 
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -80,13 +66,7 @@ export function TestConversationThread({
       });
       if (response.ok) {
         const body: { messages: Message[]; grouped: boolean } = await response.json();
-        // Dedupe por id: a chamada ao agente pode levar mais que um ciclo de
-        // polling, e o poll já terá trazido a mensagem do contato (commitada
-        // antes) — sem isso ela apareceria duplicada até o próximo poll.
-        setMessages((prev) => {
-          const seen = new Set(prev.map((m) => m.id));
-          return [...prev, ...body.messages.filter((m) => !seen.has(m.id))];
-        });
+        appendMessages(body.messages);
         setGrouped(body.grouped);
         setDraft("");
         setAttachment(null);
@@ -95,7 +75,7 @@ export function TestConversationThread({
         setError("Saldo de créditos esgotado — compre créditos para testar os agentes.");
       } else {
         setError("Não foi possível falar com o agente. Tente novamente.");
-        void loadMessages();
+        void refresh();
       }
     } catch {
       setError("Falha de conexão — tente novamente.");
@@ -120,8 +100,17 @@ export function TestConversationThread({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center justify-between gap-4 border-b border-line bg-surface px-6 py-3.5">
-        <div className="flex items-center gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3.5 md:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="shrink-0 rounded-sm border border-line px-2.5 py-1.5 text-xs font-medium text-ink md:hidden"
+            >
+              Voltar
+            </button>
+          ) : null}
           <h2 className="font-mono text-sm font-medium">Conversa de teste</h2>
           <span className="rounded-full bg-brass-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-brass">
             ambiente de teste
@@ -137,7 +126,48 @@ export function TestConversationThread({
         </button>
       </header>
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
+      {loadError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 border-b border-brass/30 bg-brass-soft px-4 py-2 text-xs text-ink md:px-6"
+        >
+          <span>
+            Não foi possível atualizar.
+            {lastUpdatedAt
+              ? ` Exibindo dados de ${lastUpdatedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.`
+              : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            className="font-medium text-accent disabled:opacity-50"
+          >
+            {refreshing ? "Atualizando…" : "Tentar novamente"}
+          </button>
+        </div>
+      ) : null}
+
+      <ul
+        ref={listRef}
+        onScroll={handleScroll}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-5 md:px-6"
+      >
+        {!loaded ? (
+          <li className="py-4 text-center text-sm text-muted">Carregando mensagens…</li>
+        ) : null}
+        {hasOlder && loaded && messages.length > 0 ? (
+          <li className="flex justify-center pb-2">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-muted disabled:opacity-50"
+            >
+              {loadingOlder ? "Carregando…" : "Carregar mensagens anteriores"}
+            </button>
+          </li>
+        ) : null}
         {messages.map((message) => (
           <TestMessageBubble key={message.id} message={message} />
         ))}
@@ -148,10 +178,19 @@ export function TestConversationThread({
             </span>
           </li>
         ) : null}
-        <div ref={bottomRef} aria-hidden />
       </ul>
 
-      <footer className="border-t border-line bg-surface px-6 py-4">
+      {newMessageCount > 0 ? (
+        <button
+          type="button"
+          onClick={scrollToLatest}
+          className="mx-auto mb-3 rounded-full bg-ink px-4 py-2 text-xs font-medium text-ground shadow-lg"
+        >
+          {newMessageCount} {newMessageCount === 1 ? "mensagem nova" : "mensagens novas"}
+        </button>
+      ) : null}
+
+      <footer className="border-t border-line bg-surface px-4 py-4 md:px-6">
         {error ? (
           <p role="alert" className="mb-2 text-xs text-danger">
             {error}

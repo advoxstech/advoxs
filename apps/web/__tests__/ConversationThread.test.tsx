@@ -122,6 +122,63 @@ describe("ConversationThread", () => {
     expect(screen.getByText("Agente")).toBeInTheDocument();
   });
 
+  it("carrega mensagens anteriores sem substituir as recentes", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index): Message => ({
+      id: `m${50 - index}`,
+      sender_type: "contact",
+      content: `Mensagem ${50 - index}`,
+      media_url: null,
+      media_type: null,
+      delivery_status: null,
+      created_at: new Date(2026, 0, 1, 0, 50 - index).toISOString(),
+    }));
+    const older: Message = {
+      id: "m0",
+      sender_type: "contact",
+      content: "Mensagem mais antiga",
+      media_url: null,
+      media_type: null,
+      delivery_status: null,
+      created_at: new Date(2026, 0, 1).toISOString(),
+    };
+    backendFetchMock.mockImplementation(async (path: string) =>
+      String(path).includes("offset=50") ? jsonResponse([older]) : jsonResponse(firstPage),
+    );
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={0}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Carregar mensagens anteriores" }));
+
+    expect(await screen.findByText("Mensagem mais antiga")).toBeInTheDocument();
+    expect(screen.getByText("Mensagem 50")).toBeInTheDocument();
+    expect(backendFetchMock).toHaveBeenCalledWith(
+      "conversations/c1/messages?limit=50&offset=50",
+    );
+  });
+
+  it("mantém as mensagens visíveis quando uma atualização de rede falha", async () => {
+    backendFetchMock.mockResolvedValueOnce(jsonResponse(messages)).mockRejectedValue(new Error("offline"));
+
+    render(
+      <ConversationThread
+        conversation={conversation("agent")}
+        onConversationUpdate={() => {}}
+        pollMs={10}
+      />,
+    );
+
+    expect(await screen.findByText("Olá, tenho uma dúvida.")).toBeInTheDocument();
+    expect(await screen.findByText(/Não foi possível atualizar/)).toBeInTheDocument();
+    expect(screen.getByText("Olá, tenho uma dúvida.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+  });
+
   it("em modo agente, exige ação explícita para assumir o atendimento", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 

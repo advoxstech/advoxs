@@ -63,7 +63,7 @@ async def list_conversations(
             Conversation.tenant_id == ctx.tenant_id,
             Conversation.is_test == (origin == "test"),
         )
-        .order_by(Conversation.last_message_at.desc().nulls_last())
+        .order_by(Conversation.last_message_at.desc().nulls_last(), Conversation.id.desc())
         .limit(limit)
         .offset(offset)
     )
@@ -118,7 +118,7 @@ async def list_messages(
     result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .limit(limit)
         .offset(offset)
     )
