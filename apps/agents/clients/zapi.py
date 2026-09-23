@@ -13,6 +13,7 @@ import httpx
 from loguru import logger
 
 from clients.ratelimit import acquire_rate_limit_slot
+from core.safe_logging import safe_error, safe_identifier, safe_url
 
 _BASE_URL = "https://api.z-api.io"
 _MAX_ATTEMPTS = 3
@@ -63,7 +64,7 @@ class ZApiClient:
         # requisição de verdade.
         self._log_base_url = f"{_BASE_URL}/instances/{instance_id}/token/***"
         self._client: httpx.AsyncClient | None = None
-        logger.info("ZApiClient inicializado | instance_id={}", instance_id)
+        logger.info("ZApiClient inicializado | provider_ref={}", safe_identifier(instance_id))
 
     def _redact_url(self, url: str) -> str:
         """Substitui o prefixo com o token real pelo prefixo redigido,
@@ -123,23 +124,22 @@ class ZApiClient:
                 logger.info(
                     "Executando requisição à Z-API | method={} url={} tentativa={}",
                     method,
-                    log_url,
+                    safe_url(log_url),
                     attempt,
                 )
                 response = await client.request(method, url, **kwargs)
 
                 if response.is_error:
                     logger.warning(
-                        "Resposta HTTP não OK | method={} url={} status={} body={}",
+                        "Resposta HTTP não OK | method={} url={} status={}",
                         method,
-                        log_url,
+                        safe_url(log_url),
                         response.status_code,
-                        response.text,
                     )
                     last_error = {
                         "success": False,
                         "data": None,
-                        "error": f"HTTP {response.status_code}: {response.text}",
+                        "error": f"HTTP {response.status_code}",
                     }
                     if response.status_code < 500:
                         # 4xx não é transitório — falha imediata, sem retry.
@@ -158,7 +158,7 @@ class ZApiClient:
                 logger.info(
                     "Requisição concluída | method={} url={} status={} elapsed={}s",
                     method,
-                    log_url,
+                    safe_url(log_url),
                     response.status_code,
                     elapsed,
                 )
@@ -168,7 +168,7 @@ class ZApiClient:
                 logger.error(
                     "Timeout ao acessar Z-API | method={} url={} tentativa={}",
                     method,
-                    log_url,
+                    safe_url(log_url),
                     attempt,
                 )
                 last_error = {
@@ -181,38 +181,44 @@ class ZApiClient:
                     continue
                 return last_error
 
-            except httpx.ConnectError as e:
+            except httpx.ConnectError as exc:
                 logger.error(
                     "Erro de conexão com Z-API | method={} url={} error={} tentativa={}",
                     method,
-                    log_url,
-                    e,
+                    safe_url(log_url),
+                    safe_error(exc),
                     attempt,
                 )
-                last_error = {"success": False, "data": None, "error": f"Erro de conexão: {e}"}
+                last_error = {"success": False, "data": None, "error": "Erro de conexão"}
                 if attempt < _MAX_ATTEMPTS:
                     await asyncio.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
                     continue
                 return last_error
 
-            except httpx.RequestError as e:
+            except httpx.RequestError as exc:
                 logger.error(
-                    "Erro de requisição à Z-API | method={} url={} error={}", method, log_url, e
+                    "Erro de requisição à Z-API | method={} url={} error_type={}",
+                    method,
+                    safe_url(log_url),
+                    safe_error(exc),
                 )
-                return {"success": False, "data": None, "error": f"Erro de requisição: {e}"}
+                return {"success": False, "data": None, "error": "Erro de requisição"}
 
-            except Exception as e:
-                logger.exception(
-                    "Erro inesperado ao acessar Z-API | method={} url={}", method, log_url
+            except Exception as exc:
+                logger.error(
+                    "Erro inesperado ao acessar Z-API | method={} url={} error_type={}",
+                    method,
+                    safe_url(log_url),
+                    safe_error(exc),
                 )
-                return {"success": False, "data": None, "error": f"Erro inesperado: {e}"}
+                return {"success": False, "data": None, "error": "Erro inesperado"}
 
         return last_error
 
     # ---------- MESSAGES ----------
     async def send_text_message(self, to: str, text: str):
         url = f"{self._base_url}/send-text"
-        logger.info("Enviando mensagem de texto via Z-API | to={}", to)
+        logger.info("Enviando mensagem de texto via Z-API | contact_ref={}", safe_identifier(to))
         payload = {"phone": to, "message": text}
         return await self._safe_request("POST", url, headers=self._headers(), json=payload)
 
@@ -227,7 +233,10 @@ class ZApiClient:
         extension = _infer_extension(filename, link)
         url = f"{self._base_url}/send-document/{extension}"
         logger.info(
-            "Enviando documento via Z-API | to={} link={} extension={}", to, link, extension
+            "Enviando documento via Z-API | contact_ref={} document_url={} extension={}",
+            safe_identifier(to),
+            safe_url(link),
+            extension,
         )
         payload: dict = {"phone": to, "document": link}
         if filename:

@@ -14,6 +14,7 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.rag import RagApiError, delete_documents
 from app.core.config import settings
 from app.core.queue import get_arq_pool
+from app.core.safe_logging import safe_error
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
 from app.schemas.knowledge_base import (
     KnowledgeBaseCategory,
@@ -315,7 +316,9 @@ async def delete_file(
         await delete_documents(str(ctx.tenant_id), [str(file_id)])
     except RagApiError as exc:
         # Detalhe interno só no log — não expor nome/erro do serviço ao tenant.
-        logger.error("Falha ao excluir no api_rag | file=%s erro=%s", file_id, exc)
+        logger.error(
+            "Falha ao excluir no api_rag | file=%s error_type=%s", file_id, safe_error(exc)
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Falha ao excluir o arquivo — tente novamente em instantes",

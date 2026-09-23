@@ -50,13 +50,11 @@ async def send_text_message(phone_number_id: str, access_token: str, to: str, te
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise WhatsAppSendError(f"Falha de rede ao chamar a Graph API: {exc}") from exc
+        raise WhatsAppSendError("Falha de rede ao chamar a Graph API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Graph API retornou erro | status=%s body=%s", response.status_code, response.text
-        )
-        raise WhatsAppSendError(f"Graph API HTTP {response.status_code}: {response.text}")
+        logger.warning("Graph API retornou erro | status=%s", response.status_code)
+        raise WhatsAppSendError(f"Graph API HTTP {response.status_code}")
 
 
 async def fetch_display_phone_number(phone_number_id: str, access_token: str) -> str:
@@ -70,14 +68,10 @@ async def fetch_display_phone_number(phone_number_id: str, access_token: str) ->
                 params={"fields": "display_phone_number"},
             )
     except httpx.HTTPError as exc:
-        raise WhatsAppNetworkError(f"Falha de rede ao validar número: {exc}") from exc
+        raise WhatsAppNetworkError("Falha de rede ao validar número") from exc
 
     if response.is_error:
-        logger.warning(
-            "Graph API (GET número) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Graph API (GET número) retornou erro | status=%s", response.status_code)
         raise WhatsAppApiError(
             _meta_error_message(
                 response, "Não foi possível validar o Phone Number ID/token com a Meta"
@@ -98,14 +92,10 @@ async def register_number(phone_number_id: str, access_token: str, pin: str) -> 
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise WhatsAppNetworkError(f"Falha de rede ao registrar número: {exc}") from exc
+        raise WhatsAppNetworkError("Falha de rede ao registrar número") from exc
 
     if response.is_error:
-        logger.warning(
-            "Graph API (register) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Graph API (register) retornou erro | status=%s", response.status_code)
         raise WhatsAppApiError(
             _meta_error_message(
                 response, "Não foi possível registrar o número na Meta — verifique o PIN"
@@ -123,13 +113,11 @@ async def subscribe_app_to_waba(waba_id: str, access_token: str) -> None:
                 headers={"Authorization": f"Bearer {access_token}"},
             )
     except httpx.HTTPError as exc:
-        raise WhatsAppNetworkError(f"Falha de rede ao inscrever app na WABA: {exc}") from exc
+        raise WhatsAppNetworkError("Falha de rede ao inscrever app na WABA") from exc
 
     if response.is_error:
         logger.warning(
-            "Graph API (subscribed_apps) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
+            "Graph API (subscribed_apps) retornou erro | status=%s", response.status_code
         )
         raise WhatsAppApiError(
             _meta_error_message(

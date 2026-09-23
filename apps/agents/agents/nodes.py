@@ -183,7 +183,7 @@ async def tool_node(state: dict) -> dict:
         if tool_call["name"] == "transfer_to_agent":
             args["valid_agent_ids"] = list(agents_by_id.keys())
 
-        logger.info("Executando ferramenta | tool={} | args={}", tool_call["name"], args)
+        logger.info("Executando ferramenta | tool={} | argumentos={}", tool_call["name"], len(args))
         observation = await tool.ainvoke(args)
         logger.info("Ferramenta concluída | tool={}", tool_call["name"])
 

@@ -11,6 +11,7 @@ from app import tables
 from app.clients.rag import ingest_document
 from app.config import settings
 from app.db import open_tenant_session
+from app.safe_logging import safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,11 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
         return
     except httpx.HTTPError as exc:
         if ctx.get("job_try", 1) < MAX_TRIES:
-            logger.warning("api_rag indisponível, reagendando | file=%s erro=%s", file_id, exc)
+            logger.warning(
+                "api_rag indisponível, reagendando | file=%s error_type=%s",
+                file_id,
+                safe_error(exc),
+            )
             raise Retry(defer=ctx.get("job_try", 1) * 15)
         await _set_status(
             session_factory, file_id, "error", "Serviço de ingestão indisponível", tenant_id

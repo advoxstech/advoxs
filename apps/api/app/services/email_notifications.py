@@ -23,6 +23,7 @@ from datetime import datetime
 from email.message import EmailMessage
 
 from app.core.config import settings
+from app.core.safe_logging import safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,10 @@ async def _dispatch(subject: str, body: str, *, context: str) -> None:
     try:
         await asyncio.to_thread(_send_email_sync, settings.admin_notification_email, subject, body)
     except Exception as exc:  # noqa: BLE001 — best-effort, nunca deve propagar
-        logger.warning("Falha ao enviar notificação por e-mail (best-effort) | erro=%s", exc)
+        logger.warning(
+            "Falha ao enviar notificação por e-mail (best-effort) | error_type=%s",
+            safe_error(exc),
+        )
 
 
 async def send_zapi_request_notification(tenant_name: str, requested_at: datetime) -> None:

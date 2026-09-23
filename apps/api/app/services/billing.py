@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.redis import get_redis
+from app.core.safe_logging import safe_error
 from app.core.security import hash_password
 from app.models import CreditPackage, CreditTransaction, Tenant, UsageRecord, User
 from app.schemas.billing import (
@@ -91,7 +92,7 @@ async def create_checkout_session(
             cancel_url=f"{settings.web_app_url}/cadastro/cancelado",
         )
     except stripe.error.StripeError as exc:
-        logger.error("Falha ao criar sessão de checkout | erro=%s", exc)
+        logger.error("Falha ao criar sessão de checkout | error_type=%s", safe_error(exc))
         raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc
 
     return checkout_session.url
@@ -132,7 +133,7 @@ async def create_recompra_checkout_session(
             cancel_url=f"{settings.web_app_url}/creditos",
         )
     except stripe.error.StripeError as exc:
-        logger.error("Falha ao criar sessão de recompra | erro=%s", exc)
+        logger.error("Falha ao criar sessão de recompra | error_type=%s", safe_error(exc))
         raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc
 
     return checkout_session.url
@@ -251,7 +252,11 @@ async def _process_signup(
         redis = await get_redis()
         await store_login_token(redis, session_id, user.id)
     except Exception as exc:
-        logger.warning("Falha ao gravar token de auto-login | session=%s erro=%s", session_id, exc)
+        logger.warning(
+            "Falha ao gravar token de auto-login | session=%s error_type=%s",
+            session_id,
+            safe_error(exc),
+        )
 
 
 async def _process_recompra(

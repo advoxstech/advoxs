@@ -29,6 +29,7 @@ from app.clients.zapi import (
 )
 from app.core.config import settings
 from app.core.crypto import encrypt_access_token
+from app.core.safe_logging import safe_error
 from app.models import WhatsAppNumber
 from app.schemas.whatsapp_connection import WhatsAppConnectionOut
 
@@ -73,7 +74,7 @@ async def provision_zapi_connection(
     try:
         live_status = await check_zapi_status(instance_id, instance_token, client_token)
     except ZApiNetworkError as exc:
-        logger.error("Falha de rede ao validar credenciais Z-API | erro=%s", exc)
+        logger.error("Falha de rede ao validar credenciais Z-API | error_type=%s", safe_error(exc))
         raise
 
     webhook_secret = secrets.token_urlsafe(32)
@@ -83,7 +84,7 @@ async def provision_zapi_connection(
     try:
         await configure_zapi_webhook(instance_id, instance_token, client_token, webhook_url)
     except ZApiNetworkError as exc:
-        logger.error("Falha de rede ao configurar webhook Z-API | erro=%s", exc)
+        logger.error("Falha de rede ao configurar webhook Z-API | error_type=%s", safe_error(exc))
         raise
 
     # Cobre a instância já pareada fora do nosso fluxo (ex: testada direto no
@@ -98,8 +99,9 @@ async def provision_zapi_connection(
             phone = await fetch_zapi_connected_phone(instance_id, instance_token, client_token)
         except (ZApiNetworkError, ZApiApiError) as exc:
             logger.warning(
-                "Falha ao buscar telefone de instância Z-API já conectada (best-effort) | erro=%s",
-                exc,
+                "Falha ao buscar telefone de instância Z-API já conectada (best-effort) | "
+                "error_type=%s",
+                safe_error(exc),
             )
             phone = None
         if phone:

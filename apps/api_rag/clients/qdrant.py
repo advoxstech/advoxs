@@ -21,6 +21,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from safe_logging import safe_error, safe_url
+
 load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
@@ -54,7 +56,7 @@ class QdrantClient:
     def __init__(self):
         self._url = QDRANT_URL
         self._client = _AsyncQdrantClient(url=self._url, api_key=QDRANT_API_KEY)
-        logger.info(f"Conectado ao Qdrant em {self._url}")
+        logger.info("Cliente Qdrant inicializado | url={}", safe_url(self._url))
 
     # ---------- CORE SAFE REQUEST ----------
     async def _safe_call(self, operation_name: str, fn, *args, **kwargs):
@@ -75,17 +77,18 @@ class QdrantClient:
                 "error": None,
             }
 
-        except Exception as e:
+        except Exception as exc:
             elapsed = round(time.perf_counter() - started_at, 3)
             logger.error(
-                f"Erro na operação Qdrant [{operation_name}]: {str(e)}",
-                operation=operation_name,
-                elapsed_s=elapsed,
+                "Erro na operação Qdrant | operation={} error_type={} elapsed_s={}",
+                operation_name,
+                safe_error(exc),
+                elapsed,
             )
             return {
                 "success": False,
                 "data": None,
-                "error": str(e),
+                "error": str(exc),
             }
 
     # ---------- COLLECTION ----------
@@ -117,9 +120,14 @@ class QdrantClient:
                     )
                 logger.info(f"Collection '{collection_name}' pronta (índices ok)")
                 return
-            except Exception as e:
+            except Exception as exc:
                 logger.warning(
-                    f"Tentativa {attempt}/{retries} de provisionar '{collection_name}' falhou: {e}"
+                    "Tentativa de provisionar collection falhou | attempt={}/{} "
+                    "collection={} error_type={}",
+                    attempt,
+                    retries,
+                    collection_name,
+                    safe_error(exc),
                 )
                 if attempt == retries:
                     raise

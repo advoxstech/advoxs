@@ -69,14 +69,10 @@ async def send_zapi_text_message(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.post(url, headers=_headers(client_token), json=payload)
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao enviar mensagem pela Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao enviar mensagem pela Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (send-text) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (send-text) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível enviar a mensagem pela Z-API")
         )
@@ -99,14 +95,10 @@ async def send_zapi_document_message(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.post(url, headers=_headers(client_token), json=payload)
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao enviar documento pela Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao enviar documento pela Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (send-document) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (send-document) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível enviar o documento pela Z-API")
         )
@@ -137,14 +129,10 @@ async def send_zapi_option_list(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             response = await client.post(url, headers=_headers(client_token), json=payload)
     except httpx.HTTPError as exc:
-        raise ZApiNetworkError(f"Falha de rede ao enviar lista pela Z-API: {exc}") from exc
+        raise ZApiNetworkError("Falha de rede ao enviar lista pela Z-API") from exc
 
     if response.is_error:
-        logger.warning(
-            "Z-API (send-option-list) retornou erro | status=%s body=%s",
-            response.status_code,
-            response.text,
-        )
+        logger.warning("Z-API (send-option-list) retornou erro | status=%s", response.status_code)
         raise ZApiApiError(
             _zapi_error_message(response, "Não foi possível enviar a lista pela Z-API")
         )

@@ -14,8 +14,6 @@ postgres_db = os.getenv("POSTGRES_DB")
 
 DATABASE_URL = f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
 
-print(DATABASE_URL)
-
 engine = create_async_engine(
     DATABASE_URL,
     pool_size=10,

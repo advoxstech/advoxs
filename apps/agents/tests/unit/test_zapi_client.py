@@ -167,7 +167,8 @@ class TestLogRedaction:
         assert logged, "esperava pelo menos uma chamada logger.info"
         for line in logged:
             assert "token-do-tenant" not in line
-        assert any("token/***" in line for line in logged)
+            assert "inst-123" not in line
+        assert any("api.z-api.io/[redigido]" in line for line in logged)
 
     async def test_erro_http_nao_loga_o_token_em_texto_plano(self, client, monkeypatch) -> None:
         response = httpx.Response(500, text="internal error")
@@ -184,6 +185,7 @@ class TestLogRedaction:
         assert logged, "esperava pelo menos uma chamada logger.warning"
         for line in logged:
             assert "token-do-tenant" not in line
+            assert "internal error" not in line
 
     async def test_erro_de_conexao_nao_loga_o_token_em_texto_plano(
         self, client, monkeypatch

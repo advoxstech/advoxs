@@ -90,3 +90,25 @@ def test_cleanup_old_files_sem_diretorio_nao_quebra(monkeypatch, tmp_path):
     )
 
     assert cleanup_old_files() == 0
+
+
+def test_cleanup_old_files_redige_nome_e_erro(monkeypatch, generated_documents_dir):
+    sensitive_name = "cliente-secreto.pdf"
+    (generated_documents_dir / sensitive_name).write_bytes(b"pdf")
+    logged: list[str] = []
+    monkeypatch.setattr(
+        document_storage_module.os.path,
+        "getmtime",
+        lambda _path: (_ for _ in ()).throw(OSError("caminho-secreto")),
+    )
+    monkeypatch.setattr(
+        document_storage_module.logger,
+        "warning",
+        lambda message, *args: logged.append(message.format(*args)),
+    )
+
+    assert cleanup_old_files() == 0
+    assert logged
+    assert sensitive_name not in logged[0]
+    assert "caminho-secreto" not in logged[0]
+    assert "OSError" in logged[0]

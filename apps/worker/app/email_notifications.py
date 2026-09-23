@@ -15,6 +15,7 @@ from datetime import datetime
 from email.message import EmailMessage
 
 from app.config import settings
+from app.safe_logging import safe_error
 
 logger = logging.getLogger(__name__)
 
@@ -59,5 +60,7 @@ async def send_tenant_out_of_credits_notification(tenant_name: str, ran_out_at: 
         await asyncio.to_thread(_send_email_sync, settings.admin_notification_email, subject, body)
     except Exception as exc:  # noqa: BLE001 — best-effort, nunca deve propagar
         logger.warning(
-            "Falha ao enviar notificação de saldo esgotado por e-mail (best-effort) | erro=%s", exc
+            "Falha ao enviar notificação de saldo esgotado por e-mail (best-effort) | "
+            "error_type=%s",
+            safe_error(exc),
         )

@@ -21,6 +21,7 @@ from app.clients.agents import (
 )
 from app.clients.rag import RagApiError, delete_documents
 from app.clients.whatsapp import WhatsAppSendError
+from app.core.safe_logging import safe_error, safe_identifier
 from app.models import (
     Agent,
     Conversation,
@@ -265,9 +266,9 @@ async def update_billing_exemption(
             )
         except WhatsAppSendError as exc:
             logger.warning(
-                "Falha ao avisar cliente sobre mudança de isenção | conversation=%s erro=%s",
+                "Falha ao avisar cliente sobre mudança de isenção | conversation=%s error_type=%s",
                 conversation_id,
-                exc,
+                safe_error(exc),
             )
 
     balances = await _end_customer_balances_by_phone(
@@ -365,9 +366,9 @@ async def send_message(
         # Best-effort: a mensagem já foi entregue ao contato — sem o sync o
         # agente fica com um buraco de memória, mas a operação não falha.
         logger.warning(
-            "Falha ao sincronizar contexto do takeover | conversation=%s erro=%s",
+            "Falha ao sincronizar contexto do takeover | conversation=%s error_type=%s",
             conversation_id,
-            exc,
+            safe_error(exc),
         )
 
     return MessageOut.model_validate(message)
@@ -475,10 +476,10 @@ async def delete_conversation(
     conversation = await _get_conversation(conversation_id, ctx, session)
     thread_id = f"{ctx.tenant_id}:{conversation.contact_phone_number}"
     logger.info(
-        "Excluindo histórico de conversa | tenant_id=%s conversation_id=%s contact=%s",
+        "Excluindo histórico de conversa | tenant_id=%s conversation_id=%s contact_ref=%s",
         ctx.tenant_id,
         conversation.id,
-        conversation.contact_phone_number,
+        safe_identifier(conversation.contact_phone_number),
     )
 
     # doc_id de cada anexo ingerido é sempre o id da própria mensagem do
@@ -528,10 +529,10 @@ async def delete_conversation(
             # pra eventual limpeza manual.
             logger.warning(
                 "Falha ao limpar anexos do contato no api_rag (best-effort) | "
-                "tenant_id=%s conversation_id=%s erro=%s",
+                "tenant_id=%s conversation_id=%s error_type=%s",
                 ctx.tenant_id,
                 conversation.id,
-                exc,
+                safe_error(exc),
             )
 
 

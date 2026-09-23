@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_system_session
+from app.core.safe_logging import safe_error
 from app.models import TenantBillingSettings
 from app.services.end_customer_billing import (
     process_end_customer_checkout_completed,
@@ -64,7 +65,7 @@ async def receive_connect_webhook(
             raw_body, stripe_signature, settings.stripe_connect_webhook_secret
         )
     except (ValueError, stripe.error.SignatureVerificationError) as exc:
-        logger.warning("Assinatura de webhook Connect inválida | erro=%s", exc)
+        logger.warning("Assinatura de webhook Connect inválida | error_type=%s", safe_error(exc))
         raise _ASSINATURA_INVALIDA
 
     # event é um stripe.Event real (StripeObject): não implementa .get(),

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_tenant_secret
 from app.core.db import get_system_session
+from app.core.safe_logging import safe_error
 from app.models import TenantBillingSettings
 from app.services.end_customer_billing import process_end_customer_checkout_completed
 
@@ -49,7 +50,9 @@ async def receive_tenant_webhook(
         event = stripe.Webhook.construct_event(raw_body, stripe_signature, webhook_secret)
     except (ValueError, stripe.error.SignatureVerificationError) as exc:
         logger.warning(
-            "Assinatura de webhook de tenant inválida | tenant=%s erro=%s", tenant_id, exc
+            "Assinatura de webhook de tenant inválida | tenant=%s error_type=%s",
+            tenant_id,
+            safe_error(exc),
         )
         raise _ASSINATURA_INVALIDA
 

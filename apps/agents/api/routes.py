@@ -14,6 +14,7 @@ from agents.registry import AGENTS_REGISTRY
 from clients.whatsapp import WhatsAppClient
 from clients.zapi import ZApiClient
 from config_validation import validate_environment
+from core.safe_logging import safe_error, safe_identifier
 from services.call_agent import DB_URI, run_agent
 from services.concat_messages import debounce_messages
 from services.document_storage import resolve_path, start_cleanup_loop
@@ -130,7 +131,7 @@ async def receive(body: IncomingMessage):
     thread_id = f"{body.tenant_id}:{body.contact_phone_number}"
 
     if body.attachments:
-        logger.debug("Anexos recebidos | attachments={}", body.attachments)
+        logger.debug("Anexos recebidos | total={}", len(body.attachments))
 
     if not body.message and not body.attachments:
         raise HTTPException(
@@ -139,10 +140,10 @@ async def receive(body: IncomingMessage):
         )
 
     logger.info(
-        "Nova mensagem recebida | tenant_id={} | thread_id={} | message={}",
+        "Nova mensagem recebida | tenant_id={} | conversation_ref={} | caracteres={}",
         body.tenant_id,
-        thread_id,
-        body.message,
+        safe_identifier(thread_id),
+        len(body.message or ""),
     )
 
     try:
@@ -150,22 +151,32 @@ async def receive(body: IncomingMessage):
             message=body.message or str(body.attachments),
             conversation_id=thread_id,
         )
-    except Exception:
-        logger.exception("Erro no debounce | thread_id={}", thread_id)
+    except Exception as exc:
+        logger.error(
+            "Erro no debounce | conversation_ref={} error_type={}",
+            safe_identifier(thread_id),
+            safe_error(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Erro ao processar buffer de mensagens (Redis indisponível?)",
         )
 
     if messages["other_exec_is_running"]:
-        logger.info("Execução em andamento, ignorando | thread_id={}", thread_id)
+        logger.info(
+            "Execução em andamento, ignorando | conversation_ref={}",
+            safe_identifier(thread_id),
+        )
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content={"message": "Execução em andamento"},
         )
 
     try:
-        logger.info("Encaminhando mensagem ao agente | thread_id={}", thread_id)
+        logger.info(
+            "Encaminhando mensagem ao agente | conversation_ref={}",
+            safe_identifier(thread_id),
+        )
         response, usage, current_agent, current_agent_id, generated_documents = await run_agent(
             message=messages["combined_message"],
             attachments=body.attachments,
@@ -183,9 +194,9 @@ async def receive(body: IncomingMessage):
 
         if body.send_to_whatsapp:
             logger.info(
-                "Enviando {} resposta(s) via WhatsApp | thread_id={} provider={}",
+                "Enviando {} resposta(s) via WhatsApp | conversation_ref={} provider={}",
                 len(response),
-                thread_id,
+                safe_identifier(thread_id),
                 body.whatsapp_provider,
             )
             if body.whatsapp_provider == "zapi":
@@ -201,8 +212,8 @@ async def receive(body: IncomingMessage):
                     if not result.get("success"):
                         logger.warning(
                             "Falha ao entregar mensagem via WhatsApp | "
-                            "thread_id={} índice={} erro={}",
-                            thread_id,
+                            "conversation_ref={} índice={} erro={}",
+                            safe_identifier(thread_id),
                             i,
                             result.get("error"),
                         )
@@ -216,13 +227,16 @@ async def receive(body: IncomingMessage):
                     if not doc["delivered"]:
                         logger.warning(
                             "Falha ao entregar documento via WhatsApp | "
-                            "thread_id={} filename={} erro={}",
-                            thread_id,
-                            doc["filename"],
+                            "conversation_ref={} documento_ref={} erro={}",
+                            safe_identifier(thread_id),
+                            safe_identifier(doc.get("id") or doc.get("filename", "documento")),
                             result.get("error"),
                         )
         else:
-            logger.info("send_to_whatsapp=False — envio pulado | thread_id={}", thread_id)
+            logger.info(
+                "send_to_whatsapp=False — envio pulado | conversation_ref={}",
+                safe_identifier(thread_id),
+            )
 
         # Devolve as respostas, os tokens da execução, os documentos gerados
         # e as falhas de entrega para o chamador (`worker`/`api`) persistir
@@ -238,8 +252,12 @@ async def receive(body: IncomingMessage):
             "delivery_failures": delivery_failures,
             "documents": documents,
         }
-    except Exception:
-        logger.exception("Erro ao chamar o agente | thread_id={}", thread_id)
+    except Exception as exc:
+        logger.error(
+            "Erro ao chamar o agente | conversation_ref={} error_type={}",
+            safe_identifier(thread_id),
+            safe_error(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro interno ao processar resposta do agente.",
@@ -248,17 +266,21 @@ async def receive(body: IncomingMessage):
 
 @app.delete("/conversations/{thread_id}", dependencies=[Depends(verify_api_key)])
 async def delete_conversation(thread_id: str):
-    logger.info("Deletando conversa | thread_id={}", thread_id)
+    logger.info("Deletando conversa | conversation_ref={}", safe_identifier(thread_id))
     try:
         async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
             await checkpointer.adelete_thread(thread_id)
-    except Exception:
-        logger.exception("Erro ao deletar conversa | thread_id={}", thread_id)
+    except Exception as exc:
+        logger.error(
+            "Erro ao deletar conversa | conversation_ref={} error_type={}",
+            safe_identifier(thread_id),
+            safe_error(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao deletar conversa.",
         )
-    logger.info("Conversa deletada | thread_id={}", thread_id)
+    logger.info("Conversa deletada | conversation_ref={}", safe_identifier(thread_id))
     return {"deleted": thread_id}
 
 
@@ -274,8 +296,12 @@ async def add_context(thread_id: str, body: ContextRequest):
             thread_id,
             [{"role": m.role, "content": m.content} for m in body.messages],
         )
-    except Exception:
-        logger.exception("Erro ao anexar contexto | thread_id={}", thread_id)
+    except Exception as exc:
+        logger.error(
+            "Erro ao anexar contexto | conversation_ref={} error_type={}",
+            safe_identifier(thread_id),
+            safe_error(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao anexar contexto.",
@@ -291,8 +317,12 @@ async def replace_context(thread_id: str, body: ReplaceContextRequest):
             thread_id,
             [{"role": m.role, "content": m.content} for m in body.messages],
         )
-    except Exception:
-        logger.exception("Erro ao substituir contexto | thread_id={}", thread_id)
+    except Exception as exc:
+        logger.error(
+            "Erro ao substituir contexto | conversation_ref={} error_type={}",
+            safe_identifier(thread_id),
+            safe_error(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao substituir contexto.",
@@ -312,8 +342,8 @@ async def summarize(body: SummaryRequest):
         summary, usage = await summarize_conversation(
             [{"sender_type": m.sender_type, "content": m.content} for m in body.messages]
         )
-    except Exception:
-        logger.exception("Erro ao gerar resumo")
+    except Exception as exc:
+        logger.error("Erro ao gerar resumo | error_type={}", safe_error(exc))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erro ao gerar resumo.",

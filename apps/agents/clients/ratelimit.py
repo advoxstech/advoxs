@@ -12,6 +12,8 @@ import redis.asyncio as aioredis
 from dotenv import load_dotenv
 from loguru import logger
 
+from core.safe_logging import safe_identifier
+
 load_dotenv()
 
 REDIS_HOST = os.getenv("REDIS_HOST")
@@ -46,8 +48,8 @@ async def acquire_rate_limit_slot(phone_number_id: str) -> bool:
                 return True
             if waited >= _MAX_WAIT_SECONDS:
                 logger.warning(
-                    "Rate limit não liberado a tempo | phone_number_id={} limite={}",
-                    phone_number_id,
+                    "Rate limit não liberado a tempo | provider_ref={} limite={}",
+                    safe_identifier(phone_number_id),
                     WHATSAPP_RATE_LIMIT_PER_SECOND,
                 )
                 return False
