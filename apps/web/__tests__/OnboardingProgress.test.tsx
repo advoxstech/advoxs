@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { OnboardingProgress } from "@/components/OnboardingProgress";
 import { backendFetch } from "@/lib/client-api";
 
 vi.mock("@/lib/client-api", () => ({ backendFetch: vi.fn() }));
@@ -67,9 +67,9 @@ beforeEach(() => {
   } as Response);
 });
 
-describe("OnboardingWizard", () => {
+describe("OnboardingProgress", () => {
   it("mostra o progresso real e links para as configurações", async () => {
-    render(<OnboardingWizard />);
+    render(<OnboardingProgress />);
 
     expect(await screen.findByText("2 de 6 etapas")).toBeInTheDocument();
     expect(screen.getByText("Agente configurado")).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe("OnboardingWizard", () => {
   });
 
   it("informa claramente que não bloqueia o painel nem o atendimento", async () => {
-    render(<OnboardingWizard />);
+    render(<OnboardingProgress />);
 
     expect(
       await screen.findByText(/não bloqueia o painel nem o atendimento dos clientes/i),
@@ -91,7 +91,7 @@ describe("OnboardingWizard", () => {
   });
 
   it("atualiza a lista quando o usuário pede", async () => {
-    render(<OnboardingWizard />);
+    render(<OnboardingProgress />);
     await screen.findByText("2 de 6 etapas");
 
     fireEvent.click(screen.getByRole("button", { name: "Atualizar progresso" }));
@@ -104,7 +104,7 @@ describe("OnboardingWizard", () => {
       if (path === "onboarding/complete") throw new Error("rede fora");
       return { ok: true, json: async () => progress } as Response;
     });
-    render(<OnboardingWizard />);
+    render(<OnboardingProgress />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Continuar para o painel" }));
 
@@ -113,7 +113,7 @@ describe("OnboardingWizard", () => {
 
   it("oferece nova tentativa quando o progresso não pode ser carregado", async () => {
     backendFetchMock.mockRejectedValue(new Error("rede fora"));
-    render(<OnboardingWizard />);
+    render(<OnboardingProgress />);
 
     expect(await screen.findByText("Não foi possível consultar o progresso agora.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continuar para o painel" })).toBeInTheDocument();

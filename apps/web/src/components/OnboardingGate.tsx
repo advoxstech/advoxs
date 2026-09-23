@@ -53,10 +53,10 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-3">
               <Link
-                href="/boas-vindas"
+                href="/configuracao-inicial"
                 className="rounded-sm bg-accent px-4 py-2 text-sm font-medium text-surface transition-colors hover:bg-ink"
               >
-                Ver progresso
+                Ver configuração inicial
               </Link>
               <button
                 type="button"

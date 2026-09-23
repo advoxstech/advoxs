@@ -12,7 +12,7 @@ const sectionLabels: Record<OnboardingStep["kind"], string> = {
   milestone: "Primeiro atendimento",
 };
 
-export function OnboardingWizard() {
+export function OnboardingProgress() {
   const [progress, setProgress] = useState<OnboardingProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
