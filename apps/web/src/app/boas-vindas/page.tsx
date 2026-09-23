@@ -1,5 +1,5 @@
-import { OnboardingWizard } from "@/components/OnboardingWizard";
+import { redirect } from "next/navigation";
 
-export default function BoasVindasPage() {
-  return <OnboardingWizard />;
+export default function LegacyBoasVindasPage() {
+  redirect("/configuracao-inicial");
 }

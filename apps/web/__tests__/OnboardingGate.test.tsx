@@ -28,9 +28,9 @@ describe("OnboardingGate", () => {
 
     expect(screen.getByText("conteudo do dashboard")).toBeInTheDocument();
     expect(await screen.findByText("Continue configurando no seu ritmo")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ver progresso" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Ver configuração inicial" })).toHaveAttribute(
       "href",
-      "/boas-vindas",
+      "/configuracao-inicial",
     );
   });
 
