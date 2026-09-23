@@ -34,6 +34,10 @@ class RetrievalResult:
     metadata: dict
 
 
+class RetrievalUnavailableError(RuntimeError):
+    """Indica falha técnica antes de a busca produzir um resultado confiável."""
+
+
 # ---------- SERVIÇO ----------
 
 
@@ -117,7 +121,7 @@ class RetrievalService:
 
         if not result["success"]:
             logger.error("Falha na busca híbrida | qdrant_error=true")
-            return []
+            raise RetrievalUnavailableError("vector store unavailable")
 
         hits = result["data"].points
         logger.info(f"Busca retornou {len(hits)} chunk(s)")

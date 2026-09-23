@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from constants import QDRANT_COLLECTION
-from services.retrieval.main import RetrievalService
+from services.retrieval.main import RetrievalService, RetrievalUnavailableError
 
 
 @pytest.fixture
@@ -59,7 +59,8 @@ class TestSearchHybrid:
 
         service._qdrant.search.assert_not_awaited()
 
-    async def test_falha_na_busca_retorna_lista_vazia(self, service) -> None:
+    async def test_falha_na_busca_sinaliza_indisponibilidade(self, service) -> None:
         service._qdrant.search.return_value = {"success": False, "data": None, "error": "boom"}
 
-        assert await service.search_hybrid(query="pergunta", tenant_id="t1") == []
+        with pytest.raises(RetrievalUnavailableError):
+            await service.search_hybrid(query="pergunta", tenant_id="t1")

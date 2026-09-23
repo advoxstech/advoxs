@@ -16,6 +16,7 @@ from agents.tools import (
     transfer_to_agent,
 )
 from clients.document_generation import DocumentGenerationError
+from clients.retrieval import RetrievalUnavailableError
 
 # ──────────────────────────────────────────────
 # transfer_to_agent
@@ -82,7 +83,7 @@ async def test_buscar_agente_sem_arquivos_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "não tem" in result.lower()
+        assert "conhecimento nativo" in result.lower()
 
 
 @pytest.mark.asyncio
@@ -96,7 +97,39 @@ async def test_buscar_agente_sem_knowledge_base_file_ids_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "não tem" in result.lower()
+        assert "conhecimento nativo" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_buscar_agente_sem_resultado_orienta_resposta_nativa():
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock(return_value=[])):
+        result = await buscar_base_conhecimento_agente.ainvoke(
+            {
+                "query": "regimento",
+                "conversation_id": "tenant-1:5511999998888",
+                "knowledge_base_file_ids": ["f1"],
+            }
+        )
+
+    assert "não encontrou conteúdo relevante" in result.lower()
+    assert "conhecimento nativo" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_buscar_agente_com_falha_tecnica_orienta_resposta_nativa_sem_alegar_consulta():
+    retrieval = AsyncMock(side_effect=RetrievalUnavailableError("unavailable"))
+    with patch("agents.tools.retrieval_escritorio", new=retrieval):
+        result = await buscar_base_conhecimento_agente.ainvoke(
+            {
+                "query": "regimento",
+                "conversation_id": "tenant-1:5511999998888",
+                "knowledge_base_file_ids": ["f1"],
+            }
+        )
+
+    assert "temporariamente indisponível" in result.lower()
+    assert "conhecimento nativo" in result.lower()
+    assert "não afirme" in result.lower()
 
 
 # ──────────────────────────────────────────────

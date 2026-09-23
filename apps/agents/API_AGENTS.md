@@ -511,7 +511,7 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 | Tool                                                          | Tipo   | Função                                                                 |
 |----------------------------------------------------------------|--------|------------------------------------------------------------------------|
 | `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
-| `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. |
+| `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. A base é opcional: sem arquivo ou resultado, o agente usa seu conhecimento nativo. |
 | `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
 | `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
 
@@ -546,8 +546,12 @@ destino válido de transferência.
 
 ### RAG externo (`clients/retrieval.py`)
 
-Fazem `POST` para uma API externa e retornam a lista `data["results"]` (ou
-`[]` em caso de erro — falha degradada, não levanta exceção):
+Fazem `POST` para uma API externa e retornam a lista `data["results"]`. No
+retrieval do escritório, uma lista vazia significa que a consulta terminou sem
+conteúdo relevante; falhas HTTP ou de conexão levantam
+`RetrievalUnavailableError`, que a tool converte em uma instrução segura de
+continuidade com conhecimento nativo. Os clients legados de sistema e de
+documentos do usuário ainda mantêm o fallback `[]` em caso de erro.
 
 | Função               | Endpoint                          | Payload                                        |
 |----------------------|-----------------------------------|------------------------------------------------|
@@ -565,6 +569,11 @@ marcador usado pela ingestão da base de conhecimento do escritório (worker do
 monorepo, fora deste microserviço). `doc_ids`, quando informado por
 `buscar_base_conhecimento_agente` (ver §6), restringe a busca aos arquivos
 anexados ao agente ativo; omitido, busca em todo o pool de KB do tenant.
+
+A regra permanente adicionada ao prompt trata a base como complemento opcional:
+conteúdo recuperado tem prioridade; sem arquivos ou hits, o agente responde com
+conhecimento nativo; em indisponibilidade técnica, também pode responder, mas
+não pode afirmar que consultou ou encontrou informação nos documentos.
 
 `retrieval_sistema` (busca por categoria na base do sistema/plataforma) ainda
 existe no arquivo mas ficou **sem nenhuma tool que a chame** desde que os 3

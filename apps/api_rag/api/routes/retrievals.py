@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from api.security import verify_api_key
 from constants import SYSTEM_TENANT_ID
 from safe_logging import safe_error, safe_identifier
-from services.retrieval.main import RetrievalService
+from services.retrieval.main import RetrievalService, RetrievalUnavailableError
 
 router_retrieval = APIRouter(prefix="/retrieval")
 
@@ -41,6 +41,11 @@ async def retrieval_system(
             extra_filters={"base": body.base},
         )
         return {"results": results}
+    except RetrievalUnavailableError as exc:
+        logger.error("Busca temporariamente indisponível | error_type={}", safe_error(exc))
+        raise HTTPException(
+            status_code=503, detail="Serviço de busca temporariamente indisponível"
+        ) from exc
     except ValueError as exc:
         logger.warning("Parâmetros inválidos na busca | error_type={}", safe_error(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -77,6 +82,11 @@ async def retrieval_users(
             extra_filters=extra_filters,
         )
         return {"results": results}
+    except RetrievalUnavailableError as exc:
+        logger.error("Busca temporariamente indisponível | error_type={}", safe_error(exc))
+        raise HTTPException(
+            status_code=503, detail="Serviço de busca temporariamente indisponível"
+        ) from exc
     except ValueError as exc:
         logger.warning("Parâmetros inválidos na busca | error_type={}", safe_error(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc

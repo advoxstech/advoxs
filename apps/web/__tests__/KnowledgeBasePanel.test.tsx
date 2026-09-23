@@ -75,6 +75,24 @@ describe("KnowledgeBasePanel", () => {
     window.history.pushState({}, "", "/base-de-conhecimento");
   });
 
+  it("explica que a base é opcional e que a IA continua funcionando sem documentos", async () => {
+    mockRouting();
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    expect(
+      screen.getByRole("note", { name: "Como os agentes usam a base de conhecimento" }),
+    ).toHaveTextContent("A base de conhecimento é opcional");
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "continuam respondendo com o conhecimento próprio da IA",
+    );
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "cada agente acessa somente os documentos anexados a ele",
+    );
+  });
+
   it("renderiza 1 pasta por agente, incluindo agente sem arquivos", async () => {
     mockRouting();
 
