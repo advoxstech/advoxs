@@ -31,6 +31,7 @@ export function usePaginatedMessages(conversationId: string, pollMs: number) {
   const nearBottomRef = useRef(true);
   const scrollToBottomRef = useRef(false);
   const preserveScrollHeightRef = useRef<number | null>(null);
+  const visibleAnchorRef = useRef<{ id: string; top: number } | null>(null);
   const refreshSequenceRef = useRef(0);
 
   useEffect(() => {
@@ -55,6 +56,19 @@ export function usePaginatedMessages(conversationId: string, pollMs: number) {
         scrollToBottomRef.current = true;
         setNewMessageCount(0);
       } else if (added) {
+        const list = listRef.current;
+        if (list) {
+          const listTop = list.getBoundingClientRect().top;
+          const visibleMessage = Array.from(
+            list.querySelectorAll<HTMLElement>("[data-message-id]"),
+          ).find((element) => element.getBoundingClientRect().bottom > listTop);
+          if (visibleMessage?.dataset.messageId) {
+            visibleAnchorRef.current = {
+              id: visibleMessage.dataset.messageId,
+              top: visibleMessage.getBoundingClientRect().top,
+            };
+          }
+        }
         setNewMessageCount((count) => count + added);
       }
       setMessages((existing) => mergeMessages(existing, incoming));
@@ -108,6 +122,13 @@ export function usePaginatedMessages(conversationId: string, pollMs: number) {
     if (preserveScrollHeightRef.current != null) {
       list.scrollTop += list.scrollHeight - preserveScrollHeightRef.current;
       preserveScrollHeightRef.current = null;
+    } else if (visibleAnchorRef.current) {
+      const anchor = visibleAnchorRef.current;
+      const element = Array.from(
+        list.querySelectorAll<HTMLElement>("[data-message-id]"),
+      ).find((candidate) => candidate.dataset.messageId === anchor.id);
+      if (element) list.scrollTop += element.getBoundingClientRect().top - anchor.top;
+      visibleAnchorRef.current = null;
     } else if (scrollToBottomRef.current) {
       list.scrollTop = list.scrollHeight;
       scrollToBottomRef.current = false;

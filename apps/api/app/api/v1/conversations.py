@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -72,6 +72,9 @@ async def list_conversations(
     phone_numbers = [c.contact_phone_number for c in conversations]
     balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, phone_numbers)
     cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, phone_numbers)
+    latest_messages = await _latest_message_previews(
+        session, ctx.tenant_id, [conversation.id for conversation in conversations]
+    )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     agent_names = await _agent_names_by_id(
         session, ctx.tenant_id, [c.current_agent_id for c in conversations]
@@ -83,6 +86,7 @@ async def list_conversations(
             cycles.get(c.contact_phone_number),
             billing_enabled,
             agent_names,
+            latest_messages.get(c.id),
         )
         for c in conversations
     ]
@@ -651,12 +655,53 @@ async def _agent_names_by_id(
     return {row.id: row.name for row in result.all()}
 
 
+async def _latest_message_previews(
+    session: AsyncSession, tenant_id: uuid.UUID, conversation_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[str, str | None, str]]:
+    """Busca a última mensagem das conversas da página em uma única consulta."""
+    if not conversation_ids:
+        return {}
+    ranked_messages = (
+        select(
+            Message.conversation_id.label("conversation_id"),
+            Message.content.label("content"),
+            Message.media_type.label("media_type"),
+            Message.sender_type.label("sender_type"),
+            func.row_number()
+            .over(
+                partition_by=Message.conversation_id,
+                order_by=(Message.created_at.desc(), Message.id.desc()),
+            )
+            .label("position"),
+        )
+        .where(
+            Message.tenant_id == tenant_id,
+            Message.conversation_id.in_(conversation_ids),
+        )
+        .subquery()
+    )
+    result = await session.execute(
+        select(
+            ranked_messages.c.conversation_id,
+            ranked_messages.c.content,
+            ranked_messages.c.media_type,
+            ranked_messages.c.sender_type,
+        ).where(ranked_messages.c.position == 1)
+    )
+    return {
+        row.conversation_id: (row.content[:300], row.media_type, row.sender_type)
+        for row in result.all()
+        if hasattr(row, "conversation_id")
+    }
+
+
 def _to_conversation_out(
     conversation: Conversation,
     end_customer_balance: Decimal | None,
     end_customer_cycle: tuple[Decimal, Decimal] | None = None,
     end_customer_billing_enabled: bool = False,
     agent_names: dict[uuid.UUID, str] | None = None,
+    latest_message: tuple[str, str | None, str] | None = None,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
     automation_status = getattr(conversation, "automation_status", "idle")
@@ -679,6 +724,10 @@ def _to_conversation_out(
     out.end_customer_billing_enabled = end_customer_billing_enabled
     if agent_names and conversation.current_agent_id is not None:
         out.current_agent_name = agent_names.get(conversation.current_agent_id)
+    if latest_message is not None:
+        out.last_message_preview, out.last_message_media_type, out.last_message_sender_type = (
+            latest_message
+        )
     return out
 
 

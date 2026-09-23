@@ -123,33 +123,46 @@ describe("ConversationList", () => {
     expect(screen.getByText(/Nenhuma conversa por aqui ainda/)).toBeInTheDocument();
   });
 
-  it("mostra o saldo do cliente final quando presente", () => {
+  it("prioriza a prévia da última mensagem e não mostra valores financeiros", () => {
     render(
       <ConversationList
-        conversations={[{ ...conversations[0], end_customer_balance: 128.5 }]}
+        conversations={[
+          {
+            ...conversations[0],
+            last_message_preview: "Preciso de ajuda com meu contrato",
+            end_customer_balance: 128.5,
+          },
+        ]}
         loaded
         selectedId={null}
         onSelect={() => {}}
       />,
     );
 
-    expect(screen.getByText("128,5 créditos")).toBeInTheDocument();
+    expect(screen.getByText("Preciso de ajuda com meu contrato")).toBeInTheDocument();
+    expect(screen.queryByText("128,5 créditos")).not.toBeInTheDocument();
   });
 
-  it("não mostra saldo quando end_customer_balance é null", () => {
+  it("mostra uma descrição do anexo quando não há texto", () => {
     render(
       <ConversationList
-        conversations={[{ ...conversations[0], end_customer_balance: null }]}
+        conversations={[
+          {
+            ...conversations[0],
+            last_message_media_type: "image/jpeg",
+            last_message_sender_type: "contact",
+          },
+        ]}
         loaded
         selectedId={null}
         onSelect={() => {}}
       />,
     );
 
-    expect(screen.queryByText(/créditos/)).not.toBeInTheDocument();
+    expect(screen.getByText("Imagem recebida")).toBeInTheDocument();
   });
 
-  it("mostra o ciclo de créditos (comprado/consumido) quando presente", () => {
+  it("não exibe o ciclo financeiro na lista de conversas", () => {
     render(
       <ConversationList
         conversations={[
@@ -165,7 +178,7 @@ describe("ConversationList", () => {
       />,
     );
 
-    expect(screen.getByText("20 de 200 créditos usados")).toBeInTheDocument();
+    expect(screen.queryByText("20 de 200 créditos usados")).not.toBeInTheDocument();
   });
 
   it("não mostra o ciclo quando end_customer_cycle_total é null", () => {

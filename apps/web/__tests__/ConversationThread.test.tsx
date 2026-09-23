@@ -726,13 +726,13 @@ describe("ConversationThread", () => {
 
     render(
       <ConversationThread
-        conversation={{ ...conversation("agent"), end_customer_balance: 50 }}
+        conversation={{ ...conversation("agent"), end_customer_billing_enabled: true, end_customer_balance: 50 }}
         onConversationUpdate={() => {}}
         pollMs={0}
       />,
     );
 
-    expect(screen.getByText(/saldo do cliente: 50 créditos/)).toBeInTheDocument();
+    expect(screen.getByText(/Saldo disponível: 50 créditos/)).toBeInTheDocument();
   });
 
   it("não mostra saldo do cliente quando end_customer_balance é null", async () => {
@@ -756,6 +756,7 @@ describe("ConversationThread", () => {
       <ConversationThread
         conversation={{
           ...conversation("agent"),
+          end_customer_billing_enabled: true,
           end_customer_cycle_total: 200,
           end_customer_cycle_consumed: 20,
         }}
@@ -764,7 +765,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(screen.getByText(/20 de 200 créditos usados/)).toBeInTheDocument();
+    expect(screen.getByText(/Uso no ciclo: 20 de 200 créditos/)).toBeInTheDocument();
   });
 
   it("não mostra o ciclo quando end_customer_cycle_total é null", async () => {

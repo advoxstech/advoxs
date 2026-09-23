@@ -30,7 +30,7 @@ type UsageItem = {
 type UsageReport = { summary: UsageSummary; items: UsageItem[] };
 
 const sourceLabels: Record<UsageItem["funding_source"], string> = {
-  tenant: "Escritório",
+  tenant: "Créditos do escritório",
   end_customer_credits: "Créditos do cliente",
   end_customer_subscription: "Assinatura do cliente",
 };
@@ -85,7 +85,7 @@ export function FinancialUsagePanel() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h2 id="financial-usage-title" className="font-display text-lg font-semibold text-ink">
-            Consumo operacional
+            Consumo financeiro
           </h2>
           <p className="mt-1 text-sm text-muted">Últimos 30 dias</p>
         </div>
@@ -100,14 +100,16 @@ export function FinancialUsagePanel() {
       ) : (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Custo real" value={formatCredits(report.summary.operational_credits)} />
-            <Metric label="Créditos cobrados" value={formatCredits(report.summary.billed_credits)} />
+            <Metric label="Custo operacional real" value={formatCredits(report.summary.operational_credits)} />
+            <Metric label="Créditos debitados" value={formatCredits(report.summary.billed_credits)} />
+            <Metric label="Uso pago pelo escritório" value={formatCredits(report.summary.tenant_credits)} />
+            <Metric label="Uso pago por créditos dos clientes" value={formatCredits(report.summary.end_customer_credits)} />
             <Metric
-              label="Uso em assinaturas"
+              label="Uso coberto por assinatura de cliente"
               value={formatCredits(report.summary.subscription_credits)}
             />
             <Metric
-              label="Não cobrado por saldo"
+              label="Custo sem saldo para cobrir"
               value={formatCredits(report.summary.shortfall_credits)}
               warning={report.summary.shortfall_credits > 0}
             />
@@ -115,9 +117,9 @@ export function FinancialUsagePanel() {
 
           <div className="mt-4 overflow-hidden rounded border border-line bg-surface">
             <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-line px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-              <span>Origem</span>
-              <span>Custo</span>
-              <span>Cobrado</span>
+              <span>Quem custeou</span>
+              <span>Custo real</span>
+              <span>Créditos debitados</span>
             </div>
             {report.items.length === 0 ? (
               <p className="px-4 py-5 text-sm text-muted">Nenhuma execução no período.</p>

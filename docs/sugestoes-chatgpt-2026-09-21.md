@@ -59,7 +59,7 @@ Todas as propostas devem respeitar a diretriz de preservação da identidade vis
 | 2 | Responsividade | No celular, mostrar lista e conversa em telas separadas, com botão de voltar, e adaptar a navegação lateral para uma apresentação compacta. |
 | 3 | Estado do atendimento | Exibir IA atendendo, atendimento humano, aguardando pagamento e falha no envio com texto e ícone, sem depender somente da cor. |
 | 4 | Controle IA/humano | Avaliar ações explícitas de assumir atendimento e devolver à IA, mantendo o estado visível junto ao campo de resposta e respeitando os componentes atuais. |
-| 5 | Lista de conversas | Destacar nome, quando disponível, ou telefone, prévia da última mensagem e horário; deixar saldo e informações financeiras em segundo plano. |
+| 5 | Lista de conversas | Destacar telefone, prévia da última mensagem e horário; deixar saldo e informações financeiras em segundo plano. Exibir o nome do contato fica registrado como possibilidade futura, caso os provedores e o produto passem a oferecer esse dado. |
 | 6 | Menu de navegação | Evitar depender exclusivamente do mouse para revelar nomes; preservar a preferência de menu aberto ou fechado e melhorar o acesso por teclado. |
 | 7 | Dashboard | Destacar situações que exigem ação, como atendimento pendente, WhatsApp desconectado, saldo baixo e arquivo com erro, antes das métricas e gráficos. |
 | 8 | Organização financeira | Diferenciar melhor créditos do escritório de cobrança dos clientes, esclarecendo quem paga quem. |
@@ -73,6 +73,12 @@ Complementos discutidos no chat:
 - Substituir confirmações nativas do navegador por modais consistentes com a interface, explicando consequências e usando ações específicas, como excluir histórico.
 - Evitar que novas mensagens desloquem automaticamente quem está lendo um trecho antigo; oferecer uma ação para voltar às novas mensagens.
 - Priorizar, nesta frente, a tela de conversas, a experiência no celular e a clareza dos estados de atendimento.
+
+### Implementação integrada da interface — 23/09/2026
+
+Foram implementados em conjunto: revisão dos textos e feedbacks nas áreas alteradas; identificação explícita de **Créditos do escritório** e **Cobrança dos clientes**; aviso, salvamento condicionado e descarte de alterações na edição de agentes; telefone, prévia da última mensagem, horário e estado na lista de conversas (sem nome do contato); e preservação da mensagem visível durante atualizações, com contador e botão para ir às mensagens recentes. A lista mostra uma descrição para anexos sem texto. O nome do contato fica registrado apenas como possível melhoria futura.
+
+A API inclui a prévia da última mensagem usando dados existentes e consulta limitada às conversas da página. Não foi criada migração de banco nem nova variável de ambiente; a VPS não precisa de alteração de configuração para esta implementação.
 
 ## 3. Novas funcionalidades sugeridas
 

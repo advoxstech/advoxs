@@ -68,7 +68,7 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
   {
     key: "cobranca",
     href: "/configuracoes/cobranca-clientes",
-    label: "Cobrança",
+    label: "Cobrança de clientes",
     icon: (
       <>
         <circle cx="12" cy="8" r="4" />
@@ -79,7 +79,7 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
   {
     key: "creditos",
     href: "/creditos",
-    label: "Créditos",
+    label: "Créditos do escritório",
     icon: (
       <>
         <circle cx="12" cy="12" r="9" />
