@@ -51,6 +51,10 @@ async function handle(
     response = await forward(newAccessToken);
   }
 
+  if (path.join("/") === "profile/password" && response.status === 204) {
+    clearAuthCookies(store);
+  }
+
   // 204/205/304 proíbem corpo — o construtor de Response lança TypeError
   // se receber payload (mesmo vazio) nesses status.
   if (response.status === 204 || response.status === 205 || response.status === 304) {

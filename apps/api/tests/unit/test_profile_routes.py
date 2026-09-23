@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 
 import app.api.v1.profile as profile_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.core.security import hash_password
 from app.main import app
 from app.services.profile import InvalidCurrentPasswordError
+from app.services.profile import change_password as change_password_service
 
 TENANT_ID = uuid.uuid4()
 USER_ID = uuid.uuid4()
@@ -115,6 +117,17 @@ class TestChangePasswordRoute:
             json={"current_password": "certa", "new_password": "curta"},
         )
         assert response.status_code == 422
+
+
+class TestChangePasswordService:
+    async def test_incrementa_versao_da_sessao(self, session) -> None:
+        user = SimpleNamespace(password_hash=hash_password("senha-atual"), session_version=3)
+        session.get.return_value = user
+
+        await change_password_service(session, USER_ID, "senha-atual", "senha-nova")
+
+        assert user.session_version == 4
+        session.commit.assert_awaited_once()
 
 
 class TestUploadLogo:

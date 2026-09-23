@@ -29,6 +29,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
     if (response.status === 403) {
       return { error: "Escritório suspenso. Fale com o suporte da Advoxs." };
     }
+    if (response.status === 429) {
+      return { error: "Muitas tentativas. Tente novamente em alguns minutos." };
+    }
     if (!response.ok) {
       return { error: "Não foi possível entrar agora. Tente novamente." };
     }

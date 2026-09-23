@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session
+from app.core.db import get_session, get_system_session
 from app.core.platform_security import decode_platform_token
 from app.core.security import decode_token
+from app.models import User
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -31,8 +32,9 @@ class TenantContext(BaseModel):
 
 async def get_current_tenant(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    session: AsyncSession = Depends(get_system_session),
 ) -> TenantContext:
-    """Decodifica o JWT de acesso e injeta user_id/tenant_id/role no contexto."""
+    """Valida o JWT e sua versão revogável antes de montar o contexto."""
     if credentials is None:
         raise _NAO_AUTENTICADO
     try:
@@ -42,8 +44,16 @@ async def get_current_tenant(
     if payload.get("type") != "access":
         raise _NAO_AUTENTICADO
 
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (ValueError, KeyError):
+        raise _NAO_AUTENTICADO
+    user = await session.get(User, user_id)
+    if user is None or payload.get("session_version", 0) != user.session_version:
+        raise _NAO_AUTENTICADO
+
     return TenantContext(
-        user_id=payload["sub"],
+        user_id=user_id,
         tenant_id=payload["tenant_id"],
         role=payload["role"],
     )
