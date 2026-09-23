@@ -1,19 +1,20 @@
-"""Storage local dos PDFs gerados pelas tools de documento (agents/tools.py).
+"""Armazenamento privado e temporário dos PDFs gerados pelos agentes.
 
-Substitui o upload no Google Drive que o fluxo n8n original fazia: o PDF é
-gravado num volume compartilhado e servido por uma rota própria do `agents`
-(api/routes.py, GET /generated-documents/{doc_id}) — o link resultante é o que
-send_document_message (Meta/Z-API) usa pra entregar o documento ao contato.
-
-Retenção curta (24h, ver RETENTION_HOURS): o WhatsApp/Z-API busca o link quase
-na hora do envio, então é seguro apagar depois de um dia — evita crescimento
-ilimitado do volume sem precisar de um serviço de limpeza à parte.
+O volume não é exposto diretamente. Cada PDF recebe um token aleatório e um
+prazo de validade registrados em um arquivo de metadados privado. A rota HTTP
+só entrega o documento quando ambos conferem, permitindo que Meta/Z-API façam
+o download sem tornar o arquivo permanentemente público.
 """
 
 import asyncio
+import hashlib
+import json
 import os
+import secrets
 import time
 import uuid
+from pathlib import Path
+from urllib.parse import urlencode
 
 from loguru import logger
 
@@ -25,58 +26,196 @@ AGENTS_PUBLIC_URL = os.getenv("AGENTS_PUBLIC_URL", "")
 
 RETENTION_HOURS = 24
 _CLEANUP_INTERVAL_SECONDS = 60 * 60
+_METADATA_VERSION = 1
+_SERVICE_STARTED_AT = time.time()
 
 
 def _ensure_dir() -> None:
     os.makedirs(GENERATED_DOCUMENTS_DIR, exist_ok=True)
 
 
-def save_pdf(pdf_bytes: bytes) -> str:
-    """Grava o PDF com um nome aleatório e devolve o doc_id (sem extensão)."""
+def _document_path(doc_id: str) -> Path:
+    return Path(GENERATED_DOCUMENTS_DIR) / f"{doc_id}.pdf"
+
+
+def _metadata_path(doc_id: str) -> Path:
+    return Path(GENERATED_DOCUMENTS_DIR) / f"{doc_id}.json"
+
+
+def _write_atomic(path: Path, content: bytes) -> None:
+    """Publica um arquivo completo; nunca deixa conteúdo parcial no caminho final."""
+    temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary_path.open("xb") as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _load_metadata(doc_id: str) -> dict | None:
+    try:
+        data = json.loads(_metadata_path(doc_id).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if data.get("version") != _METADATA_VERSION:
+        return None
+    return data
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(64 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def save_pdf(pdf_bytes: bytes, *, conversation_id: str = "") -> str:
+    """Grava PDF e autorização temporária, vinculados à conversa de origem."""
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise DocumentGenerationError("Falha ao armazenar o documento gerado.")
+
     _ensure_dir()
     doc_id = uuid.uuid4().hex
-    path = os.path.join(GENERATED_DOCUMENTS_DIR, f"{doc_id}.pdf")
-    with open(path, "wb") as f:
-        f.write(pdf_bytes)
+    access_token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    tenant_id, separator, _contact = conversation_id.partition(":")
+    metadata = {
+        "version": _METADATA_VERSION,
+        "access_token": access_token,
+        "created_at": now,
+        "expires_at": now + RETENTION_HOURS * 3600,
+        "tenant_id": tenant_id if separator else "",
+        "conversation_ref": safe_identifier(conversation_id) if conversation_id else "",
+        "sha256": hashlib.sha256(pdf_bytes).hexdigest(),
+    }
+
+    document_path = _document_path(doc_id)
+    metadata_path = _metadata_path(doc_id)
+    try:
+        _write_atomic(document_path, pdf_bytes)
+        _write_atomic(
+            metadata_path,
+            json.dumps(metadata, ensure_ascii=True, separators=(",", ":")).encode("utf-8"),
+        )
+    except OSError as exc:
+        document_path.unlink(missing_ok=True)
+        metadata_path.unlink(missing_ok=True)
+        logger.error(
+            "Falha ao armazenar PDF gerado | doc_id={} error_type={}",
+            doc_id,
+            safe_error(exc),
+        )
+        raise DocumentGenerationError("Falha ao armazenar o documento gerado.") from exc
+
     logger.info("PDF gerado salvo | doc_id={} tamanho_bytes={}", doc_id, len(pdf_bytes))
     return doc_id
 
 
 def build_public_url(doc_id: str) -> str:
+    """Monta a URL temporária usando o token persistido junto ao documento."""
     if not AGENTS_PUBLIC_URL:
         raise DocumentGenerationError(
             "Falha ao gerar o link do documento: AGENTS_PUBLIC_URL não configurada."
         )
-    return f"{AGENTS_PUBLIC_URL.rstrip('/')}/generated-documents/{doc_id}"
+    metadata = _load_metadata(doc_id)
+    if metadata is None or not metadata.get("access_token"):
+        raise DocumentGenerationError("Falha ao gerar o link temporário do documento.")
+    query = urlencode({"token": metadata["access_token"]})
+    return f"{AGENTS_PUBLIC_URL.rstrip('/')}/generated-documents/{doc_id}?{query}"
 
 
 def resolve_path(doc_id: str) -> str | None:
-    """Valida o formato do doc_id (hex de UUID) antes de montar o path — a
-    rota que serve o arquivo passa o valor recebido na URL direto pra cá, sem
-    isso um doc_id malicioso poderia tentar path traversal."""
+    """Resolve apenas UUIDs válidos dentro do diretório privado."""
     try:
         uuid.UUID(hex=doc_id)
     except ValueError:
         return None
-    path = os.path.join(GENERATED_DOCUMENTS_DIR, f"{doc_id}.pdf")
-    return path if os.path.isfile(path) else None
+    path = _document_path(doc_id)
+    return str(path) if path.is_file() else None
+
+
+def resolve_authorized_path(doc_id: str, access_token: str | None) -> str | None:
+    """Autoriza o download sem revelar se documento, token ou prazo falhou."""
+    path = resolve_path(doc_id)
+    if path is None:
+        return None
+    metadata = _load_metadata(doc_id)
+    if metadata is None and not access_token:
+        # Compatibilidade de deploy: documentos criados pela versão anterior
+        # não têm metadados nem token. Eles continuam acessíveis somente pelo
+        # restante da retenção original e nunca são renovados. Um PDF novo
+        # sem metadados (ex.: processo interrompido entre os arquivos) não é
+        # exposto, pois sua data é posterior ao início deste processo.
+        try:
+            modified_at = os.path.getmtime(path)
+        except OSError:
+            return None
+        is_legacy = modified_at < _SERVICE_STARTED_AT
+        is_retained = modified_at + RETENTION_HOURS * 3600 > time.time()
+        return path if is_legacy and is_retained else None
+    if metadata is None:
+        return None
+    if not access_token:
+        return None
+    expected_token = metadata.get("access_token")
+    expires_at = metadata.get("expires_at")
+    expected_sha256 = metadata.get("sha256")
+    if not all(
+        (
+            isinstance(expected_token, str),
+            isinstance(expires_at, int),
+            isinstance(expected_sha256, str),
+        )
+    ):
+        return None
+    if expires_at <= int(time.time()):
+        return None
+    if not secrets.compare_digest(access_token, expected_token):
+        return None
+    try:
+        actual_sha256 = _sha256_file(path)
+    except OSError:
+        return None
+    if not secrets.compare_digest(actual_sha256, expected_sha256):
+        return None
+    return path
 
 
 def cleanup_old_files(max_age_hours: int = RETENTION_HOURS) -> int:
-    if not os.path.isdir(GENERATED_DOCUMENTS_DIR):
+    """Remove cada PDF expirado e seu metadado como uma única unidade lógica."""
+    directory = Path(GENERATED_DOCUMENTS_DIR)
+    if not directory.is_dir():
         return 0
     cutoff = time.time() - max_age_hours * 3600
     removed = 0
-    for name in os.listdir(GENERATED_DOCUMENTS_DIR):
-        path = os.path.join(GENERATED_DOCUMENTS_DIR, name)
+    for path in directory.glob("*.pdf"):
         try:
-            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
-                os.remove(path)
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+                path.with_suffix(".json").unlink(missing_ok=True)
                 removed += 1
         except OSError as exc:
             logger.warning(
                 "Falha ao limpar documento gerado | doc_ref={} erro={}",
-                safe_identifier(name),
+                safe_identifier(path.name),
+                safe_error(exc),
+            )
+
+    # Metadados órfãos não dão acesso a conteúdo, mas também não devem crescer
+    # para sempre após uma interrupção ocorrida entre as duas gravações.
+    for metadata_path in directory.glob("*.json"):
+        try:
+            is_old = metadata_path.stat().st_mtime < cutoff
+            if not metadata_path.with_suffix(".pdf").exists() and is_old:
+                metadata_path.unlink()
+        except OSError as exc:
+            logger.warning(
+                "Falha ao limpar metadado de documento | doc_ref={} erro={}",
+                safe_identifier(metadata_path.name),
                 safe_error(exc),
             )
     if removed:
@@ -85,9 +224,7 @@ def cleanup_old_files(max_age_hours: int = RETENTION_HOURS) -> int:
 
 
 async def start_cleanup_loop() -> None:
-    """Loop em background (disparado no startup do FastAPI) — apaga PDFs
-    gerados com mais de RETENTION_HOURS a cada hora. Best-effort: uma falha
-    de limpeza não derruba o serviço, só loga e tenta de novo no próximo ciclo."""
+    """Remove documentos vencidos a cada hora sem derrubar o serviço."""
     while True:
         await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
         try:

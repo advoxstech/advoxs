@@ -4,6 +4,7 @@ from loguru import logger
 
 from clients.document_generation import DocumentGenerationError, generate_pdf
 from clients.retrieval import RetrievalUnavailableError, retrieval_escritorio, retrieval_usuario
+from core.safe_logging import safe_identifier
 from services.document_storage import build_public_url, save_pdf
 
 # Custo fixo em créditos por documento gerado (contrato/multa/etc), somado ao
@@ -12,7 +13,9 @@ from services.document_storage import build_public_url, save_pdf
 DOCUMENT_GENERATION_CREDIT_COST = 20
 
 
-async def _gerar_e_entregar(tipo: str, filename: str, text_payload: str) -> str | Command:
+async def _gerar_e_entregar(
+    tipo: str, filename: str, text_payload: str, conversation_id: str
+) -> str | Command:
     """Encadeia geração do PDF (draft LLM -> LaTeX -> compile) + storage local
     + montagem do link público — usado pelas 6 tools de documento abaixo.
     Devolve uma string de erro (vira ToolMessage normal) em caso de falha, ou
@@ -21,7 +24,7 @@ async def _gerar_e_entregar(tipo: str, filename: str, text_payload: str) -> str 
     campo pra efetivamente enviar o PDF pelo WhatsApp/Z-API do tenant)."""
     try:
         pdf_bytes = await generate_pdf(tipo, text_payload)
-        doc_id = save_pdf(pdf_bytes)
+        doc_id = save_pdf(pdf_bytes, conversation_id=conversation_id)
         link = build_public_url(doc_id)
     except DocumentGenerationError as exc:
         return str(exc)
@@ -30,6 +33,7 @@ async def _gerar_e_entregar(tipo: str, filename: str, text_payload: str) -> str 
         update={
             "generated_documents": [
                 {
+                    "id": doc_id,
                     "link": link,
                     "filename": filename,
                     "credit_cost": DOCUMENT_GENERATION_CREDIT_COST,
@@ -160,7 +164,10 @@ async def fazer_contrato(
         observacoes: observações gerais (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta fazer_contrato chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta fazer_contrato chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Tipo de contrato": tipo_contrato,
         "Objetivo do contrato": objetivo_contrato,
@@ -177,7 +184,7 @@ async def fazer_contrato(
         "Observações": observacoes,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("contrato", "Contrato.pdf", text_payload)
+    return await _gerar_e_entregar("contrato", "Contrato.pdf", text_payload, conversation_id)
 
 
 @tool("fazer_multa")
@@ -234,7 +241,10 @@ async def fazer_multa(
         observacoes: observações gerais (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta fazer_multa chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta fazer_multa chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Condomínio": nome_condominio,
         "Unidade": unidade,
@@ -259,7 +269,7 @@ async def fazer_multa(
         "Observações": observacoes,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("multa", "Multa.pdf", text_payload)
+    return await _gerar_e_entregar("multa", "Multa.pdf", text_payload, conversation_id)
 
 
 @tool("fazer_advertencia")
@@ -296,7 +306,10 @@ async def fazer_advertencia(
         observacoes: observações gerais (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta fazer_advertencia chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta fazer_advertencia chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Condomínio": nome_condominio,
         "Unidade": unidade,
@@ -311,7 +324,7 @@ async def fazer_advertencia(
         "Observações": observacoes,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("advertencia", "Advertência.pdf", text_payload)
+    return await _gerar_e_entregar("advertencia", "Advertência.pdf", text_payload, conversation_id)
 
 
 @tool("fazer_oficio")
@@ -344,7 +357,10 @@ async def fazer_oficio(
         observacoes: observações gerais (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta fazer_oficio chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta fazer_oficio chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Número do ofício": numero_oficio,
         "Destinatário": destinatario,
@@ -357,7 +373,7 @@ async def fazer_oficio(
         "Observações": observacoes,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("oficio", "Ofício.pdf", text_payload)
+    return await _gerar_e_entregar("oficio", "Ofício.pdf", text_payload, conversation_id)
 
 
 @tool("enviar_edital_convocacao")
@@ -398,7 +414,10 @@ async def enviar_edital_convocacao(
         informacoes_complementares: informações complementares (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta enviar_edital_convocacao chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta enviar_edital_convocacao chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Condomínio": nome_condominio,
         "CNPJ": cnpj_condominio,
@@ -415,7 +434,9 @@ async def enviar_edital_convocacao(
         "Informações complementares": informacoes_complementares,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("edital_convocacao", "Edital de Convocação.pdf", text_payload)
+    return await _gerar_e_entregar(
+        "edital_convocacao", "Edital de Convocação.pdf", text_payload, conversation_id
+    )
 
 
 @tool("enviar_aviso")
@@ -452,7 +473,10 @@ async def enviar_aviso(
         observacoes: observações gerais (opcional).
         conversation_id: preenchido automaticamente pelo sistema.
     """
-    logger.info("Ferramenta enviar_aviso chamada | conversation_id={}", conversation_id)
+    logger.info(
+        "Ferramenta enviar_aviso chamada | conversation_ref={}",
+        safe_identifier(conversation_id),
+    )
     campos = {
         "Título": titulo_comunicado,
         "Data": data,
@@ -467,7 +491,7 @@ async def enviar_aviso(
         "Observações": observacoes,
     }
     text_payload = "\n".join(f"{campo}: {valor}" for campo, valor in campos.items())
-    return await _gerar_e_entregar("aviso", "Aviso.pdf", text_payload)
+    return await _gerar_e_entregar("aviso", "Aviso.pdf", text_payload, conversation_id)
 
 
 tools = [

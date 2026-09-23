@@ -283,7 +283,7 @@ async def test_tool_documento_sucesso_devolve_command_com_link(tool, tipo, filen
     assert docs[0]["credit_cost"] == DOCUMENT_GENERATION_CREDIT_COST
     mock_gen.assert_awaited_once()
     assert mock_gen.await_args.args[0] == tipo
-    mock_save.assert_called_once_with(b"%PDF-1.4")
+    mock_save.assert_called_once_with(b"%PDF-1.4", conversation_id=args.get("conversation_id", ""))
 
 
 @pytest.mark.asyncio

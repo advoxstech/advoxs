@@ -423,7 +423,13 @@ async def test_tool_node_injeta_conversation_id_em_tool_de_documento(monkeypatch
 
     generate_pdf_mock = AsyncMock(return_value=b"%PDF-1.4")
     monkeypatch.setattr(tools_module, "generate_pdf", generate_pdf_mock)
-    monkeypatch.setattr(tools_module, "save_pdf", lambda pdf_bytes: "doc-id")
+    saved: dict[str, str] = {}
+
+    def save_pdf_mock(pdf_bytes, *, conversation_id):
+        saved["conversation_id"] = conversation_id
+        return "doc-id"
+
+    monkeypatch.setattr(tools_module, "save_pdf", save_pdf_mock)
     monkeypatch.setattr(
         tools_module, "build_public_url", lambda doc_id: "https://exemplo.com/doc-id"
     )
@@ -459,6 +465,7 @@ async def test_tool_node_injeta_conversation_id_em_tool_de_documento(monkeypatch
     result = await tool_node(state)
 
     generate_pdf_mock.assert_awaited_once()
+    assert saved["conversation_id"] == "tenant-real:5511999998888"
     assert result["generated_documents"][0]["filename"] == "Advertência.pdf"
 
 

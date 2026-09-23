@@ -17,7 +17,7 @@ from config_validation import validate_environment
 from core.safe_logging import safe_error, safe_identifier
 from services.call_agent import DB_URI, run_agent
 from services.concat_messages import debounce_messages
-from services.document_storage import resolve_path, start_cleanup_loop
+from services.document_storage import resolve_authorized_path, start_cleanup_loop
 from services.summarize import summarize_conversation
 from services.update_context import add_context_messages, replace_context_messages
 
@@ -110,13 +110,9 @@ async def list_agents():
 
 
 @app.get("/generated-documents/{doc_id}")
-async def get_generated_document(doc_id: str):
-    """Serve o PDF gerado pelas tools de documento (fazer_contrato, etc.) —
-    o link montado a partir desta rota é o que send_document_message
-    (Meta/Z-API) usa pra entregar o documento ao contato. doc_id aleatório
-    (UUID) é a única camada de proteção, sem auth adicional (mesmo espírito
-    do segredo no path do webhook da Z-API)."""
-    path = resolve_path(doc_id)
+async def get_generated_document(doc_id: str, token: str | None = None):
+    """Entrega o PDF somente enquanto seu token temporário estiver válido."""
+    path = resolve_authorized_path(doc_id, token)
     if path is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Documento não encontrado."
