@@ -10,13 +10,17 @@ export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [balanceError, setBalanceError] = useState(false);
 
   useEffect(() => {
     async function loadBalance() {
-      const response = await backendFetch("billing/balance");
-      if (response.ok) {
+      try {
+        const response = await backendFetch("billing/balance");
+        if (!response.ok) throw new Error("balance request failed");
         const body = await response.json();
         setBalance(body.credit_balance);
+      } catch {
+        setBalanceError(true);
       }
     }
     void loadBalance();
@@ -48,6 +52,11 @@ export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
   return (
     <div className="flex flex-col gap-8 p-8">
       <div>
+        <h1 className="font-display text-xl font-semibold text-ink">Créditos do escritório</h1>
+        <p className="mt-1 max-w-xl text-sm text-muted">
+          Esses créditos custeiam o uso dos agentes pelo escritório. São separados dos saldos,
+          pacotes e cobranças dos clientes atendidos.
+        </p>
         <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted">
           Saldo atual
         </p>
@@ -56,7 +65,14 @@ export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
         </p>
       </div>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {balanceError ? (
+        <p role="alert" className="text-sm text-danger">
+          Não foi possível carregar o saldo dos créditos do escritório. Atualize a página e tente
+          novamente.
+        </p>
+      ) : null}
+
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
 
       <div className="flex flex-col gap-3">
         {packages.map((pkg) => (

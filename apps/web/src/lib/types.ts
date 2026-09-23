@@ -13,6 +13,9 @@ export interface Conversation {
   status?: ConversationStatus;
   is_test: boolean;
   last_message_at: string | null;
+  last_message_preview?: string | null;
+  last_message_media_type?: string | null;
+  last_message_sender_type?: SenderType | "system" | null;
   created_at: string;
   summary: string | null;
   summary_generated_at: string | null;

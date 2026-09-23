@@ -106,7 +106,7 @@ describe("AgentDetail", () => {
     fireEvent.change(screen.getByDisplayValue("Secretária"), {
       target: { value: "Nova Secretária" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
 
     await waitFor(() =>
       expect(mockedFetch).toHaveBeenCalledWith(
@@ -114,5 +114,39 @@ describe("AgentDetail", () => {
         expect.objectContaining({ method: "PATCH" }),
       ),
     );
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Alterações salvas com sucesso."),
+    );
+    expect(screen.queryByText("Há alterações não salvas.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salvar alterações" })).toBeDisabled();
+  });
+
+  it("preserva o texto e mantém o aviso quando o salvamento falha", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return { ok: false, json: async () => ({ detail: "Falha ao salvar." }) };
+      }
+      if (!init && path === "agents") return { ok: true, json: async () => [AGENT] };
+      return { ok: true, json: async () => [] };
+    });
+    render(<AgentDetail agentId="a1" />);
+    const nameInput = await screen.findByDisplayValue("Secretária");
+    fireEvent.change(nameInput, { target: { value: "Nome ajustado" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar alterações" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Falha ao salvar.");
+    expect(screen.getByDisplayValue("Nome ajustado")).toBeInTheDocument();
+    expect(screen.getByText("Há alterações não salvas.")).toBeInTheDocument();
+  });
+
+  it("permite descartar alterações não salvas", async () => {
+    mockLoad();
+    render(<AgentDetail agentId="a1" />);
+    const nameInput = await screen.findByDisplayValue("Secretária");
+    fireEvent.change(nameInput, { target: { value: "Outro nome" } });
+    expect(screen.getByText("Há alterações não salvas.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Descartar alterações" }));
+    expect(screen.getByDisplayValue("Secretária")).toBeInTheDocument();
+    expect(screen.queryByText("Há alterações não salvas.")).not.toBeInTheDocument();
   });
 });

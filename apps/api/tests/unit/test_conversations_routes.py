@@ -134,6 +134,27 @@ class TestListConversations:
         assert body[0]["state"] == "agent"
         assert body[0]["status"] == "agent"
 
+    def test_lista_inclui_previa_da_ultima_mensagem(self, client, session) -> None:
+        message = SimpleNamespace(
+            conversation_id=CONVERSATION_ID,
+            content="Preciso de ajuda com meu contrato",
+            media_type=None,
+            sender_type="contact",
+        )
+        session.execute.side_effect = [
+            _execute_returning([_conversation()]),
+            _balance_result([]),
+            _balance_result([]),
+            _balance_result([message]),
+        ]
+        session.scalar.return_value = None
+
+        response = client.get("/api/v1/conversations")
+
+        assert response.status_code == 200
+        assert response.json()[0]["last_message_preview"] == "Preciso de ajuda com meu contrato"
+        assert response.json()[0]["last_message_sender_type"] == "contact"
+
     @pytest.mark.parametrize(
         ("state", "automation_status", "expected"),
         [
@@ -167,7 +188,9 @@ class TestOriginFilter:
         # o filtro is_test = false entrou na query (direção importa: um
         # mapeamento origin→bool invertido passaria num assert só de presença)
         where_clause = str(
-            session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
+            session.execute.await_args_list[0]
+            .args[0]
+            .compile(compile_kwargs={"literal_binds": True})
         )
         assert "is_test = false" in where_clause
 
@@ -178,7 +201,9 @@ class TestOriginFilter:
 
         assert response.status_code == 200
         where_clause = str(
-            session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
+            session.execute.await_args_list[0]
+            .args[0]
+            .compile(compile_kwargs={"literal_binds": True})
         )
         assert "is_test = true" in where_clause
 
@@ -696,6 +721,7 @@ class TestEndCustomerBalance:
                 ]
             ),
             _balance_result([]),
+            _execute_returning([]),
         ]
 
         response = client.get("/api/v1/conversations")
@@ -709,6 +735,7 @@ class TestEndCustomerBalance:
             _execute_returning([_conversation()]),
             _balance_result([]),
             _balance_result([]),
+            _execute_returning([]),
         ]
 
         response = client.get("/api/v1/conversations")
@@ -783,6 +810,7 @@ class TestEndCustomerBalance:
             _execute_returning([_conversation()]),
             _balance_result([]),
             _balance_result([]),
+            _execute_returning([]),
         ]
 
         client.get("/api/v1/conversations")
@@ -797,6 +825,7 @@ class TestEndCustomerBalance:
             _execute_returning([_conversation()]),
             _balance_result([]),
             _balance_result([]),
+            _execute_returning([]),
         ]
         session.scalar.return_value = True
 
@@ -810,6 +839,7 @@ class TestEndCustomerBalance:
             _execute_returning([_conversation()]),
             _balance_result([]),
             _balance_result([]),
+            _execute_returning([]),
         ]
         session.scalar.return_value = None
 

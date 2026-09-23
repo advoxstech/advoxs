@@ -211,7 +211,8 @@ export function EndCustomerBillingPanel() {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-xl font-semibold text-ink">Cobrança dos clientes</h1>
         <p className="text-sm text-muted">
-          Use sua própria conta de pagamentos para vender créditos aos seus clientes finais.
+          Esta área controla os saldos, pacotes e assinaturas dos clientes atendidos. Ela é separada
+          dos créditos do escritório, usados para custear o funcionamento dos agentes.
         </p>
       </header>
 

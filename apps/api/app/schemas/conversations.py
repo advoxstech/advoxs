@@ -14,6 +14,9 @@ class ConversationOut(BaseModel):
     status: Literal["agent", "human", "billing_gate", "processing", "failed"] = "agent"
     is_test: bool
     last_message_at: datetime | None
+    last_message_preview: str | None = None
+    last_message_media_type: str | None = None
+    last_message_sender_type: Literal["agent", "human", "contact", "system"] | None = None
     created_at: datetime
     summary: str | None
     summary_generated_at: datetime | None

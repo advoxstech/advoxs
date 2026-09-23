@@ -47,10 +47,12 @@ export function ConversationThread({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const isManual = conversation.state === "human";
 
   const [exemptionError, setExemptionError] = useState<string | null>(null);
+  const [exemptionSuccess, setExemptionSuccess] = useState<string | null>(null);
 
   const toggleBillingExemption = async () => {
     const goingExempt = !conversation.end_customer_billing_exempt;
@@ -65,13 +67,20 @@ export function ConversationThread({
       return;
     }
     setExemptionError(null);
-    const response = await backendFetch(`conversations/${conversation.id}/billing-exemption`, {
-      method: "PATCH",
-      body: JSON.stringify({ exempt: goingExempt }),
-    });
-    if (response.ok) {
+    setExemptionSuccess(null);
+    try {
+      const response = await backendFetch(`conversations/${conversation.id}/billing-exemption`, {
+        method: "PATCH",
+        body: JSON.stringify({ exempt: goingExempt }),
+      });
+      if (!response.ok) throw new Error("billing update failed");
       onConversationUpdate(await response.json());
-    } else {
+      setExemptionSuccess(
+        goingExempt
+          ? "A cobrança deste cliente foi desativada."
+          : "A cobrança deste cliente foi retomada.",
+      );
+    } catch {
       setExemptionError("Não foi possível alterar a cobrança deste cliente. Tente novamente.");
     }
   };
@@ -105,13 +114,18 @@ export function ConversationThread({
 
   const toggleState = async () => {
     setError(null);
-    const response = await backendFetch(`conversations/${conversation.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ state: isManual ? "agent" : "human" }),
-    });
-    if (response.ok) {
+    setActionSuccess(null);
+    try {
+      const response = await backendFetch(`conversations/${conversation.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ state: isManual ? "agent" : "human" }),
+      });
+      if (!response.ok) throw new Error("conversation update failed");
       onConversationUpdate(await response.json());
-    } else {
+      setActionSuccess(
+        isManual ? "O atendimento foi devolvido para a IA." : "Você assumiu o atendimento.",
+      );
+    } catch {
       setError("Não foi possível alterar o atendimento. Tente novamente.");
     }
   };
@@ -125,12 +139,13 @@ export function ConversationThread({
       return;
     }
     setError(null);
-    const response = await backendFetch(`conversations/${conversation.id}`, {
-      method: "DELETE",
-    });
-    if (response.ok) {
+    try {
+      const response = await backendFetch(`conversations/${conversation.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("conversation delete failed");
       onDeleted?.();
-    } else {
+    } catch {
       setError("Não foi possível excluir a conversa. Tente novamente.");
     }
   };
@@ -143,6 +158,7 @@ export function ConversationThread({
     }
     setSending(true);
     setError(null);
+    setActionSuccess(null);
     try {
       const response = await backendFetch(`conversations/${conversation.id}/messages`, {
         method: "POST",
@@ -152,11 +168,16 @@ export function ConversationThread({
         const message: Message = await response.json();
         appendMessages(message);
         setDraft("");
+        setActionSuccess("Mensagem enviada.");
       } else if (response.status === 502) {
         setError("O WhatsApp não recebeu a mensagem. Tente novamente.");
       } else {
         setError("Não foi possível enviar. Tente novamente.");
       }
+    } catch {
+      setError(
+        "Falha de conexão. A mensagem pode não ter sido enviada; confira a conversa antes de tentar novamente.",
+      );
     } finally {
       setSending(false);
     }
@@ -179,17 +200,6 @@ export function ConversationThread({
             {formatPhone(conversation.contact_phone_number)}
           </h2>
           <ConversationStatusIndicator conversation={conversation} />
-          {conversation.end_customer_balance != null ? (
-            <span className="font-mono text-xs text-muted">
-              saldo do cliente: {formatCredits(conversation.end_customer_balance)} créditos
-            </span>
-          ) : null}
-          {conversation.end_customer_cycle_total != null ? (
-            <span className="font-mono text-xs text-muted">
-              {formatCredits(conversation.end_customer_cycle_consumed ?? 0)} de{" "}
-              {formatCredits(conversation.end_customer_cycle_total)} créditos usados
-            </span>
-          ) : null}
         </div>
         <div className="flex w-full flex-wrap items-center justify-end gap-3 md:w-auto md:gap-4">
           {conversation.end_customer_billing_enabled ? (
@@ -232,9 +242,35 @@ export function ConversationThread({
           </button>
         </div>
       </header>
+      {conversation.end_customer_billing_enabled &&
+      (conversation.end_customer_balance != null || conversation.end_customer_cycle_total != null) ? (
+        <aside className="border-b border-line bg-surface px-4 py-2 text-xs md:px-6">
+          <span className="font-medium text-ink">Cobrança deste cliente</span>
+          <span className="ml-3 text-muted">
+            {conversation.end_customer_balance != null
+              ? `Saldo disponível: ${formatCredits(conversation.end_customer_balance)} créditos`
+              : ""}
+            {conversation.end_customer_balance != null && conversation.end_customer_cycle_total != null
+              ? " · "
+              : ""}
+            {conversation.end_customer_cycle_total != null
+              ? `Uso no ciclo: ${formatCredits(conversation.end_customer_cycle_consumed ?? 0)} de ${formatCredits(conversation.end_customer_cycle_total)} créditos`
+              : ""}
+          </span>
+        </aside>
+      ) : null}
       {exemptionError ? (
         <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
           {exemptionError}
+        </p>
+      ) : null}
+      {exemptionSuccess ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="border-b border-line bg-surface px-6 py-2 text-xs text-accent"
+        >
+          {exemptionSuccess}
         </p>
       ) : null}
 
@@ -256,6 +292,11 @@ export function ConversationThread({
             {refreshing ? "Atualizando…" : "Tentar novamente"}
           </button>
         </div>
+      ) : null}
+      {actionSuccess ? (
+        <p role="status" aria-live="polite" className="border-b border-line bg-surface px-6 py-2 text-xs text-accent">
+          {actionSuccess}
+        </p>
       ) : null}
 
       <section className="border-b border-line bg-surface px-6 py-3">
@@ -382,7 +423,7 @@ function MessageBubble({ message }: { message: Message }) {
   const fromHuman = message.sender_type === "human";
 
   return (
-    <li className={`flex flex-col ${fromContact ? "items-start" : "items-end"}`}>
+    <li data-message-id={message.id} className={`flex flex-col ${fromContact ? "items-start" : "items-end"}`}>
       <div
         className={`max-w-[72%] rounded-md px-3.5 py-2.5 text-sm leading-relaxed ${
           fromContact

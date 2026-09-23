@@ -30,11 +30,11 @@ describe("TenantNav", () => {
       "href",
       "/configuracoes/whatsapp",
     );
-    expect(screen.getByText("Cobrança").closest("a")).toHaveAttribute(
+    expect(screen.getByText("Cobrança de clientes").closest("a")).toHaveAttribute(
       "href",
       "/configuracoes/cobranca-clientes",
     );
-    expect(screen.getByText("Créditos").closest("a")).toHaveAttribute("href", "/creditos");
+    expect(screen.getByText("Créditos do escritório").closest("a")).toHaveAttribute("href", "/creditos");
     expect(screen.getByText("Perfil").closest("a")).toHaveAttribute("href", "/perfil");
   });
 
@@ -55,14 +55,14 @@ describe("TenantNav", () => {
   it("marca creditos como ativo quando active='creditos'", () => {
     render(<TenantNav active="creditos" />);
 
-    expect(screen.getByText("Créditos").closest("a")).toBeNull();
+    expect(screen.getByText("Créditos do escritório").closest("a")).toBeNull();
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca cobranca como ativo quando active='cobranca'", () => {
     render(<TenantNav active="cobranca" />);
 
-    expect(screen.getByText("Cobrança").closest("a")).toBeNull();
+    expect(screen.getByText("Cobrança de clientes").closest("a")).toBeNull();
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
@@ -79,7 +79,7 @@ describe("TenantNav", () => {
     expect(screen.getByText("Conversas").closest("a")).not.toBeNull();
     expect(screen.getByText("Base").closest("a")).not.toBeNull();
     expect(screen.getByText("Config WhatsApp").closest("a")).not.toBeNull();
-    expect(screen.getByText("Créditos").closest("a")).not.toBeNull();
+    expect(screen.getByText("Créditos do escritório").closest("a")).not.toBeNull();
   });
 
   it("renderiza o botão Sair", () => {

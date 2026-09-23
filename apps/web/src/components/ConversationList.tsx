@@ -1,6 +1,6 @@
 "use client";
 
-import { formatCredits, formatMessageTime, formatPhone } from "@/lib/format";
+import { formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
@@ -45,6 +45,23 @@ export function ConversationList({
     <ul className="flex-1 overflow-y-auto">
       {conversations.map((conversation) => {
         const isSelected = conversation.id === selectedId;
+        const mediaType = conversation.last_message_media_type?.toLowerCase() ?? "";
+        const direction =
+          conversation.last_message_sender_type === "contact" ? "recebido" : "enviado";
+        const mediaLabel =
+          mediaType.startsWith("image/") || mediaType === "image"
+            ? `Imagem ${direction === "recebido" ? "recebida" : "enviada"}`
+            : mediaType.startsWith("audio/") || mediaType === "audio"
+              ? `Áudio ${direction}`
+              : mediaType.startsWith("video/") || mediaType === "video"
+                ? `Vídeo ${direction === "recebido" ? "recebido" : "enviado"}`
+                : mediaType === "document" ||
+                    mediaType.includes("pdf") ||
+                    mediaType.includes("word")
+                  ? `Documento ${direction === "recebido" ? "recebido" : "enviado"}`
+                  : "Anexo recebido";
+        const preview = conversation.last_message_preview?.trim()
+          || (conversation.last_message_media_type ? mediaLabel : "Sem mensagens ainda");
         return (
           <li key={conversation.id} className="border-b border-line">
             <button
@@ -69,19 +86,11 @@ export function ConversationList({
                   </time>
                 ) : null}
               </span>
+              <span className="truncate text-xs text-muted" title={preview}>
+                {preview}
+              </span>
               <span className="flex items-center justify-between gap-2">
                 <ConversationStatusIndicator conversation={conversation} />
-                {conversation.end_customer_balance != null ? (
-                  <span className="font-mono text-[11px] text-muted">
-                    {formatCredits(conversation.end_customer_balance)} créditos
-                  </span>
-                ) : null}
-                {conversation.end_customer_cycle_total != null ? (
-                  <span className="font-mono text-[11px] text-muted">
-                    {formatCredits(conversation.end_customer_cycle_consumed ?? 0)} de{" "}
-                    {formatCredits(conversation.end_customer_cycle_total)} créditos usados
-                  </span>
-                ) : null}
               </span>
             </button>
           </li>
