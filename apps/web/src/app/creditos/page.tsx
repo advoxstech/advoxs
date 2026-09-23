@@ -1,5 +1,6 @@
 import { CreditosExtrato } from "@/components/CreditosExtrato";
 import { CreditosPanel } from "@/components/CreditosPanel";
+import { FinancialUsagePanel } from "@/components/FinancialUsagePanel";
 import { SpendingChart } from "@/components/SpendingChart";
 import { TenantNav } from "@/components/TenantNav";
 import { API_URL } from "@/lib/backend";
@@ -25,6 +26,7 @@ export default async function CreditosPage() {
         <CreditosPanel packages={packages} />
         <div className="px-8 pb-8">
           <SpendingChart />
+          <FinancialUsagePanel />
           <div className="mt-8">
             <CreditosExtrato />
           </div>

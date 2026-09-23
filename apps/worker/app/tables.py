@@ -130,6 +130,26 @@ credit_transactions = Table(
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
 )
 
+usage_records = Table(
+    "usage_records",
+    metadata,
+    Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("tenant_id", Uuid),
+    Column("conversation_id", Uuid),
+    Column("related_message_id", Uuid),
+    Column("contact_phone_number", String),
+    Column("funding_source", String),
+    Column("operational_credits", Numeric(12, 4)),
+    Column("billed_credits", Numeric(12, 4)),
+    Column("shortfall_credits", Numeric(12, 4)),
+    Column("document_credits", Numeric(12, 4)),
+    Column("tokens_input", Integer),
+    Column("tokens_output", Integer),
+    Column("pricing_config_id", Uuid),
+    Column("end_customer_subscription_id", Uuid),
+    Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
 whatsapp_numbers = Table(
     "whatsapp_numbers",
     metadata,

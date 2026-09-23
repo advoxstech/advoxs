@@ -302,6 +302,7 @@ async def test_isencao_default_e_false() -> None:
 
 
 async def test_com_assinatura_ativa_marca_end_customer_has_active_subscription() -> None:
+    subscription_id = uuid.uuid4()
     session = _session_with(
         conversation=_conversation(),
         content="oi",
@@ -310,12 +311,13 @@ async def test_com_assinatura_ativa_marca_end_customer_has_active_subscription()
         billing_settings=SimpleNamespace(enabled=True, billing_gate_welcome_text=None),
         balance=Decimal(0),
         packages=[],
-        active_subscription=uuid.uuid4(),
+        active_subscription=subscription_id,
     )
 
     inbound = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert inbound.end_customer_has_active_subscription is True
+    assert inbound.end_customer_subscription_id == str(subscription_id)
 
 
 async def test_pacotes_incluem_kind() -> None:

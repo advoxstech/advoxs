@@ -10,7 +10,12 @@ import app.api.v1.billing as billing_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.db import get_system_session
 from app.main import app
-from app.schemas.billing import SpendingByMonthOut, SpendingReportOut
+from app.schemas.billing import (
+    SpendingByMonthOut,
+    SpendingReportOut,
+    UsageReportOut,
+    UsageSummaryOut,
+)
 from app.services.billing import InvalidPackageError, StripeApiError
 
 TENANT_ID = uuid.uuid4()
@@ -220,3 +225,34 @@ class TestSpending:
 
         assert response.status_code == 200
         assert response.json()["by_month"][0]["total_brl"] == 350.0
+
+
+class TestUsage:
+    def test_periodo_invalido_retorna_422(self, client) -> None:
+        response = client.get("/api/v1/billing/usage?from=2026-07-31&to=2026-07-01")
+
+        assert response.status_code == 422
+
+    def test_retorna_resumo_de_consumo(self, client, monkeypatch) -> None:
+        report = UsageReportOut(
+            summary=UsageSummaryOut(
+                executions=1,
+                operational_credits=2,
+                billed_credits=0,
+                shortfall_credits=0,
+                subscription_credits=2,
+                tenant_credits=0,
+                end_customer_credits=0,
+                document_credits=0,
+                tokens_input=1000,
+                tokens_output=500,
+            ),
+            items=[],
+        )
+        get_usage_report_mock = AsyncMock(return_value=report)
+        monkeypatch.setattr(billing_module, "get_usage_report", get_usage_report_mock)
+
+        response = client.get("/api/v1/billing/usage?from=2026-07-01&to=2026-07-31")
+
+        assert response.status_code == 200
+        assert response.json()["summary"]["subscription_credits"] == 2

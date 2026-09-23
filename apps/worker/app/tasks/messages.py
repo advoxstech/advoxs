@@ -720,27 +720,14 @@ async def _process_inbound_message(
             + len(documents) * DOCUMENT_GENERATION_CREDIT_COST
         )
 
-        # Ilimitado: assinante ativo não deve ter custo contabilizado nesta
-        # execução, não só nenhum débito — sem isso, o relatório de Consumo
-        # do tenant (agrega messages.credits_consumed, não o ledger) mostraria
-        # um valor "consumido" que nunca foi cobrado em lugar nenhum. As
-        # variáveis reais (tokens_used/credits) seguem usadas só pra decidir
-        # o branch de débito abaixo, nunca pro que é persistido na mensagem.
-        if inbound.end_customer_has_active_subscription:
-            tokens_used_persistido: int | Decimal = 0
-            credits_persistido: int | Decimal = 0
-        else:
-            tokens_used_persistido = tokens_used
-            credits_persistido = credits
-
         first_message_id, outbound_job_ids = await _persist_agent_responses(
             session,
             tenant_id,
             conversation_id,
             responses,
             documents,
-            tokens_used_persistido,
-            credits_persistido,
+            tokens_used,
+            credits,
         )
 
         await session.execute(
@@ -758,7 +745,15 @@ async def _process_inbound_message(
                 .values(current_agent_id=uuid.UUID(current_agent_id))
             )
         saldo_tenant_zerou = False
-        if credits and first_message_id is not None:
+        billed_credits = Decimal(0)
+        funding_source = (
+            "end_customer_subscription"
+            if inbound.end_customer_has_active_subscription
+            else "end_customer_credits"
+            if customer_funded
+            else "tenant"
+        )
+        if first_message_id is not None:
             # Moeda única: quem custeia o turno é a wallet do cliente final
             # (quando a cobrança está habilitada e havia saldo antes da
             # chamada) OU o estoque do tenant — nunca os dois. Ledger + saldo
@@ -768,8 +763,8 @@ async def _process_inbound_message(
                 # assinatura estiver ativa — o tenant absorve o custo do LLM,
                 # sem teto automático nesta v1 (ver design doc).
                 pass
-            elif customer_funded:
-                await _debitar_creditos_cliente_final(
+            elif customer_funded and credits:
+                billed_credits = await _debitar_creditos_cliente_final(
                     session,
                     tenant_id,
                     inbound.contact_phone_number,
@@ -780,8 +775,8 @@ async def _process_inbound_message(
                     tokens_output,
                     config.id,
                 )
-            else:
-                saldo_tenant_zerou = await _debitar_creditos(
+            elif credits:
+                saldo_tenant_zerou, billed_credits = await _debitar_creditos(
                     session,
                     tenant_id,
                     first_message_id,
@@ -791,6 +786,36 @@ async def _process_inbound_message(
                     tokens_output,
                     config.id,
                 )
+
+            shortfall_credits = (
+                Decimal(0)
+                if funding_source == "end_customer_subscription"
+                else max(Decimal(0), credits - billed_credits)
+            )
+            await session.execute(
+                pg_insert(tables.usage_records)
+                .values(
+                    tenant_id=uuid.UUID(tenant_id),
+                    conversation_id=uuid.UUID(conversation_id),
+                    related_message_id=first_message_id,
+                    contact_phone_number=inbound.contact_phone_number,
+                    funding_source=funding_source,
+                    operational_credits=credits,
+                    billed_credits=billed_credits,
+                    shortfall_credits=shortfall_credits,
+                    document_credits=(Decimal(len(documents)) * DOCUMENT_GENERATION_CREDIT_COST),
+                    tokens_input=tokens_input,
+                    tokens_output=tokens_output,
+                    pricing_config_id=config.id,
+                    end_customer_subscription_id=(
+                        uuid.UUID(inbound.end_customer_subscription_id)
+                        if inbound.end_customer_subscription_id
+                        else None
+                    ),
+                    created_at=datetime.now(UTC),
+                )
+                .on_conflict_do_nothing(index_elements=[tables.usage_records.c.related_message_id])
+            )
 
         await session.commit()
 
@@ -968,6 +993,7 @@ async def _load_context(
         ),
         end_customer_billing_exempt=conversation.end_customer_billing_exempt,
         end_customer_has_active_subscription=active_subscription is not None,
+        end_customer_subscription_id=(str(active_subscription) if active_subscription else None),
         media_url=message_row.media_url,
         media_type=message_row.media_type,
     )
@@ -1091,15 +1117,19 @@ async def _debitar_creditos(
     tokens_input: int = 0,
     tokens_output: int = 0,
     pricing_config_id: uuid.UUID | None = None,
-) -> bool:
+) -> tuple[bool, Decimal]:
     """Lança o consumo no ledger e atualiza o cache de saldo do tenant.
 
     O SELECT ... FOR UPDATE serializa débitos concorrentes do mesmo tenant
     (várias mensagens simultâneas) — o update relativo em seguida nunca perde
     escrita nem lê saldo obsoleto.
 
-    Devolve True quando esse débito específico zerou o saldo (transição de
-    positivo pra <=0) — usado pra notificar a Advoxs uma única vez por
+    Devolve se este débito zerou o saldo e quanto foi efetivamente cobrado.
+    O valor cobrado nunca ultrapassa o saldo travado, portanto concorrência
+    não produz saldo negativo.
+
+    True representa a transição de positivo para zero — usado pra notificar
+    a Advoxs uma única vez por
     "episódio" de saldo esgotado, nunca a cada mensagem enquanto já
     está zerado (ver send_tenant_out_of_credits_notification)."""
     saldo_antes = (
@@ -1109,25 +1139,28 @@ async def _debitar_creditos(
             .with_for_update()
         )
     ).scalar_one()
-    await session.execute(
-        insert(tables.credit_transactions).values(
-            tenant_id=uuid.UUID(tenant_id),
-            type="consumption",
-            amount_credits=-credits,
-            related_message_id=message_id,
-            tokens_input=tokens_input or None,
-            tokens_output=tokens_output or None,
-            pricing_config_id=pricing_config_id,
-            description="Consumo do agente",
-            created_at=datetime.now(UTC),
+    saldo_disponivel = max(Decimal(0), saldo_antes)
+    credits_cobrados = min(saldo_disponivel, credits)
+    if credits_cobrados:
+        await session.execute(
+            insert(tables.credit_transactions).values(
+                tenant_id=uuid.UUID(tenant_id),
+                type="consumption",
+                amount_credits=-credits_cobrados,
+                related_message_id=message_id,
+                tokens_input=tokens_input or None,
+                tokens_output=tokens_output or None,
+                pricing_config_id=pricing_config_id,
+                description="Consumo do agente",
+                created_at=datetime.now(UTC),
+            )
         )
-    )
-    await session.execute(
-        update(tables.tenants)
-        .where(tables.tenants.c.id == uuid.UUID(tenant_id))
-        .values(credit_balance=tables.tenants.c.credit_balance - credits)
-    )
-    return saldo_antes > 0 and (saldo_antes - credits) <= 0
+        await session.execute(
+            update(tables.tenants)
+            .where(tables.tenants.c.id == uuid.UUID(tenant_id))
+            .values(credit_balance=tables.tenants.c.credit_balance - credits_cobrados)
+        )
+    return saldo_antes > 0 and credits_cobrados == saldo_disponivel, credits_cobrados
 
 
 async def _debitar_creditos_cliente_final(
@@ -1140,25 +1173,31 @@ async def _debitar_creditos_cliente_final(
     tokens_input: int = 0,
     tokens_output: int = 0,
     pricing_config_id: uuid.UUID | None = None,
-) -> None:
+) -> Decimal:
     """Débito do saldo do CLIENTE FINAL com o tenant — moeda única: quando o
     turno é custeado pelo cliente, SÓ esta wallet é debitada (o estoque do
     tenant já foi debitado na revenda). FOR UPDATE serializa débitos
     concorrentes do mesmo contato."""
-    await session.execute(
-        select(tables.end_customer_balances.c.credit_balance)
-        .where(
-            tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
-            tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
+    saldo_antes = (
+        await session.execute(
+            select(tables.end_customer_balances.c.credit_balance)
+            .where(
+                tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
+                tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
+            )
+            .with_for_update()
         )
-        .with_for_update()
-    )
+    ).scalar_one()
+    saldo_disponivel = max(Decimal(0), saldo_antes)
+    credits_cobrados = min(saldo_disponivel, credits)
+    if not credits_cobrados:
+        return Decimal(0)
     await session.execute(
         insert(tables.end_customer_credit_transactions).values(
             tenant_id=uuid.UUID(tenant_id),
             contact_phone_number=contact_phone_number,
             type="consumption",
-            amount_credits=-credits,
+            amount_credits=-credits_cobrados,
             related_message_id=message_id,
             tokens_input=tokens_input or None,
             tokens_output=tokens_output or None,
@@ -1173,5 +1212,6 @@ async def _debitar_creditos_cliente_final(
             tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
             tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
         )
-        .values(credit_balance=tables.end_customer_balances.c.credit_balance - credits)
+        .values(credit_balance=tables.end_customer_balances.c.credit_balance - credits_cobrados)
     )
+    return credits_cobrados

@@ -87,6 +87,7 @@ class CreditTransaction(Base):
         Uuid, ForeignKey("credit_packages.id")
     )
     stripe_payment_id: Mapped[str | None] = mapped_column(String)
+    amount_brl: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     description: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

@@ -86,8 +86,8 @@ def patched(monkeypatch):
         # False por padrão: nenhum teste existente representa um débito que
         # zera o saldo — sem isso, o valor default de um AsyncMock (um
         # MagicMock truthy) faria toda mensagem parecer ter zerado o saldo.
-        "debitar": AsyncMock(return_value=False),
-        "debitar_cliente_final": AsyncMock(),
+        "debitar": AsyncMock(return_value=(False, Decimal("1"))),
+        "debitar_cliente_final": AsyncMock(return_value=Decimal("1")),
         "pricing": AsyncMock(return_value=PRICING_CONFIG),
         "sync": AsyncMock(),
         "notify_sem_creditos": AsyncMock(),
@@ -410,7 +410,7 @@ async def test_debito_zera_saldo_notifica_a_advoxs(patched) -> None:
     """_debitar_creditos devolvendo True (transição pra <=0) precisa
     disparar a notificação por e-mail, buscando o nome do tenant na mesma
     sessão já aberta (best-effort, depois do commit)."""
-    patched["debitar"].return_value = True
+    patched["debitar"].return_value = (True, Decimal("1"))
     ctx = _ctx()
     session = ctx["session_factory"].return_value.__aenter__.return_value
     # session é um AsyncMock — sem isso, .scalar_one_or_none (herdando a
@@ -427,7 +427,7 @@ async def test_debito_zera_saldo_notifica_a_advoxs(patched) -> None:
 
 
 async def test_debito_nao_zera_saldo_nao_notifica(patched) -> None:
-    patched["debitar"].return_value = False
+    patched["debitar"].return_value = (False, Decimal("1"))
 
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
@@ -715,11 +715,8 @@ async def test_contato_isento_com_saldo_do_tenant_zerado_fica_em_silencio(patche
     patched["send"].assert_not_awaited()
 
 
-async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched) -> None:
-    """Ilimitado significa nenhum custo contabilizado nesta execução, não só
-    nenhum débito — sem isso, o relatório de Consumo do tenant (que agrega
-    messages.credits_consumed, não o ledger) mostraria conversas de assinante
-    "consumindo" créditos que nunca foram cobrados em lugar nenhum."""
+async def test_assinante_ativo_persiste_custo_real_sem_debito(patched) -> None:
+    """Assinatura cobre a cobrança, mas não apaga o custo operacional."""
     patched["load"].return_value = _inbound_com_billing(
         balance=0, credit_balance=0, has_active_subscription=True
     )
@@ -728,8 +725,8 @@ async def test_assinante_ativo_persiste_mensagem_sem_custo_contabilizado(patched
     await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     persist_args = patched["persist"].await_args.args
-    assert persist_args[5] == 0  # tokens_used não contabilizado (ilimitado)
-    assert persist_args[6] == 0  # credits não contabilizado (ilimitado)
+    assert persist_args[5] == 2000
+    assert persist_args[6] == Decimal("2")
 
 
 async def test_persiste_current_agent_id_quando_presente(patched) -> None:

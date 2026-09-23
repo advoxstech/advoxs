@@ -16,6 +16,7 @@ from app.services.billing import (
     create_checkout_session,
     create_recompra_checkout_session,
     get_spending_report,
+    get_usage_report,
     process_checkout_completed,
 )
 
@@ -152,7 +153,7 @@ class TestProcessCheckoutCompleted:
             "credit_package_id": str(PACKAGE_ID),
         }
         metadata.update(metadata_overrides)
-        return {"id": "cs_123", "metadata": metadata}
+        return {"id": "cs_123", "metadata": metadata, "amount_total": 19990}
 
     def _real_stripe_session(self, **metadata_overrides) -> "stripe.StripeObject":
         """Constrói um StripeObject real (não um dict) — reproduz o formato
@@ -210,6 +211,7 @@ class TestProcessCheckoutCompleted:
         assert user.role == "admin"
         assert user.tenant_id == tenant.id
         assert transaction.amount_credits == 2750
+        assert transaction.amount_brl == Decimal("199.9")
         assert transaction.stripe_payment_id == "cs_123"
         session.commit.assert_awaited_once()
 
@@ -531,3 +533,46 @@ class TestGetSpendingReport:
         report = await get_spending_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31))
 
         assert report.by_month == []
+
+
+class TestGetUsageReport:
+    async def test_separa_custo_cobranca_e_assinatura(self, session) -> None:
+        records = [
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                contact_phone_number="5511999998888",
+                funding_source="tenant",
+                operational_credits=Decimal("3.5"),
+                billed_credits=Decimal("2"),
+                shortfall_credits=Decimal("1.5"),
+                document_credits=Decimal("0"),
+                tokens_input=1000,
+                tokens_output=500,
+                created_at=datetime(2026, 7, 20, tzinfo=UTC),
+            ),
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                contact_phone_number="5511888887777",
+                funding_source="end_customer_subscription",
+                operational_credits=Decimal("4"),
+                billed_credits=Decimal("0"),
+                shortfall_credits=Decimal("0"),
+                document_credits=Decimal("0"),
+                tokens_input=1200,
+                tokens_output=800,
+                created_at=datetime(2026, 7, 19, tzinfo=UTC),
+            ),
+        ]
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = records
+        session.execute = AsyncMock(return_value=result)
+
+        report = await get_usage_report(session, TENANT_ID, date(2026, 7, 1), date(2026, 7, 31), 20)
+
+        assert report.summary.executions == 2
+        assert report.summary.operational_credits == 7.5
+        assert report.summary.billed_credits == 2
+        assert report.summary.shortfall_credits == 1.5
+        assert report.summary.subscription_credits == 4
+        assert report.summary.tokens_input == 2200
+        assert len(report.items) == 2

@@ -182,6 +182,7 @@ async def process_end_customer_checkout_completed(
 
     raw_metadata = stripe_session["metadata"] if "metadata" in stripe_session else {}
     metadata = raw_metadata.to_dict() if hasattr(raw_metadata, "to_dict") else dict(raw_metadata)
+    amount_total = stripe_session["amount_total"] if "amount_total" in stripe_session else None
 
     if metadata.get("kind") != "end_customer_purchase":
         return
@@ -237,6 +238,9 @@ async def process_end_customer_checkout_completed(
             amount_credits=package.credits_granted,
             end_customer_credit_package_id=package.id,
             stripe_payment_id=session_id,
+            amount_brl=(
+                Decimal(amount_total) / 100 if amount_total is not None else package.price_brl
+            ),
             description=f"Compra do pacote {package.name}",
         )
     )
@@ -754,7 +758,10 @@ async def get_revenue_report(
             select(
                 func.date_trunc("month", EndCustomerCreditTransaction.created_at),
                 EndCustomerCreditTransaction.contact_phone_number,
-                EndCustomerCreditPackage.price_brl,
+                func.coalesce(
+                    EndCustomerCreditTransaction.amount_brl,
+                    EndCustomerCreditPackage.price_brl,
+                ),
             )
             .join(
                 EndCustomerCreditPackage,
