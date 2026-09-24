@@ -40,7 +40,21 @@ jobs:
             # qdrant vêm do Docker Hub público, não precisam disso).
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
 
-            docker compose pull
+            # Uma conexão interrompida com o registro não deve abortar na
+            # primeira tentativa. Só avançamos após baixar todas as imagens;
+            # se a falha persistir, os serviços atuais continuam em execução.
+            for pull_attempt in 1 2 3; do
+              if docker compose pull; then
+                break
+              fi
+              if [ "$pull_attempt" -eq 3 ]; then
+                echo "Falha ao baixar as imagens após 3 tentativas. Deploy interrompido antes de parar os serviços." >&2
+                exit 1
+              fi
+              retry_delay=$((pull_attempt * 10))
+              echo "Download das imagens falhou. Nova tentativa em ${retry_delay}s..."
+              sleep "$retry_delay"
+            done
 
             # Offline: valida as novas imagens antes de interromper os serviços.
             # --no-deps evita iniciar dependências; não exibe valores de segredos.
