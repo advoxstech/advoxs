@@ -20,6 +20,11 @@ def _agent(name: str = "Secretária", is_entry_point: bool = True) -> SimpleName
         tenant_id=TENANT_ID,
         name=name,
         instructions="Você é uma secretária.",
+        draft_name=None,
+        draft_instructions=None,
+        draft_revision=0,
+        published_version=1,
+        restored_from_version=None,
         is_entry_point=is_entry_point,
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
@@ -163,13 +168,14 @@ class TestCreate:
 
 
 class TestUpdate:
-    def test_edita_nome_e_instrucoes(self, client, session) -> None:
+    def test_edicao_legada_nao_altera_configuracao_publicada(self, client, session) -> None:
         session.scalar.return_value = _agent()
 
         response = client.patch(f"/api/v1/agents/{AGENT_ID}", json={"name": "Secretária Nova"})
 
-        assert response.status_code == 200
-        assert response.json()["name"] == "Secretária Nova"
+        assert response.status_code == 409
+        assert session.scalar.return_value.name == "Secretária"
+        session.commit.assert_not_awaited()
 
     def test_agente_de_outro_tenant_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None
@@ -185,8 +191,8 @@ class TestUpdate:
 
         response = client.patch(f"/api/v1/agents/{AGENT_ID}", json={"is_entry_point": True})
 
-        assert response.status_code == 200
-        assert response.json()["is_entry_point"] is False
+        assert response.status_code == 409
+        assert session.scalar.return_value.is_entry_point is False
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert not any("UPDATE agents" in s for s in statements)
 
@@ -199,9 +205,9 @@ class TestUpdate:
             f"/api/v1/agents/{AGENT_ID}", json={"name": "Nome novo", "is_entry_point": False}
         )
 
-        assert response.status_code == 200
-        assert response.json()["is_entry_point"] is True
-        assert response.json()["name"] == "Nome novo"
+        assert response.status_code == 409
+        assert session.scalar.return_value.is_entry_point is True
+        assert session.scalar.return_value.name == "Secretária"
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert not any("UPDATE agents" in s for s in statements)
 
@@ -345,3 +351,194 @@ class TestListKnowledgeBaseFiles:
         response = client.get(f"/api/v1/agents/{AGENT_ID}/knowledge-base-files")
 
         assert response.status_code == 404
+
+
+class TestVersions:
+    def test_workspace_inicial_usa_publicado(self, client, session):
+        session.scalar.return_value = _agent()
+        response = client.get(f"/api/v1/agents/{AGENT_ID}/workspace")
+        assert response.status_code == 200
+        assert response.json()["published_version"] == 1
+        assert response.json()["has_unpublished_changes"] is False
+
+    def test_salvar_rascunho_nao_publica(self, client, session):
+        agent = _agent()
+        session.scalar.return_value = agent
+        response = client.patch(
+            f"/api/v1/agents/{AGENT_ID}/draft",
+            json={
+                "name": "Novo",
+                "instructions": "Novas instruções",
+                "expected_revision": 0,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["has_unpublished_changes"] is True
+        assert response.json()["draft_revision"] == 1
+        assert agent.name == "Secretária"
+        assert agent.instructions == "Você é uma secretária."
+        assert agent.is_entry_point is True
+        session.add.assert_not_called()
+        query = session.scalar.await_args.args[0]
+        assert "FOR UPDATE" in str(query)
+        assert TENANT_ID in query.compile().params.values()
+
+    @pytest.mark.parametrize(
+        "path,method,body",
+        [
+            ("draft", "patch", {"name": "Novo", "instructions": "Novas"}),
+            ("publish", "post", {}),
+            ("versions/1/restore", "post", {}),
+            ("tests", "post", {}),
+        ],
+    )
+    def test_revisao_desatualizada_nao_grava(self, client, session, path, method, body):
+        session.scalar.return_value = _agent()
+        response = getattr(client, method)(
+            f"/api/v1/agents/{AGENT_ID}/{path}",
+            json={
+                **body,
+                "expected_revision": 8,
+            },
+        )
+        assert response.status_code == 409
+        session.commit.assert_not_awaited()
+        session.add.assert_not_called()
+
+    def test_publicacao_registra_autor_e_repeticao_nao_duplica(self, client, session):
+        agent = _agent()
+        agent.draft_name = "Nova"
+        agent.draft_instructions = "Instruções novas"
+        session.scalar.return_value = agent
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/publish",
+            json={
+                "expected_revision": 0,
+                "description": "Ajuste de tom",
+            },
+        )
+        assert response.status_code == 200
+        assert agent.name == "Nova"
+        assert agent.instructions == "Instruções novas"
+        assert response.json()["published_version"] == 2
+        assert response.json()["has_unpublished_changes"] is False
+        version = session.add.call_args.args[0]
+        assert version.number == 2
+        assert version.author_id is not None
+        assert version.description == "Ajuste de tom"
+        assert version.tenant_id == TENANT_ID
+        repeated = client.post(f"/api/v1/agents/{AGENT_ID}/publish", json={"expected_revision": 0})
+        assert repeated.status_code == 409
+        session.add.assert_called_once()
+        session.commit.assert_awaited_once()
+
+    def test_publicar_sem_alteracoes_nao_cria_versao(self, client, session):
+        session.scalar.return_value = _agent()
+        response = client.post(f"/api/v1/agents/{AGENT_ID}/publish", json={"expected_revision": 0})
+        assert response.status_code == 409
+        session.add.assert_not_called()
+
+    def test_restauracao_vira_rascunho_e_publicacao_nova(self, client, session):
+        agent = _agent(name="Atual")
+        agent.published_version = 2
+        old = SimpleNamespace(name="Anterior", instructions="Instruções antigas")
+        session.scalar.side_effect = [agent, old]
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/versions/1/restore", json={"expected_revision": 0}
+        )
+        assert response.status_code == 200
+        assert agent.name == "Atual"
+        assert agent.draft_name == "Anterior"
+        assert agent.restored_from_version == 1
+        session.scalar.side_effect = None
+        session.scalar.return_value = agent
+        response = client.post(f"/api/v1/agents/{AGENT_ID}/publish", json={"expected_revision": 1})
+        assert response.status_code == 200
+        version = session.add.call_args.args[0]
+        assert version.number == 3
+        assert version.restored_from_version == 1
+        assert agent.restored_from_version is None
+
+    @pytest.mark.parametrize("path", ["workspace", "versions"])
+    def test_leitura_de_outro_escritorio_retorna_404(self, client, session, path):
+        session.scalar.return_value = None
+        assert client.get(f"/api/v1/agents/{AGENT_ID}/{path}").status_code == 404
+
+    def test_restaurar_versao_de_outro_agente_nao_encontra(self, client, session):
+        session.scalar.side_effect = [_agent(), None]
+        response = client.post(
+            f"/api/v1/agents/{AGENT_ID}/versions/1/restore", json={"expected_revision": 0}
+        )
+        assert response.status_code == 404
+        session.commit.assert_not_awaited()
+        params = session.scalar.await_args.args[0].compile().params
+        assert AGENT_ID in params.values()
+        assert TENANT_ID in params.values()
+
+    def test_historico_paginado_com_autor(self, client, session):
+        session.scalar.return_value = _agent()
+        version = SimpleNamespace(
+            number=2,
+            name="Nome",
+            instructions="Texto",
+            author_id=None,
+            description="Ajuste",
+            restored_from_version=None,
+            created_at=datetime.now(UTC),
+        )
+        rows = MagicMock()
+        rows.all.return_value = [(version, "Maria")]
+        session.execute.return_value = rows
+        response = client.get(f"/api/v1/agents/{AGENT_ID}/versions?before=3&limit=1")
+        assert response.status_code == 200
+        assert response.json()[0]["author_name"] == "Maria"
+        params = session.execute.await_args.args[0].compile().params
+        assert TENANT_ID in params.values()
+        assert 3 in params.values()
+
+    def test_teste_copia_rascunho_sem_alterar_papeis_dos_agentes(
+        self, client, session, monkeypatch
+    ):
+        from app.api.v1 import agents as routes
+        from app.models import AgentTestSession
+
+        agent = _agent(is_entry_point=False)
+        agent.draft_instructions = "Rascunho de teste"
+        session.scalar.return_value = agent
+        loader = AsyncMock(
+            return_value=[
+                {
+                    "id": str(AGENT_ID),
+                    "name": agent.name,
+                    "instructions": agent.instructions,
+                    "is_entry_point": False,
+                },
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": "Entrada",
+                    "instructions": "Publicadas",
+                    "is_entry_point": True,
+                },
+            ]
+        )
+        monkeypatch.setattr(routes, "load_agents_for_engine", loader)
+
+        async def refresh(obj):
+            obj.state = "agent"
+            obj.automation_status = "idle"
+            obj.end_customer_billing_exempt = False
+            obj.created_at = datetime.now(UTC)
+
+        session.refresh.side_effect = refresh
+        response = client.post(f"/api/v1/agents/{AGENT_ID}/tests", json={"expected_revision": 0})
+        assert response.status_code == 201
+        assert response.json()["is_test"] is True
+        assert response.json()["contact_phone_number"].startswith("rascunho-")
+        snapshot = session.add.call_args.args[0]
+        assert isinstance(snapshot, AgentTestSession)
+        assert snapshot.agents_snapshot[0]["instructions"] == "Rascunho de teste"
+        assert snapshot.agents_snapshot[0]["is_entry_point"] is False
+        assert snapshot.agents_snapshot[1]["is_entry_point"] is True
+        assert snapshot.agent_id == AGENT_ID
+        assert agent.is_entry_point is False
+        assert agent.instructions == "Você é uma secretária."

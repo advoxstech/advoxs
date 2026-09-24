@@ -73,6 +73,9 @@ export function TestConversationThread({
         if (fileInputRef.current) fileInputRef.current.value = "";
       } else if (response.status === 402) {
         setError("Saldo de créditos esgotado — compre créditos para testar os agentes.");
+      } else if (response.status === 409) {
+        const body = await response.json().catch(() => null);
+        setError(typeof body?.detail === "string" ? body.detail : "Inicie um novo teste para continuar.");
       } else {
         setError("Não foi possível falar com o agente. Tente novamente.");
         void refresh();
@@ -224,7 +227,7 @@ export function TestConversationThread({
             </button>
           </p>
         ) : null}
-        <form onSubmit={sendMessage} className="flex items-end gap-3">
+        <form onSubmit={sendMessage} className="flex min-w-0 items-end gap-2 sm:gap-3">
           <label
             className={`cursor-pointer rounded-sm border border-line bg-ground px-3 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent ${sending ? "pointer-events-none opacity-60" : ""}`}
             title="Anexar arquivo (PDF, DOCX ou TXT)"
@@ -246,12 +249,12 @@ export function TestConversationThread({
             disabled={sending}
             placeholder="Escreva como se fosse o cliente…"
             aria-label="Mensagem de teste"
-            className="flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
+            className="min-w-0 flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={sending || (!draft.trim() && !attachment)}
-            className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
+            className="shrink-0 rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
           >
             {sending ? "Enviando…" : "Enviar"}
           </button>

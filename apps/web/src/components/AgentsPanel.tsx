@@ -179,7 +179,7 @@ export function AgentsPanel() {
             disabled={creating}
             className="rounded border border-line bg-surface px-4 py-2 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent disabled:opacity-50"
           >
-            {creating ? "Criando..." : "Criar agente"}
+            {creating ? "Criando..." : "Criar e publicar agente"}
           </button>
         </form>
       </div>

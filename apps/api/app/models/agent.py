@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, Uuid, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -30,6 +30,12 @@ class Agent(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     instructions: Mapped[str] = mapped_column(Text, nullable=False)
+    # The worker continues to read name/instructions: drafts never reach live execution.
+    draft_name: Mapped[str | None] = mapped_column(String)
+    draft_instructions: Mapped[str | None] = mapped_column(Text)
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    published_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    restored_from_version: Mapped[int | None] = mapped_column(Integer)
     is_entry_point: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

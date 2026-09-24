@@ -93,7 +93,8 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
     wa_instance.send_text_message.assert_awaited_with("5511999999999", "resposta 2")
 
 
-def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypatch):
+@pytest.mark.parametrize("selected", [None, "a2"])
+def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypatch, selected):
     debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
     run_agent = AsyncMock(
         return_value=(
@@ -114,6 +115,12 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         "access_token": "",
         "send_to_whatsapp": False,
     }
+    if selected:
+        payload.update(
+            test_start_agent_id=selected,
+            contact_phone_number="rascunho-123",
+            agents=[{"id": selected, "is_entry_point": False}],
+        )
     response = client.post("/messages", json=payload)
 
     assert response.status_code == 200
@@ -129,6 +136,27 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
     }
     wa_cls.assert_not_called()
     wa_instance.send_text_message.assert_not_awaited()
+    if selected:
+        assert run_agent.await_args.kwargs["test_start_agent_id"] == selected
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"send_to_whatsapp": True, "contact_phone_number": "rascunho-123"},
+        {"send_to_whatsapp": False, "contact_phone_number": "5511999999999"},
+        {"send_to_whatsapp": False, "contact_phone_number": "rascunho-123", "agents": []},
+    ],
+)
+def test_rejects_test_start_in_live_or_invalid_context(client, monkeypatch, changes):
+    run = AsyncMock()
+    monkeypatch.setattr(routes, "run_agent", run)
+    response = client.post(
+        "/messages",
+        json={**PAYLOAD, "test_start_agent_id": "a2", "agents": [{"id": "a2"}], **changes},
+    )
+    assert response.status_code == 422
+    run.assert_not_awaited()
 
 
 def test_send_to_whatsapp_default_true_continua_enviando(client, monkeypatch):

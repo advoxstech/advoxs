@@ -1,6 +1,46 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+import services.call_agent as module
 from services.call_agent import sum_usage_breakdown
+
+
+@pytest.mark.parametrize("existing", [False, True])
+async def test_selected_agent_only_seeds_new_test_without_changing_roles(monkeypatch, existing):
+    from langchain_core.messages import HumanMessage
+
+    checkpointer = MagicMock()
+    checkpointer.setup = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=checkpointer)
+    context.__aexit__ = AsyncMock(return_value=False)
+    saver = MagicMock()
+    saver.from_conn_string.return_value = context
+    monkeypatch.setattr(module, "AsyncPostgresSaver", saver)
+    graph = MagicMock()
+    prior = [HumanMessage(content="previous")] if existing else []
+    graph.aget_state = AsyncMock(return_value=SimpleNamespace(values={"messages": prior}))
+    graph.ainvoke = AsyncMock(return_value={"messages": prior, "current_agent_id": "specialist"})
+    monkeypatch.setattr(module.graph, "compile", MagicMock(return_value=graph))
+    configs = [
+        {
+            "id": "specialist",
+            "name": "Especialista",
+            "instructions": "Draft",
+            "is_entry_point": False,
+        }
+    ]
+    await module.run_agent(
+        "teste", "tenant:rascunho-123", agents=configs, test_start_agent_id="specialist"
+    )
+    values = graph.ainvoke.await_args.args[0]
+    assert values["agents"][0]["is_entry_point"] is False
+    if existing:
+        assert "current_agent_id" not in values
+    else:
+        assert values["current_agent_id"] == "specialist"
 
 
 def _ai(usage: dict | None):

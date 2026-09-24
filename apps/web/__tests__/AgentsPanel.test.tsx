@@ -78,7 +78,7 @@ describe("AgentsPanel", () => {
 
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Novo" } });
     fireEvent.change(screen.getByLabelText("Instruções"), { target: { value: "z" } });
-    fireEvent.click(screen.getByRole("button", { name: "Criar agente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Criar e publicar agente" }));
 
     await waitFor(() => expect(screen.getByText("Novo")).toBeInTheDocument());
   });

@@ -82,7 +82,7 @@ A API inclui a prévia da última mensagem usando dados existentes e consulta li
 
 ## 3. Novas funcionalidades sugeridas
 
-Esta seção registra as propostas adicionais presentes no PDF. São possibilidades futuras, separadas das correções do que já existe. **Não foi definida uma ordem individual de implementação para estas oito propostas.**
+Esta seção registra as propostas adicionais presentes no PDF, separadas das correções do que já existe. As entregas concluídas estão identificadas; as demais continuam como possibilidades futuras. **Não foi definida uma ordem individual de implementação para estas oito propostas.**
 
 | Funcionalidade | Proposta | Benefício esperado |
 | --- | --- | --- |
@@ -91,11 +91,19 @@ Esta seção registra as propostas adicionais presentes no PDF. São possibilida
 | Áudio e OCR | Transcrição de áudios e leitura de imagens e PDFs digitalizados. | Ampliar o atendimento além dos documentos com texto extraível. |
 | Revisão humana de documentos | Gerar rascunho, editar, aprovar e então enviar, mantendo versões e histórico. | Dar mais controle sobre os documentos produzidos pela IA. |
 | Fontes das respostas | Mostrar documento, trecho e, quando disponível, página usados pela IA. | Facilitar conferência das respostas e correção da base de conhecimento. |
-| Versões dos agentes | Rascunho, teste, publicação, comparação e retorno à versão anterior. | Evitar que mudanças nas instruções afetem imediatamente todos os atendimentos. |
+| Versões dos agentes — **Implementada em 23/09/2026** | Abas Configuração, Testar e Versões por agente; rascunho persistente, teste isolado, publicação explícita, comparação e restauração como novo rascunho. | Evitar que mudanças nas instruções afetem imediatamente todos os atendimentos. |
 | Agenda e acompanhamento | Agendamento de reuniões, lembretes e tarefas associadas ao contato. | Converter conversas em ações concretas do escritório. |
 | Central de operação | Alertas de WhatsApp desconectado, mensagem não entregue, fila parada, arquivo com erro e saldo crítico. | Permitir agir antes que o cliente reclame. |
 
 O benefício da central de operação foi recuperado da conversa original porque a última frase do PDF está truncada.
+
+### Versões dos agentes — 23/09/2026
+
+Sugestão do **ChatGPT, após a reunião de 21/09/2026**, implementada após aprovação do plano no chat. Nome e instruções passam a ter rascunho separado da configuração publicada. Salvar não altera os atendimentos; publicar registra uma nova versão com autor, data e descrição opcional. Restaurar recupera o conteúdo para revisão e teste antes de uma nova publicação, preservando o histórico.
+
+Agentes existentes mantêm suas configurações como versão 1. Testes usam conversa e memória separadas, preservam as ferramentas do agente escolhido, não enviam WhatsApp e consomem créditos do escritório. Edições concorrentes são detectadas; publicações usam transação e bloqueio no banco. Documentos e vínculos da base de conhecimento não são versionados nesta entrega.
+
+Inclui a migração **0038**, executada pelo deploy existente, sem novas variáveis de produção ou alteração manual na VPS. O CI passa a executar os testes específicos de migração, isolamento e concorrência em PostgreSQL descartável. Consulte [funcionamento, limites e roteiro de teste](versoes-dos-agentes.md).
 
 ## 4. Orientação para execução futura
 

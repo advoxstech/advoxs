@@ -1,25 +1,189 @@
 """CRUD de agentes de IA próprios do tenant."""
 
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
+from app.models import (
+    Agent,
+    AgentKnowledgeBaseFile,
+    AgentTestSession,
+    AgentVersion,
+    Conversation,
+    KnowledgeBaseFile,
+    User,
+)
 from app.schemas.agents import (
     AgentCreate,
+    AgentDraftIn,
     AgentKnowledgeBaseFileOut,
     AgentOut,
+    AgentPublishIn,
     AgentUpdate,
+    AgentVersionOut,
+    AgentWorkspaceOut,
     AttachKnowledgeBaseFileIn,
+    DraftRevisionIn,
 )
+from app.schemas.conversations import ConversationOut
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
+from app.services import agent_versions as versions
+from app.services.agents_engine import load_agents_for_engine
 from app.services.subscriptions import get_active_subscription
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/{agent_id}/workspace")
+async def agent_workspace(
+    agent_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> AgentWorkspaceOut:
+    return versions.workspace(await _get_agent(agent_id, ctx, session))
+
+
+@router.patch("/{agent_id}/draft")
+async def save_draft(
+    agent_id: uuid.UUID,
+    body: AgentDraftIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> AgentWorkspaceOut:
+    agent = await versions.get_agent(session, ctx.tenant_id, agent_id)
+    versions.check_revision(agent, body.expected_revision)
+    if not body.name.strip() or not body.instructions.strip():
+        raise HTTPException(422, "Preencha o nome e as instruções.")
+    agent.draft_name = body.name
+    agent.draft_instructions = body.instructions
+    agent.draft_revision += 1
+    await session.commit()
+    return versions.workspace(agent)
+
+
+@router.post("/{agent_id}/publish")
+async def publish_version(
+    agent_id: uuid.UUID,
+    body: AgentPublishIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> AgentWorkspaceOut:
+    agent = await versions.get_agent(session, ctx.tenant_id, agent_id)
+    versions.check_revision(agent, body.expected_revision)
+    draft = versions.workspace(agent)
+    if not draft.has_unpublished_changes:
+        raise HTTPException(409, "Não há alterações para publicar.")
+    agent.name = draft.name
+    agent.instructions = draft.instructions
+    agent.published_version += 1
+    agent.draft_revision += 1
+    agent.updated_at = datetime.now(UTC)
+    session.add(
+        AgentVersion(
+            tenant_id=ctx.tenant_id,
+            agent_id=agent.id,
+            number=agent.published_version,
+            name=agent.name,
+            instructions=agent.instructions,
+            author_id=ctx.user_id,
+            description=body.description,
+            restored_from_version=agent.restored_from_version,
+        )
+    )
+    agent.restored_from_version = None
+    await session.commit()
+    return versions.workspace(agent)
+
+
+@router.get("/{agent_id}/versions")
+async def list_versions(
+    agent_id: uuid.UUID,
+    before: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[AgentVersionOut]:
+    await _get_agent(agent_id, ctx, session)
+    query = (
+        select(AgentVersion, User.name)
+        .outerjoin(User, (User.id == AgentVersion.author_id) & (User.tenant_id == ctx.tenant_id))
+        .where(AgentVersion.agent_id == agent_id, AgentVersion.tenant_id == ctx.tenant_id)
+    )
+    if before is not None:
+        query = query.where(AgentVersion.number < before)
+    rows = await session.execute(query.order_by(AgentVersion.number.desc()).limit(limit))
+    return [
+        AgentVersionOut.model_validate(version).model_copy(update={"author_name": name})
+        for version, name in rows.all()
+    ]
+
+
+@router.post("/{agent_id}/versions/{number}/restore")
+async def restore_version(
+    agent_id: uuid.UUID,
+    number: int,
+    body: DraftRevisionIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> AgentWorkspaceOut:
+    agent = await versions.get_agent(session, ctx.tenant_id, agent_id)
+    versions.check_revision(agent, body.expected_revision)
+    version = await session.scalar(
+        select(AgentVersion).where(
+            AgentVersion.agent_id == agent_id,
+            AgentVersion.tenant_id == ctx.tenant_id,
+            AgentVersion.number == number,
+        )
+    )
+    if version is None:
+        raise HTTPException(404, "Versão não encontrada")
+    agent.draft_name = version.name
+    agent.draft_instructions = version.instructions
+    agent.restored_from_version = number
+    agent.draft_revision += 1
+    await session.commit()
+    return versions.workspace(agent)
+
+
+@router.post("/{agent_id}/tests", status_code=status.HTTP_201_CREATED)
+async def create_draft_test(
+    agent_id: uuid.UUID,
+    body: DraftRevisionIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConversationOut:
+    agent = await versions.get_agent(session, ctx.tenant_id, agent_id)
+    versions.check_revision(agent, body.expected_revision)
+    draft = versions.workspace(agent)
+    agents = await load_agents_for_engine(session, ctx.tenant_id)
+    for config in agents:
+        if config["id"] == str(agent_id):
+            config.update(name=draft.name, instructions=draft.instructions)
+    conversation = Conversation(
+        id=uuid.uuid4(),
+        tenant_id=ctx.tenant_id,
+        contact_phone_number=f"rascunho-{uuid.uuid4().hex}",
+        is_test=True,
+    )
+    session.add(conversation)
+    await session.flush()
+    session.add(
+        AgentTestSession(
+            conversation_id=conversation.id,
+            tenant_id=ctx.tenant_id,
+            agent_id=agent_id,
+            draft_revision=agent.draft_revision,
+            agents_snapshot=agents,
+        )
+    )
+    await session.commit()
+    await session.refresh(conversation)
+    return ConversationOut.model_validate(conversation)
 
 
 @router.get("")
@@ -62,6 +226,17 @@ async def create_agent(
         id=uuid.uuid4(), tenant_id=ctx.tenant_id, is_entry_point=False, **body.model_dump()
     )
     session.add(agent)
+    await session.flush()
+    # The insert trigger creates v1 for every provisioning path.
+    await session.execute(
+        update(AgentVersion)
+        .where(
+            AgentVersion.agent_id == agent.id,
+            AgentVersion.tenant_id == ctx.tenant_id,
+            AgentVersion.number == 1,
+        )
+        .values(author_id=ctx.user_id)
+    )
     await session.commit()
     await session.refresh(agent)
     return AgentOut.model_validate(agent)
@@ -83,14 +258,10 @@ async def update_agent(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> AgentOut:
-    agent = await _get_agent(agent_id, ctx, session)
-
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(agent, field, value)
-
-    await session.commit()
-    await session.refresh(agent)
-    return AgentOut.model_validate(agent)
+    await _get_agent(agent_id, ctx, session)
+    raise HTTPException(
+        409, "Atualize a página: salve um rascunho e publique a versão para alterar o atendimento."
+    )
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
