@@ -8,12 +8,13 @@ token real de LLM.
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.agents import send_playground_message
 from app.models import Conversation, CreditTransaction, Message, Tenant
+from app.services.agent_versions import test_snapshot
 from app.services.agents_engine import load_agents_for_engine
 from app.services.pricing import (
     DOCUMENT_GENERATION_CREDIT_COST,
@@ -39,6 +40,19 @@ async def send_test_message(
     pessoal da conversa ANTES de chamar o agents, e anexa uma nota de
     sucesso/falha à mensagem mandada pro agente (nunca ao texto persistido
     do contato, que reflete só o que ele de fato escreveu/anexou)."""
+    snapshot = (
+        await test_snapshot(session, tenant_id, conversation.id)
+        if conversation.contact_phone_number.startswith("rascunho-")
+        else None
+    )
+    # A deleted agent cascades its snapshots. Never switch a draft test to live config.
+    if snapshot is None and conversation.contact_phone_number.startswith("rascunho-"):
+        raise HTTPException(409, "Este teste não está mais disponível. Inicie um novo teste.")
+    agents = (
+        snapshot.agents_snapshot
+        if snapshot is not None
+        else await load_agents_for_engine(session, tenant_id)
+    )
     now = datetime.now(UTC)
     contact_message = Message(
         conversation_id=conversation.id,
@@ -75,7 +89,8 @@ async def send_test_message(
         tenant_id=str(tenant_id),
         contact_phone_number=conversation.contact_phone_number,
         message=message_for_agent,
-        agents=await load_agents_for_engine(session, tenant_id),
+        agents=agents,
+        **({"test_start_agent_id": str(snapshot.agent_id)} if snapshot is not None else {}),
     )
     if result is None:
         # 202: debounce agrupou numa execução em andamento — as respostas

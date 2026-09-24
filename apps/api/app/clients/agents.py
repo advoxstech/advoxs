@@ -27,7 +27,12 @@ def _auth_headers() -> dict[str, str]:
 
 
 async def send_playground_message(
-    *, tenant_id: str, contact_phone_number: str, message: str, agents: list[dict] | None = None
+    *,
+    tenant_id: str,
+    contact_phone_number: str,
+    message: str,
+    agents: list[dict] | None = None,
+    test_start_agent_id: str | None = None,
 ) -> dict | None:
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
@@ -54,6 +59,8 @@ async def send_playground_message(
         "send_to_whatsapp": False,
         "agents": agents or [],
     }
+    if test_start_agent_id is not None:
+        payload["test_start_agent_id"] = test_start_agent_id
     try:
         async with httpx.AsyncClient(
             base_url=settings.agents_service_url, timeout=_TIMEOUT_SECONDS

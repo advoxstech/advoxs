@@ -1,5 +1,6 @@
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.agent import Agent, AgentKnowledgeBaseFile
+from app.models.agent_version import AgentTestSession, AgentVersion
 from app.models.base import Base
 from app.models.billing import CreditPackage, CreditTransaction, PricingConfig
 from app.models.conversation import Conversation
@@ -28,6 +29,8 @@ __all__ = [
     "AdminAuditLog",
     "Agent",
     "AgentKnowledgeBaseFile",
+    "AgentTestSession",
+    "AgentVersion",
     "Base",
     "CreditPackage",
     "CreditTransaction",

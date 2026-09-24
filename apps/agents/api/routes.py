@@ -71,6 +71,7 @@ class IncomingMessage(BaseModel):
     zapi_client_token: str = ""
     send_to_whatsapp: bool = True
     agents: list[dict] = Field(default_factory=list)
+    test_start_agent_id: str | None = None
 
 
 class SummaryMessageIn(BaseModel):
@@ -122,6 +123,12 @@ async def get_generated_document(doc_id: str, token: str | None = None):
 
 @app.post("/messages", dependencies=[Depends(verify_api_key)])
 async def receive(body: IncomingMessage):
+    if body.test_start_agent_id is not None and (
+        body.send_to_whatsapp
+        or not body.contact_phone_number.startswith("rascunho-")
+        or body.test_start_agent_id not in {agent.get("id") for agent in body.agents}
+    ):
+        raise HTTPException(422, "Agente inicial disponível apenas em teste isolado de rascunho")
     # thread_id escopado por tenant: isola checkpoint (LangGraph), debounce
     # (Redis) e docs de usuário (RAG) entre escritórios.
     thread_id = f"{body.tenant_id}:{body.contact_phone_number}"
@@ -179,6 +186,11 @@ async def receive(body: IncomingMessage):
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
             agents=body.agents,
+            **(
+                {"test_start_agent_id": body.test_start_agent_id}
+                if body.test_start_agent_id
+                else {}
+            ),
         )
 
         delivery_failures: list[int] = []

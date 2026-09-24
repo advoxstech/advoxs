@@ -52,6 +52,7 @@ async def run_agent(
     num_before_messages: int = 60,
     extra_data: dict = {},
     agents: list[dict] | None = None,
+    test_start_agent_id: str | None = None,
 ) -> tuple[list[str], dict, str | None, str | None, list[dict]]:
     started_at = time.perf_counter()
     config = {
@@ -76,6 +77,12 @@ async def run_agent(
         prior_doc_count = (
             len(prior_state.values.get("generated_documents", [])) if prior_state.values else 0
         )
+        # Only seed a new isolated test. Later messages preserve transfers and checkpoint state.
+        initial_state = {}
+        if test_start_agent_id is not None and prior_count == 0:
+            if test_start_agent_id not in {entry["id"] for entry in agents}:
+                raise ValueError("Agente de teste não encontrado")
+            initial_state["current_agent_id"] = test_start_agent_id
 
         logger.info("Enviando mensagem ao agente | conversation_id={}", conversation_id)
         response = await agent.ainvoke(
@@ -85,6 +92,7 @@ async def run_agent(
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
                 "agents": agents,
+                **initial_state,
             },
             config=config,
         )

@@ -74,6 +74,67 @@ class TestCreate:
 
 
 class TestSendTestMessage:
+    def test_rascunho_usa_snapshot_sem_carregar_configuracao_publicada(
+        self, client, session, playground_mock, monkeypatch
+    ):
+        conversation = _conversation()
+        conversation.contact_phone_number = "rascunho-sessao-isolada"
+        self._arm_session(session, conversation)
+        snapshot = [{"id": str(uuid.uuid4()), "instructions": "Rascunho", "is_entry_point": True}]
+        selected_id = uuid.uuid4()
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "test_snapshot",
+            AsyncMock(return_value=SimpleNamespace(agents_snapshot=snapshot, agent_id=selected_id)),
+        )
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages", data={"content": "Teste"}
+        )
+        assert response.status_code == 201
+        assert playground_mock.await_args.kwargs["agents"] == snapshot
+        assert playground_mock.await_args.kwargs["test_start_agent_id"] == str(selected_id)
+        assert (
+            playground_mock.await_args.kwargs["contact_phone_number"] == "rascunho-sessao-isolada"
+        )
+        test_conversations_module.service.load_agents_for_engine.assert_not_awaited()
+        assert session.add.call_args.args[0].type == "consumption"
+
+    def test_rascunho_alterado_rejeita_antes_de_salvar_mensagem(
+        self, client, session, playground_mock, monkeypatch
+    ):
+        from fastapi import HTTPException
+
+        conversation = _conversation()
+        conversation.contact_phone_number = "rascunho-antigo"
+        self._arm_session(session, conversation)
+        monkeypatch.setattr(
+            test_conversations_module.service,
+            "test_snapshot",
+            AsyncMock(side_effect=HTTPException(409, "Inicie um novo teste")),
+        )
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages", data={"content": "Teste"}
+        )
+        assert response.status_code == 409
+        session.add.assert_not_called()
+        session.commit.assert_not_awaited()
+        playground_mock.assert_not_awaited()
+
+    def test_snapshot_excluido_nao_cai_no_atendimento_publicado(
+        self, client, session, playground_mock, monkeypatch
+    ):
+        conversation = _conversation()
+        conversation.contact_phone_number = "rascunho-excluido"
+        self._arm_session(session, conversation)
+        monkeypatch.setattr(
+            test_conversations_module.service, "test_snapshot", AsyncMock(return_value=None)
+        )
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages", data={"content": "Teste"}
+        )
+        assert response.status_code == 409
+        playground_mock.assert_not_awaited()
+
     @pytest.fixture
     def playground_mock(self, monkeypatch):
         mock = AsyncMock(
