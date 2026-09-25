@@ -15,6 +15,9 @@ export type KbFile = {
   category: string | null;
   uploaded_at: string;
   agent_ids: string[];
+  drive_file_id?: string | null;
+  imported_at?: string | null;
+  replaces_file_id?: string | null;
 };
 
 const ACCEPTED = ".pdf,.docx,.txt";
@@ -93,7 +96,7 @@ export function AgentFolder({
 
   return (
     <section className="border-b border-line py-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
@@ -217,10 +220,14 @@ function CategoryGroup({
             return (
               <li
                 key={file.id}
-                className="flex items-center gap-3 border-b border-line py-3 last:border-b-0"
+                className="flex flex-wrap items-center gap-3 border-b border-line py-3 last:border-b-0"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-ink">{file.filename}</p>
+                  {file.drive_file_id && <p className="text-xs text-muted">
+                    Google Drive · {file.replaces_file_id ? "Atualização em preparação" : "Cópia importada"}
+                    {file.imported_at && ` em ${new Date(file.imported_at).toLocaleDateString("pt-BR")}`}
+                  </p>}
                   <p className="text-xs text-muted">
                     {formatSize(file.size_bytes)} ·{" "}
                     {new Date(file.uploaded_at).toLocaleDateString("pt-BR")}
@@ -236,6 +243,7 @@ function CategoryGroup({
                 </span>
                 <select
                   value={file.category ?? ""}
+                  disabled={!!file.replaces_file_id}
                   aria-label={`Categoria de ${file.filename}`}
                   onChange={(event) => onRecategorize(file.id, event.target.value)}
                   className="rounded border border-line bg-surface px-2 py-1 text-xs text-ink"
@@ -247,7 +255,7 @@ function CategoryGroup({
                     </option>
                   ))}
                 </select>
-                {availableToAttach.length > 0 && (
+                {availableToAttach.length > 0 && !file.replaces_file_id && (
                   <select
                     value=""
                     aria-label={`Anexar ${file.filename} a outro agente`}
@@ -277,7 +285,7 @@ function CategoryGroup({
                 <button
                   type="button"
                   onClick={() => onDetach(agent.id, file.id)}
-                  disabled={file.agent_ids.length <= 1}
+                  disabled={file.agent_ids.length <= 1 || !!file.replaces_file_id}
                   aria-label={`Desanexar ${file.filename} deste agente`}
                   title={
                     file.agent_ids.length <= 1

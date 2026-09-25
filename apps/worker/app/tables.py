@@ -174,6 +174,11 @@ knowledge_base_files = Table(
     Column("filename", String),
     Column("status", String),
     Column("error_message", Text),
+    Column("category", String),
+    Column("replaces_file_id", Uuid),
+    Column("superseded_at", DateTime(timezone=True)),
+    Column("drive_file_id", String),
+    Column("imported_at", DateTime(timezone=True)),
 )
 
 agents = Table(

@@ -160,3 +160,74 @@ async def test_set_status_recebe_tenant_id(patched, temp_file) -> None:
     await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
 
     assert patched["set_status"].await_args.args[4] == TENANT_ID
+
+
+async def test_replacement_published_only_after_success(patched, temp_file, monkeypatch):
+    previous_id = uuid.uuid4()
+    patched["load"].return_value.replaces_file_id = previous_id
+    publish = AsyncMock()
+    monkeypatch.setattr(kb_task, "_publish_replacement", publish)
+    await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
+    patched["ingest"].assert_awaited_once()
+    publish.assert_awaited_once()
+    assert publish.await_args.args[1:] == (TENANT_ID, FILE_ID, previous_id)
+    patched["set_status"].assert_not_awaited()
+
+
+async def test_failed_ingestion_never_publishes_replacement(patched, temp_file, monkeypatch):
+    patched["load"].return_value.replaces_file_id = uuid.uuid4()
+    patched["ingest"].side_effect = httpx.ConnectError("down")
+    publish = AsyncMock()
+    monkeypatch.setattr(kb_task, "_publish_replacement", publish)
+    await ingest_knowledge_base_file(_ctx(job_try=5), TENANT_ID, FILE_ID)
+    publish.assert_not_awaited()
+    assert temp_file.exists()
+    assert patched["set_status"].await_args.args[2] == "error"
+
+
+async def test_publication_failure_preserves_attempt_and_reports_retry(
+    patched, temp_file, monkeypatch
+):
+    patched["load"].return_value.replaces_file_id = uuid.uuid4()
+    monkeypatch.setattr(kb_task, "_publish_replacement", AsyncMock(side_effect=RuntimeError()))
+    await ingest_knowledge_base_file(_ctx(job_try=5), TENANT_ID, FILE_ID)
+    assert temp_file.exists()
+    assert "anterior" in patched["set_status"].await_args.args[3]
+
+
+async def test_publish_swaps_links_atomically_and_keeps_old_document():
+    ctx = _ctx()
+    previous = uuid.uuid4()
+    candidate_result = MagicMock()
+    candidate_result.one_or_none.return_value = SimpleNamespace(status="processing")
+    previous_result = MagicMock()
+    previous_result.one_or_none.return_value = SimpleNamespace(category="livros_digitais")
+    ctx["_session"].execute.side_effect = [
+        None,
+        None,
+        candidate_result,
+        previous_result,
+        None,
+        None,
+        None,
+    ]
+    await kb_task._publish_replacement(ctx["session_factory"], TENANT_ID, FILE_ID, previous)
+    statements = [str(call.args[0]) for call in ctx["_session"].execute.await_args_list]
+    assert "superseded_at" in statements[4]
+    assert "replaces_file_id" in statements[5]
+    assert "UPDATE agent_knowledge_base_files" in statements[6]
+    assert all("DELETE" not in statement for statement in statements)
+    ctx["_session"].commit.assert_awaited_once()
+
+
+async def test_recovery_deduplicates_jobs_without_google_credentials():
+    ctx = _ctx()
+    ctx["system_session_factory"] = ctx["session_factory"]
+    ctx["redis"] = AsyncMock()
+    result = MagicMock()
+    result.all.return_value = [SimpleNamespace(id=FILE_ID, tenant_id=TENANT_ID)]
+    ctx["_session"].execute.return_value = result
+    await kb_task.recover_drive_imports(ctx)
+    ctx["redis"].enqueue_job.assert_awaited_once_with(
+        "ingest_knowledge_base_file", tenant_id=TENANT_ID, file_id=FILE_ID, _job_id=f"kb:{FILE_ID}"
+    )

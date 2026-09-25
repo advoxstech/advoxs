@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # Base de conhecimento (upload → volume compartilhado → ingestão no api_rag)
     kb_upload_dir: str = "/data/kb_uploads"
     kb_max_file_size_bytes: int = 20 * 1024 * 1024
+    # Configuração pública do seletor; OAuth temporário, sem refresh token armazenado.
+    google_drive_enabled: bool = False
+    google_drive_client_id: str = ""
+    google_drive_api_key: str = ""
+    google_drive_project_number: str = ""
     rag_api_url: str = "http://api_rag:8000"
     rag_api_key: str = ""
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AgentFolder } from "@/components/AgentFolder";
+import { GoogleDriveImport } from "@/components/GoogleDriveImport";
 import type { KbFile } from "@/components/AgentFolder";
 import { backendFetch } from "@/lib/client-api";
 import type { Agent } from "@/lib/types";
@@ -139,7 +140,12 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   }
 
   async function handleDelete(file: KbFile) {
-    if (!window.confirm(`Excluir "${file.filename}" da base de conhecimento?`)) return;
+    const question = file.replaces_file_id
+      ? `Excluir a tentativa de atualização de "${file.filename}"? A versão atual será mantida.`
+      : file.drive_file_id
+        ? `Excluir "${file.filename}" e suas versões anteriores do Advoxs? O arquivo no Drive será mantido.`
+        : `Excluir "${file.filename}" da base de conhecimento?`;
+    if (!window.confirm(question)) return;
     try {
       const response = await backendFetch(`knowledge-base/files/${file.id}`, { method: "DELETE" });
       if (!response.ok) {
@@ -215,26 +221,29 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         </p>
       )}
 
-      <div className="flex-1 overflow-y-auto px-8 py-4">
-        {agents.length === 0 && (
-          <p className="py-10 text-center text-sm text-muted">Nenhum agente cadastrado ainda.</p>
-        )}
-        {agents.map((agent) => (
-          <AgentFolder
-            key={agent.id}
-            agent={agent}
-            files={files.filter((f) => f.agent_ids.includes(agent.id))}
-            allAgents={agents}
-            defaultExpanded={focusedAgentId ? agent.id === focusedAgentId : agent.is_entry_point}
-            uploading={uploading}
-            onUpload={handleUpload}
-            onAttach={handleAttach}
-            onDetach={handleDetach}
-            onDelete={handleDelete}
-            onReprocess={handleReprocess}
-            onRecategorize={handleRecategorize}
-          />
-        ))}
+      <div className="flex-1 overflow-y-auto">
+        <GoogleDriveImport agents={agents} onImported={load} />
+        <div className="px-4 py-4 sm:px-8">
+          {agents.length === 0 && (
+            <p className="py-10 text-center text-sm text-muted">Nenhum agente cadastrado ainda.</p>
+          )}
+          {agents.map((agent) => (
+            <AgentFolder
+              key={agent.id}
+              agent={agent}
+              files={files.filter((f) => f.agent_ids.includes(agent.id))}
+              allAgents={agents}
+              defaultExpanded={focusedAgentId ? agent.id === focusedAgentId : agent.is_entry_point}
+              uploading={uploading}
+              onUpload={handleUpload}
+              onAttach={handleAttach}
+              onDetach={handleDetach}
+              onDelete={handleDelete}
+              onReprocess={handleReprocess}
+              onRecategorize={handleRecategorize}
+            />
+          ))}
+        </div>
       </div>
     </main>
   );
