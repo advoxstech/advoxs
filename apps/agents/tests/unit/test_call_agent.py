@@ -93,3 +93,44 @@ def test_usage_sem_chaves_de_input_output_usa_zero():
         "output_tokens": 0,
         "total_tokens": 40,
     }
+
+
+async def test_each_answer_keeps_its_sources_and_next_turn_resets_search_state(monkeypatch):
+    from langchain_core.messages import AIMessage
+
+    old = AIMessage(
+        content="Resposta anterior",
+        additional_kwargs={
+            "response_sources": {"status": "referenced", "sources": [{"excerpt": "antigo"}]}
+        },
+    )
+    evidence = {"status": "empty", "sources": [], "search_failed": False}
+    current = AIMessage(content="Nova resposta", additional_kwargs={"response_sources": evidence})
+    graph = MagicMock()
+    graph.aget_state = AsyncMock(
+        return_value=SimpleNamespace(
+            values={
+                "messages": [old],
+                "source_candidates": {"old-ref": {}},
+                "source_searches": {"a": ["found"]},
+            }
+        )
+    )
+    graph.ainvoke = AsyncMock(return_value={"messages": [old, current], "current_agent_id": "a"})
+    monkeypatch.setattr(module.graph, "compile", MagicMock(return_value=graph))
+    pointer = MagicMock()
+    pointer.setup = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=pointer)
+    context.__aexit__ = AsyncMock(return_value=False)
+    saver = MagicMock()
+    saver.from_conn_string.return_value = context
+    monkeypatch.setattr(module, "AsyncPostgresSaver", saver)
+    answers, usage, *_ = await module.run_agent(
+        "oi", "tenant:contact", agents=[{"id": "a", "name": "Ana"}]
+    )
+    assert answers == ["Nova resposta"]
+    assert usage["response_sources"] == [evidence]
+    args = graph.ainvoke.await_args.args[0]
+    assert args["source_candidates"] == {}
+    assert args["source_searches"] == {}

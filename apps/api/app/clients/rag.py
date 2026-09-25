@@ -9,6 +9,29 @@ class RagApiError(Exception):
     """Falha de comunicação ou resposta de erro do api_rag."""
 
 
+async def read_office_document(tenant_id: str, document_id: str) -> bytes | None:
+    """Bounded authenticated download; None means the original no longer exists."""
+    try:
+        async with httpx.AsyncClient(base_url=settings.rag_api_url, timeout=30) as client:
+            async with client.stream(
+                "GET",
+                f"/documents/users/{document_id}/content",
+                params={"tenant_id": tenant_id},
+                headers={"Authorization": settings.rag_api_key},
+            ) as response:
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    if len(data) + len(chunk) > settings.kb_max_file_size_bytes:
+                        raise RagApiError("Documento excede o limite de download")
+                    data.extend(chunk)
+                return bytes(data)
+    except httpx.HTTPError as exc:
+        raise RagApiError("Falha ao consultar o documento original") from exc
+
+
 async def insert_user_document(
     *,
     tenant_id: str,

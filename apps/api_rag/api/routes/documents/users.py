@@ -1,4 +1,9 @@
+import os
+from pathlib import Path
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +23,34 @@ def get_qdrant():
 
 async def get_repo(session: AsyncSession = Depends(get_session)):
     return DocumentoRepository(session=session)
+
+
+@router_doc_users.get("/{document_id}/content", dependencies=[Depends(verify_api_key)])
+async def document_content(
+    document_id: UUID,
+    tenant_id: UUID,
+    repo: DocumentoRepository = Depends(get_repo),
+):
+    """Internal download, restricted to a tenant's office knowledge base."""
+    doc = await repo.buscar_documento_usuario_por_id(document_id)
+    root_dir = os.getenv("UPLOAD_DIR_USER")
+    if (
+        doc is None
+        or str(doc.tenant_id) != str(tenant_id)
+        or doc.conversation_id != "kb"
+        or not root_dir
+    ):
+        raise HTTPException(404, "Documento indisponível")
+    base = Path(root_dir).resolve()
+    root = (base / str(tenant_id) / "kb").resolve()
+    path = (Path(doc.path_base) / doc.path_doc / doc.nome).resolve()
+    if not root.is_relative_to(base) or not path.is_relative_to(root) or not path.is_file():
+        raise HTTPException(404, "Documento indisponível")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 async def get_service(

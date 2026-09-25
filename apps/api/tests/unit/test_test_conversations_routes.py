@@ -206,6 +206,32 @@ class TestSendTestMessage:
         assert transaction.tokens_output == 700
         assert "token" not in transaction.description.lower()
 
+    def test_sources_follow_each_test_response(self, client, session, playground_mock):
+        self._arm_session(session, _conversation())
+        evidence = {
+            "status": "referenced",
+            "search_failed": False,
+            "sources": [
+                {
+                    "document_id": str(uuid.uuid4()),
+                    "filename": "Regimento.pdf",
+                    "chunk_id": "chunk-1",
+                    "excerpt": "Trecho original",
+                    "page": None,
+                }
+            ],
+        }
+        playground_mock.return_value["response_sources"] = [None, evidence]
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages", data={"content": "oi"}
+        )
+        assert response.status_code == 201
+        rows = response.json()["messages"]
+        assert rows[0]["response_sources"] is None
+        assert rows[1]["response_sources"] is None
+        assert rows[2]["response_sources"] == evidence
+        assert rows[2]["content"] == "resposta 2"
+
     def test_conversa_real_retorna_409(self, client, session, playground_mock) -> None:
         self._arm_session(session, _conversation(is_test=False))
 

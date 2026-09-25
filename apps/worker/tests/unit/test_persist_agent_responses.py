@@ -105,3 +105,22 @@ async def test_sem_texto_credito_vai_pro_primeiro_documento() -> None:
     assert inserted[0]["tokens_used"] == 100
     assert inserted[0]["credits_consumed"] == 20
     assert len(job_ids) == 1
+
+
+async def test_sources_are_saved_with_the_right_response_not_outbound_payload():
+    session = FakeSession()
+    evidence = {"status": "referenced", "sources": [{"excerpt": "Trecho privado"}]}
+    await messages_task._persist_agent_responses(
+        session,
+        TENANT_ID,
+        CONVERSATION_ID,
+        ["Transferindo", "Resposta final"],
+        response_sources=[None, evidence],
+    )
+    rows = [v for v in session.executed_values if "sender_type" in v]
+    assert rows[0]["response_sources"] is None
+    assert rows[1]["response_sources"] == evidence
+    assert rows[1]["content"] == "Resposta final"
+    jobs = [v for v in session.executed_values if "message_id" in v]
+    assert len(jobs) == 2
+    assert all("response_sources" not in job for job in jobs)

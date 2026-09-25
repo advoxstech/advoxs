@@ -90,7 +90,7 @@ Esta seção registra as propostas adicionais presentes no PDF, separadas das co
 | CRM jurídico enxuto | Cadastro do contato, assunto, área jurídica, etapa, responsável, anotações e próxima ação. | Transformar atendimento em acompanhamento comercial e operacional. |
 | Áudio e OCR | Transcrição de áudios e leitura de imagens e PDFs digitalizados. | Ampliar o atendimento além dos documentos com texto extraível. |
 | Revisão humana de documentos | Gerar rascunho, editar, aprovar e então enviar, mantendo versões e histórico. | Dar mais controle sobre os documentos produzidos pela IA. |
-| Fontes das respostas | Mostrar documento, trecho e, quando disponível, página usados pela IA. | Facilitar conferência das respostas e correção da base de conhecimento. |
+| Fontes das respostas — **Implementada em 24/09/2026** | Fontes internas por mensagem, com documento, trecho, página quando disponível, estado da consulta e download autenticado do original. Disponível nas conversas reais e de teste. | Facilitar a conferência sem anexar referências internas ao WhatsApp. Ver [guia](fontes-das-respostas.md). |
 | Versões dos agentes — **Implementada em 23/09/2026** | Abas Configuração, Testar e Versões por agente; rascunho persistente, teste isolado, publicação explícita, comparação e restauração como novo rascunho. | Evitar que mudanças nas instruções afetem imediatamente todos os atendimentos. |
 | Agenda e acompanhamento | Agendamento de reuniões, lembretes e tarefas associadas ao contato. | Converter conversas em ações concretas do escritório. |
 | Central de operação | Alertas de WhatsApp desconectado, mensagem não entregue, fila parada, arquivo com erro e saldo crítico. | Permitir agir antes que o cliente reclame. |

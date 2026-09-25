@@ -28,6 +28,22 @@ class ConversationOut(BaseModel):
     current_agent_name: str | None = None
 
 
+class ResponseSource(BaseModel):
+    document_id: uuid.UUID
+    filename: str
+    chunk_id: str
+    excerpt: str
+    page: int | None = None
+
+
+class ResponseSources(BaseModel):
+    status: Literal[
+        "referenced", "no_documents", "not_searched", "empty", "not_used", "unavailable"
+    ]
+    sources: list[ResponseSource] = Field(default_factory=list)
+    search_failed: bool = False
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -36,6 +52,7 @@ class MessageOut(BaseModel):
     content: str
     media_url: str | None
     media_type: str | None
+    response_sources: ResponseSources | None = None
     delivery_status: Literal["pending", "sent", "failed", "cancelled"] | None
     created_at: datetime
 

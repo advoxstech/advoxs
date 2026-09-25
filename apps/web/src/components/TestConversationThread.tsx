@@ -1,5 +1,7 @@
 "use client";
 
+import { ResponseSources } from "@/components/ResponseSources";
+
 import { useRef, useState } from "react";
 
 import { usePaginatedMessages } from "@/hooks/usePaginatedMessages";
@@ -297,6 +299,7 @@ function TestMessageBubble({ message }: { message: Message }) {
         ) : (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
+        <ResponseSources message={message} />
       </div>
       <time className="mt-1 font-mono text-[10px] text-muted">
         {formatMessageTime(message.created_at)}
