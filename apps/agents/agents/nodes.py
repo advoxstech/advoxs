@@ -6,6 +6,12 @@ from langgraph.types import Command
 from loguru import logger
 
 from agents.helpers import strip_messages
+from agents.response_sources import (
+    SOURCE_RULE,
+    collect_search,
+    responder_com_fontes,
+    response_evidence,
+)
 from agents.tools import (
     DOCUMENT_TOOLS,
     bucar_base_conhecimento_usuario,
@@ -96,6 +102,7 @@ async def agent_node(state: dict) -> Command:
 
     tools_for_agent = [
         transfer_to_agent,
+        responder_com_fontes,
         buscar_base_conhecimento_agente,
         bucar_base_conhecimento_usuario,
     ]
@@ -114,7 +121,7 @@ async def agent_node(state: dict) -> Command:
         ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
-    prompt = current["instructions"] + _CONTINUITY_RULE + _KNOWLEDGE_BASE_RULE
+    prompt = current["instructions"] + _CONTINUITY_RULE + _KNOWLEDGE_BASE_RULE + SOURCE_RULE
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
     if other_agents:
         roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)
@@ -141,6 +148,27 @@ async def agent_node(state: dict) -> Command:
         ]
     )
 
+    final_calls = [c for c in response.tool_calls if c["name"] == "responder_com_fontes"]
+    if final_calls:
+        response = response.model_copy(update={"content": ""})
+    if final_calls and len(response.tool_calls) == 1:
+        args = final_calls[0]["args"]
+        answer = args.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            evidence = response_evidence(state, current, args.get("reference_ids", []))
+            # Preserve usage and identity, but never persist internal tool arguments in
+            # the customer-facing message or leave an unanswered tool call in memory.
+            response = response.model_copy(
+                update={
+                    "content": answer,
+                    "tool_calls": [],
+                    "invalid_tool_calls": [],
+                    "additional_kwargs": {"response_sources": evidence},
+                }
+            )
+    if not final_calls:
+        response.additional_kwargs["response_sources"] = response_evidence(state, current)
+
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
     if is_first_run:
         update["receptive_message_specialist"] = False
@@ -154,7 +182,7 @@ async def agent_node(state: dict) -> Command:
             target = agents_by_id.get(target_id)
             label = target["name"] if target else "outro agente"
             farewell = f"um momento... vou te passar pra(o) {label} agora."
-            response = AIMessage(content=farewell, tool_calls=response.tool_calls, id=response.id)
+            response = response.model_copy(update={"content": farewell})
             update["messages"] = [response]
             logger.info("Despedida de transferência injetada | target={}", target_id)
 
@@ -177,6 +205,14 @@ async def tool_node(state: dict) -> dict:
     state_updates = {}
 
     for tool_call in tool_calls:
+        if tool_call["name"] == "responder_com_fontes":
+            messages.append(
+                ToolMessage(
+                    content="Finalize chamando responder_com_fontes sozinha, com answer não vazio.",
+                    tool_call_id=tool_call["id"],
+                )
+            )
+            continue
         tool = tools_by_name.get(tool_call["name"])
 
         if tool is None:
@@ -195,6 +231,12 @@ async def tool_node(state: dict) -> dict:
         logger.info("Executando ferramenta | tool={} | argumentos={}", tool_call["name"], len(args))
         observation = await tool.ainvoke(args)
         logger.info("Ferramenta concluída | tool={}", tool_call["name"])
+
+        if tool_call["name"] == "buscar_base_conhecimento_agente" and current:
+            observation, evidence_updates = collect_search(
+                observation, {**state, **state_updates}, current
+            )
+            state_updates.update(evidence_updates)
 
         if isinstance(observation, Command):
             if observation.update:

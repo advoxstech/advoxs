@@ -193,6 +193,7 @@ async def receive(body: IncomingMessage):
             ),
         )
 
+        response_sources = usage.pop("response_sources", [])
         delivery_failures: list[int] = []
         # `documents` carrega o custo fixo em crédito de cada documento
         # gerado (ver agents/tools.py) — devolvido ao chamador mesmo quando
@@ -252,6 +253,7 @@ async def receive(body: IncomingMessage):
         # ter funcionado (o custo do LLM/da geração já ocorreu).
         return {
             "responses": response,
+            "response_sources": response_sources,
             "tokens_used": usage["total_tokens"],
             "tokens_input": usage["input_tokens"],
             "tokens_output": usage["output_tokens"],

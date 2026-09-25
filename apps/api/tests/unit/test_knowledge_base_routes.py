@@ -515,3 +515,40 @@ class TestPatchCategory:
         )
 
         assert response.status_code == 422
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_original_download_checks_tenant_before_rag(client, session, monkeypatch, missing):
+    session.scalar.return_value = None if missing else _record()
+    read = AsyncMock(return_value=b"%PDF-original")
+    monkeypatch.setattr(kb_module, "read_office_document", read)
+    response = client.get(f"/api/v1/knowledge-base/files/{FILE_ID}/content")
+    stmt = session.scalar.await_args.args[0]
+    params = stmt.compile().params
+    assert TENANT_ID in params.values()
+    assert FILE_ID in params.values()
+    if missing:
+        assert response.status_code == 404
+        read.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        assert response.content == b"%PDF-original"
+        assert response.headers["cache-control"] == "private, no-store"
+        read.assert_awaited_once_with(str(TENANT_ID), str(FILE_ID))
+
+
+@pytest.mark.parametrize("error,status", [(None, 404), (RagApiError("offline"), 503)])
+def test_original_unavailable_does_not_expose_service_details(
+    client, session, monkeypatch, error, status
+):
+    session.scalar.return_value = _record()
+    read = AsyncMock(side_effect=error, return_value=None)
+    monkeypatch.setattr(kb_module, "read_office_document", read)
+    response = client.get(f"/api/v1/knowledge-base/files/{FILE_ID}/content")
+    assert response.status_code == status
+    assert "offline" not in response.text
+
+
+def test_original_without_login_is_rejected():
+    response = TestClient(app).get(f"/api/v1/knowledge-base/files/{FILE_ID}/content")
+    assert response.status_code == 401

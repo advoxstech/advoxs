@@ -78,6 +78,7 @@ async def send_playground_message(
     data = response.json()
     return {
         "responses": data.get("responses", []),
+        "response_sources": data.get("response_sources", []),
         "tokens_used": data.get("tokens_used"),
         "tokens_input": data.get("tokens_input", 0),
         "tokens_output": data.get("tokens_output", 0),

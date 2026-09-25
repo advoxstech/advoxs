@@ -68,7 +68,8 @@ async def test_buscar_agente_chama_retrieval_com_doc_ids():
         )
 
         mock_fn.assert_called_once_with("tenant-1:5511999998888", "regimento", doc_ids=["f1", "f2"])
-        assert result == "resultado"
+        assert result["results"] == "resultado"
+        assert result["status"] == "found"
 
 
 @pytest.mark.asyncio
@@ -83,7 +84,7 @@ async def test_buscar_agente_sem_arquivos_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "conhecimento nativo" in result.lower()
+        assert "conhecimento nativo" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -97,7 +98,7 @@ async def test_buscar_agente_sem_knowledge_base_file_ids_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "conhecimento nativo" in result.lower()
+        assert "conhecimento nativo" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -111,8 +112,8 @@ async def test_buscar_agente_sem_resultado_orienta_resposta_nativa():
             }
         )
 
-    assert "não encontrou conteúdo relevante" in result.lower()
-    assert "conhecimento nativo" in result.lower()
+    assert "não encontrou conteúdo relevante" in result["guidance"].lower()
+    assert "conhecimento nativo" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -127,9 +128,9 @@ async def test_buscar_agente_com_falha_tecnica_orienta_resposta_nativa_sem_alega
             }
         )
 
-    assert "temporariamente indisponível" in result.lower()
-    assert "conhecimento nativo" in result.lower()
-    assert "não afirme" in result.lower()
+    assert "temporariamente indisponível" in result["guidance"].lower()
+    assert "conhecimento nativo" in result["guidance"].lower()
+    assert "não afirme" in result["guidance"].lower()
 
 
 # ──────────────────────────────────────────────

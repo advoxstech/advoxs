@@ -65,6 +65,12 @@ async function handle(
     status: response.status,
     headers: {
       "content-type": response.headers.get("content-type") ?? "application/json",
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+      ...(response.headers.get("content-disposition")
+        ? { "content-disposition": response.headers.get("content-disposition")! } : {}),
+      ...(response.headers.get("content-security-policy")
+        ? { "content-security-policy": response.headers.get("content-security-policy")! } : {}),
     },
   });
 }

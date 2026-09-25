@@ -92,14 +92,21 @@ async def run_agent(
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
                 "agents": agents,
+                "source_candidates": {},
+                "source_searches": {},
                 **initial_state,
             },
             config=config,
         )
 
     new_messages = response["messages"][prior_count:]
-    answers = [m.content for m in new_messages if m.type == "ai" and m.content]
+    answer_messages = [m for m in new_messages if m.type == "ai" and m.content]
+    answers = [m.content for m in answer_messages]
+    response_sources = [
+        getattr(m, "additional_kwargs", {}).get("response_sources") for m in answer_messages
+    ]
     usage = sum_usage_breakdown(new_messages)
+    usage["response_sources"] = response_sources
     generated_documents = response.get("generated_documents", [])[prior_doc_count:]
 
     agents_by_id = {a["id"]: a for a in agents}

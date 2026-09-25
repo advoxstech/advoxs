@@ -125,6 +125,11 @@ async def send_test_message(
             tenant_id=tenant_id,
             sender_type="agent",
             content=text,
+            response_sources=(
+                result.get("response_sources", [])[index]
+                if index < len(result.get("response_sources", []))
+                else None
+            ),
             # Mesma execução pode gerar várias respostas/documentos (ex:
             # despedida da secretária + saudação do especialista) — sem
             # offset por índice, todas cravam o mesmo instante e a ordenação

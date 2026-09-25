@@ -10,6 +10,8 @@ from agents.nodes import agent_node, tool_node
 
 class State(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
+    source_candidates: dict
+    source_searches: dict
     attachments: list
     conversation_id: str
     num_before_messages: int

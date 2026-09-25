@@ -17,6 +17,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 
 metadata = MetaData()
 
@@ -65,6 +66,7 @@ messages = Table(
     Column("sender_type", String),
     Column("content", Text),
     Column("delivery_status", String),
+    Column("response_sources", JSONB),
     Column("media_url", String),
     Column("media_type", String),
     Column("tokens_used", Integer),

@@ -753,6 +753,7 @@ async def _process_inbound_message(
             documents,
             tokens_used,
             credits,
+            response_sources=result.get("response_sources", []),
         )
 
         await session.execute(
@@ -1035,6 +1036,7 @@ async def _persist_agent_responses(
     tokens_used: int = 0,
     credits: Decimal | int = 0,
     delivery_failures: set[int] | None = None,
+    response_sources: list[dict | None] | None = None,
 ) -> tuple[uuid.UUID | None, list[uuid.UUID]]:
     """Insere as respostas de texto do agente + uma mensagem por documento
     gerado (fazer_contrato/fazer_multa/etc, ver agents/tools.py) e retorna o
@@ -1056,6 +1058,11 @@ async def _persist_agent_responses(
 
     for response in responses:
         values: dict = {
+            "response_sources": (
+                response_sources[index]
+                if response_sources and index < len(response_sources)
+                else None
+            ),
             "conversation_id": uuid.UUID(conversation_id),
             "tenant_id": uuid.UUID(tenant_id),
             "sender_type": "agent",

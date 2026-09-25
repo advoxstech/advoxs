@@ -22,6 +22,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       agents: ${{ steps.filter.outputs.agents }}
       worker: ${{ steps.filter.outputs.worker }}
+      api_rag: ${{ steps.filter.outputs.api_rag }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -37,6 +38,8 @@ jobs:
               - 'apps/agents/**'
             worker:
               - 'apps/worker/**'
+            api_rag:
+              - 'apps/api_rag/**'
 
   web:
     needs: changes
@@ -90,8 +93,8 @@ jobs:
           SYSTEM_DATABASE_URL: postgresql+asyncpg://advoxs_system:advoxs@localhost:5432/advoxs_test
           REDIS_URL: redis://localhost:6379/0
           JWT_SECRET: ci-test-secret
-      - name: Agent versions — migration, tenant isolation and concurrent publication
-        run: uv run pytest tests/integration/test_agent_versions.py
+      - name: Migrations, response sources, tenant isolation and concurrent publication
+        run: uv run pytest tests/integration/test_agent_versions.py tests/integration/test_response_sources.py
         env:
           AGENT_VERSIONS_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/agent_versions_test
 
@@ -129,3 +132,16 @@ jobs:
           # roda migrations nem conecta como owner, só consome esse papel.
           APP_DATABASE_URL: postgresql+asyncpg://advoxs_app:advoxs@localhost:5432/advoxs_test
           REDIS_URL: redis://localhost:6379/0
+
+  api_rag:
+    needs: changes
+    if: needs.changes.outputs.api_rag == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api_rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --frozen --group dev
+      - run: uv run pytest tests/unit

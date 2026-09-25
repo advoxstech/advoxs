@@ -29,9 +29,24 @@ export interface Conversation {
 
 export type SenderType = "agent" | "human" | "contact";
 
+export interface ResponseSource {
+  document_id: string;
+  filename: string;
+  chunk_id: string;
+  excerpt: string;
+  page: number | null;
+}
+
+export interface ResponseEvidence {
+  status: "referenced" | "no_documents" | "not_searched" | "empty" | "not_used" | "unavailable";
+  sources: ResponseSource[];
+  search_failed: boolean;
+}
+
 export interface Message {
   id: string;
   sender_type: SenderType;
+  response_sources?: ResponseEvidence | null;
   content: string;
   media_url: string | null;
   media_type: string | null;

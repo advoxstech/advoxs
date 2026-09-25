@@ -78,6 +78,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
         "tokens_output": 234,
         "current_agent": "agente_secretaria",
         "current_agent_id": "a1",
+        "response_sources": [],
         "delivery_failures": [],
         "documents": [],
     }
@@ -131,6 +132,7 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         "tokens_output": 234,
         "current_agent": "agente_condominial",
         "current_agent_id": "a2",
+        "response_sources": [],
         "delivery_failures": [],
         "documents": [],
     }
@@ -589,3 +591,40 @@ def test_documento_gerado_com_send_to_whatsapp_false_nao_envia_mas_retorna_custo
     assert response.status_code == 200
     assert response.json()["documents"] == [{**_GENERATED_DOC, "delivered": False}]
     wa_cls.assert_not_called()
+
+
+def test_sources_return_internally_but_never_in_whatsapp_payload(client, monkeypatch):
+    evidence = {"status": "referenced", "sources": [{"excerpt": "Privado"}]}
+    monkeypatch.setattr(
+        routes,
+        "debounce_messages",
+        AsyncMock(
+            return_value={
+                "combined_message": "oi",
+                "other_exec_is_running": False,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        routes,
+        "run_agent",
+        AsyncMock(
+            return_value=(
+                ["Resposta ao cliente"],
+                {
+                    "total_tokens": 20,
+                    "input_tokens": 10,
+                    "output_tokens": 10,
+                    "response_sources": [evidence],
+                },
+                "Agente",
+                "a1",
+                [],
+            )
+        ),
+    )
+    _, whatsapp = _mock_whatsapp_client(monkeypatch)
+    response = client.post("/messages", json=PAYLOAD)
+    assert response.status_code == 200
+    assert response.json()["response_sources"] == [evidence]
+    assert whatsapp.send_text_message.await_args.args[-1] == "Resposta ao cliente"

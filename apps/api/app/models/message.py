@@ -14,6 +14,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -46,6 +47,7 @@ class Message(Base):
     sender_type: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     delivery_status: Mapped[str | None] = mapped_column(String)
+    response_sources: Mapped[dict | None] = mapped_column(JSONB)
     media_url: Mapped[str | None] = mapped_column(String)
     media_type: Mapped[str | None] = mapped_column(String)
     # wamid da Meta — dedup de retries do webhook (só mensagens de contato).

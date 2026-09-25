@@ -48,7 +48,7 @@ async def buscar_base_conhecimento_agente(
     query: str,
     conversation_id: str,
     knowledge_base_file_ids: list[str] | None = None,
-) -> str | list[dict]:
+) -> dict:
     """Busca na base de conhecimento anexada a este agente.
 
     A base é opcional e complementa seu conhecimento nativo. Use quando a
@@ -63,27 +63,29 @@ async def buscar_base_conhecimento_agente(
         knowledge_base_file_ids: preenchido automaticamente pelo sistema.
     """
     if not knowledge_base_file_ids:
-        return (
-            "Nenhum documento está anexado a este agente. Responda normalmente usando seu "
-            "conhecimento nativo, sem dizer ao cliente que falta uma base de conhecimento."
-        )
-
+        return {
+            "status": "no_documents",
+            "results": [],
+            "guidance": "Sem documentos. Responda com seu conhecimento nativo, "
+            "sem dizer ao cliente que falta uma base de conhecimento.",
+        }
     try:
         results = await retrieval_escritorio(
             conversation_id, query, doc_ids=knowledge_base_file_ids
         )
     except RetrievalUnavailableError:
-        return (
-            "A base de conhecimento está temporariamente indisponível. Responda com seu "
-            "conhecimento nativo e não afirme que consultou ou encontrou algo nos documentos."
-        )
-
-    if not results:
-        return (
-            "A busca foi concluída, mas não encontrou conteúdo relevante. Responda normalmente "
-            "usando seu conhecimento nativo e não diga que a informação veio dos documentos."
-        )
-    return results
+        return {
+            "status": "unavailable",
+            "results": [],
+            "guidance": "Base temporariamente indisponível. Use seu conhecimento nativo; "
+            "não afirme que consultou os documentos.",
+        }
+    return {
+        "status": "found" if results else "empty",
+        "results": results,
+        "guidance": "Priorize os trechos relevantes. Se não encontrou conteúdo relevante, "
+        "use seu conhecimento nativo e não diga que a informação veio dos documentos.",
+    }
 
 
 @tool("bucar_base_conhecimento_usuario")

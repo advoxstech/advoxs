@@ -1,5 +1,7 @@
 "use client";
 
+import { ResponseSources } from "@/components/ResponseSources";
+
 import { useState } from "react";
 
 import { usePaginatedMessages } from "@/hooks/usePaginatedMessages";
@@ -454,6 +456,7 @@ function MessageBubble({ message }: { message: Message }) {
         ) : (
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         )}
+        <ResponseSources message={message} />
       </div>
       <div className="mt-1 flex items-center gap-1.5">
         {message.delivery_status === "failed" ? (

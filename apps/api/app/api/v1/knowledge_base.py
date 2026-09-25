@@ -3,15 +3,17 @@
 import logging
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.clients.rag import RagApiError, delete_documents
+from app.clients.rag import RagApiError, delete_documents, read_office_document
 from app.core.config import settings
 from app.core.queue import get_arq_pool
 from app.core.safe_logging import safe_error
@@ -43,6 +45,39 @@ ALLOWED_EXTENSIONS = {
     ".txt": "text/plain",
 }
 GENERIC_MIME_TYPES = {"", "application/octet-stream"}
+
+
+@router.get("/files/{file_id}/content")
+async def file_content(
+    file_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+):
+    record = await session.scalar(
+        select(KnowledgeBaseFile).where(
+            KnowledgeBaseFile.id == file_id, KnowledgeBaseFile.tenant_id == ctx.tenant_id
+        )
+    )
+    if record is None:
+        raise HTTPException(404, "O documento original não está mais disponível.")
+    try:
+        data = await read_office_document(str(ctx.tenant_id), str(file_id))
+    except RagApiError:
+        raise HTTPException(503, "Não foi possível abrir o documento. Tente novamente.")
+    if data is None:
+        raise HTTPException(404, "O documento original não está mais disponível.")
+    mime_type = ALLOWED_EXTENSIONS.get(Path(record.filename).suffix.lower())
+    disposition = "inline" if mime_type == "application/pdf" else "attachment"
+    return Response(
+        data,
+        media_type=mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(record.filename)}",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
 
 
 @router.post("/files", status_code=status.HTTP_202_ACCEPTED)
