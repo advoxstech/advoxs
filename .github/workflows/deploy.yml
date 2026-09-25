@@ -6,6 +6,10 @@ on:
     types: [completed]
     branches: [main]
 
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     if: github.event.workflow_run.conclusion == 'success'
@@ -54,6 +58,17 @@ jobs:
               retry_delay=$((pull_attempt * 10))
               echo "Download das imagens falhou. Nova tentativa em ${retry_delay}s..."
               sleep "$retry_delay"
+            done
+
+            # Corrige instalações antigas sem a chave interna. Persiste somente
+            # AGENTS_API_KEY no .env compartilhado, sem imprimir seu valor.
+            # Usa o Python já disponível na imagem; não exige instalar na VPS.
+            docker compose run --rm --no-deps -v "$PWD:/deploy" --entrypoint /app/.venv/bin/python api /deploy/scripts/ensure_agents_api_key.py /deploy/.env
+
+            # Confirma que cada serviço recebe a chave antes de parar a aplicação.
+            # A verificação independe de ENFORCE_PRODUCTION_CONFIG.
+            for service in api worker agents; do
+              docker compose run --rm --no-deps --entrypoint /app/.venv/bin/python "$service" -c 'import os, sys; sys.exit(0 if os.environ.get("AGENTS_API_KEY", "").strip() else "AGENTS_API_KEY ausente: deploy interrompido")'
             done
 
             # Offline: valida as novas imagens antes de interromper os serviços.
