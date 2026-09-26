@@ -1,5 +1,27 @@
 # Importação manual do Google Drive
 
+## Status da funcionalidade
+
+**Em espera desde 26/09/2026.** O código está implementado e validado localmente,
+mas a integração deve permanecer desativada com `GOOGLE_DRIVE_ENABLED=false`.
+O upload manual de arquivos continua funcionando normalmente enquanto isso.
+
+Para liberar a funcionalidade no futuro, ainda será necessário:
+
+- criar ou selecionar o projeto do Advoxs no Google Cloud;
+- habilitar as APIs Google Drive e Google Picker;
+- configurar a tela de autorização, o escopo `drive.file` e os usuários de teste;
+- criar o cliente OAuth para aplicação web e cadastrar as origens do painel;
+- criar e restringir a API key para Drive, Picker e sites autorizados;
+- preencher `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_API_KEY` e
+  `GOOGLE_DRIVE_PROJECT_NUMBER` na `.env` da VPS;
+- publicar o código e aplicar a migration **0040**;
+- ativar `GOOGLE_DRIVE_ENABLED=true`, recriar os serviços e executar o teste real
+  de autorização, seleção, importação e atualização de arquivos.
+
+Não ativar a opção antes de concluir essa lista. As credenciais não devem ser
+registradas neste documento nem versionadas no Git.
+
 ## Uso
 
 Na base de conhecimento, clique em **Importar do Google Drive**, escolha o agente

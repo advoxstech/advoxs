@@ -47,6 +47,20 @@ A ordem abaixo reproduz a priorização sugerida na conversa e no PDF, considera
 
 **Testes e documentação específicos devem acompanhar cada mudança.** A posição 16 representa a ampliação geral da cobertura, não uma orientação para adiar a validação das correções anteriores. O item 24 concluiu a revisão geral em 21/09/2026; a documentação deve continuar sendo atualizada a cada mudança futura.
 
+### Pendências atuais das melhorias
+
+Atualizado em **23/09/2026**: das 24 melhorias originais, **19 estão implementadas e ativas**, quatro ainda precisam ser desenvolvidas e uma está implementada, mas aguarda configuração no servidor para ser reativada.
+
+| Ordem sugerida agora | Item original | Situação | O que ainda falta |
+| --- | --- | --- | --- |
+| 1 | 12 — Limites de arquivos | Pendente | Interromper uploads e downloads assim que ultrapassarem o limite, antes de carregar o arquivo inteiro na memória. |
+| 2 | 14 — Exclusão de conversas | Pendente | Tornar durável a limpeza dos anexos e da memória dos agentes, com novas tentativas quando algum serviço estiver indisponível. |
+| 3 | 16 — Testes automatizados | Pendente | Ampliar testes de integração com banco, Redis, fila e RAG, cobrindo isolamento entre escritórios, pagamentos repetidos e recuperação de falhas. |
+| 4 | 17 — Implantação | Pendente | Reduzir indisponibilidade durante deploys, fixar versões das imagens e validar automaticamente a saúde dos serviços depois da atualização. |
+| 5 | 2 — Configuração de produção | Aguarda ação no servidor | Preencher os segredos reais no `.env` da VPS e reativar `ENFORCE_PRODUCTION_CONFIG=true`. A validação já está implementada no código. |
+
+As propostas da seção **Novas funcionalidades sugeridas** continuam como funcionalidades futuras e não entram nessa contagem das 24 melhorias existentes.
+
 ## 2. Sugestões de frontend e usabilidade
 
 A prioridade desta tabela é interna à frente de frontend; não substitui a ordem geral da seção anterior. Há sobreposição intencional com melhorias existentes: são detalhamentos, não tarefas duplicadas.
@@ -96,6 +110,14 @@ Esta seção registra as propostas adicionais presentes no PDF, separadas das co
 | Central de operação | Alertas de WhatsApp desconectado, mensagem não entregue, fila parada, arquivo com erro e saldo crítico. | Permitir agir antes que o cliente reclame. |
 
 O benefício da central de operação foi recuperado da conversa original porque a última frase do PDF está truncada.
+
+### Importação manual do Google Drive — aguardando ativação
+
+O código para selecionar e importar arquivos do Google Drive na base de conhecimento
+está implementado, mas permanece desativado. A liberação aguarda a configuração do
+projeto no Google Cloud, as credenciais na VPS, a publicação do código, a migration
+**0040** e o teste real com uma conta Google. Enquanto isso, o upload manual atual
+continua disponível. Consulte o [status e checklist de ativação](importacao-google-drive.md).
 
 ### Versões dos agentes — 23/09/2026
 
