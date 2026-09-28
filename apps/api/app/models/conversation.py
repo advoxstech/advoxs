@@ -60,6 +60,7 @@ class Conversation(Base):
     current_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("agents.id", ondelete="SET NULL")
     )
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

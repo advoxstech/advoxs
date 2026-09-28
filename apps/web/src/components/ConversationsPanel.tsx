@@ -39,6 +39,7 @@ export function ConversationsPanel({
   const [loadError, setLoadError] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const refreshSequenceRef = useRef(0);
   const conversationsRef = useRef<Conversation[]>([]);
 
@@ -117,6 +118,7 @@ export function ConversationsPanel({
     setHasMore(true);
     setLoadError(false);
     setLastUpdatedAt(null);
+    setActionNotice(null);
   };
 
   const createTestConversation = async () => {
@@ -137,6 +139,9 @@ export function ConversationsPanel({
   const handleDeleted = (id: string) => {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     setSelectedId(null);
+    setActionNotice(
+      "Exclusão iniciada. O histórico será removido com segurança em segundo plano.",
+    );
   };
 
   return (
@@ -166,6 +171,14 @@ export function ConversationsPanel({
           </button>
         </div>
       </header>
+      {actionNotice ? (
+        <p
+          role="status"
+          className="border-b border-line bg-brass-soft px-5 py-2 text-sm text-ink"
+        >
+          {actionNotice}
+        </p>
+      ) : null}
 
       {loadError ? (
         <div

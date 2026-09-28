@@ -10,8 +10,10 @@ from app.services.profile import InvalidCurrentPasswordError, change_password, u
 from app.services.upload_storage import (
     InvalidUploadContentError,
     UnsafeUploadPathError,
+    UploadTooLargeError,
     atomic_write,
     managed_path,
+    read_upload_limited,
     safe_delete,
     validate_upload_content,
 )
@@ -85,8 +87,9 @@ async def upload_logo(
             detail="Formato não suportado — envie PNG ou JPG",
         )
 
-    data = await file.read()
-    if len(data) > settings.logo_max_file_size_bytes:
+    try:
+        data = await read_upload_limited(file, settings.logo_max_file_size_bytes)
+    except UploadTooLargeError:
         limite_mb = settings.logo_max_file_size_bytes // (1024 * 1024)
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,

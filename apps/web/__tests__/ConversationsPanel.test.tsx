@@ -144,4 +144,27 @@ describe("ConversationsPanel — abas", () => {
     expect(screen.queryByRole("button", { name: "Voltar" })).not.toBeInTheDocument();
     expect(screen.getByText("+55 11 99999-8888")).toBeInTheDocument();
   });
+
+  it("remove a conversa da lista e informa que a exclusão continuará em segundo plano", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return jsonResponse({ status: "pending" }, 202);
+      }
+      if (String(path).includes("/messages")) return jsonResponse([]);
+      return jsonResponse([conversation("r1", false)]);
+    });
+
+    render(<ConversationsPanel pollMs={0} />);
+
+    fireEvent.click(await screen.findByText("+55 11 99999-8888"));
+    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+
+    expect(
+      await screen.findByText(
+        "Exclusão iniciada. O histórico será removido com segurança em segundo plano.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("+55 11 99999-8888")).not.toBeInTheDocument();
+  });
 });

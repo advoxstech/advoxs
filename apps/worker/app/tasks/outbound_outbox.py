@@ -130,14 +130,21 @@ async def _cancel_if_automation_paused(
     session, conversation_id: uuid.UUID, message_id: uuid.UUID
 ) -> bool:
     """Cancela a entrega sob o mesmo lock usado pela troca de atendimento."""
-    state = (
+    conversation = (
         await session.execute(
-            select(tables.conversations.c.state)
+            select(
+                tables.conversations.c.state,
+                tables.conversations.c.deletion_requested_at,
+            )
             .where(tables.conversations.c.id == conversation_id)
             .with_for_update()
         )
-    ).scalar_one_or_none()
-    if state == "agent":
+    ).one_or_none()
+    if (
+        conversation is not None
+        and conversation.state == "agent"
+        and conversation.deletion_requested_at is None
+    ):
         return False
 
     await session.execute(

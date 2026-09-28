@@ -25,11 +25,11 @@ class UsageRecord(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("tenants.id"), nullable=False, index=True
     )
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("conversations.id"), nullable=False
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("conversations.id", ondelete="SET NULL")
     )
-    related_message_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("messages.id"), nullable=False, unique=True
+    related_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("messages.id", ondelete="SET NULL"), unique=True
     )
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     funding_source: Mapped[str] = mapped_column(String, nullable=False)

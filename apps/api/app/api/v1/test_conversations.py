@@ -79,6 +79,7 @@ async def _get_test_conversation(
         select(Conversation).where(
             Conversation.id == conversation_id,
             Conversation.tenant_id == ctx.tenant_id,
+            Conversation.deletion_requested_at.is_(None),
         )
     )
     if conversation is None:

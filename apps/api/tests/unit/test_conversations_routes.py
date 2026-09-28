@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 import app.api.v1.conversations as conversations_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.agents import AgentsApiError, AgentsNetworkError
-from app.clients.rag import RagApiError
 from app.clients.whatsapp import WhatsAppSendError
+from app.core.queue import get_arq_pool
 from app.main import app
 
 TENANT_ID = uuid.uuid4()
@@ -83,15 +83,24 @@ def session():
 
 
 @pytest.fixture
-def client(session):
+def arq():
+    return AsyncMock()
+
+
+@pytest.fixture
+def client(session, arq):
     async def override_ctx():
         return TenantContext(user_id=uuid.uuid4(), tenant_id=TENANT_ID, role="admin")
 
     async def override_session():
         yield session
 
+    async def override_arq():
+        return arq
+
     app.dependency_overrides[get_current_tenant] = override_ctx
     app.dependency_overrides[get_tenant_session] = override_session
+    app.dependency_overrides[get_arq_pool] = override_arq
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -577,136 +586,84 @@ class TestGenerateSummary:
 
 
 class TestDeleteConversation:
-    def test_apaga_conversa_real_com_sucesso(self, client, session, monkeypatch) -> None:
-        checkpoint_mock = AsyncMock()
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
-        session.scalar.return_value = _conversation()
+    @staticmethod
+    def _message_rows(rows: list) -> MagicMock:
+        result = MagicMock()
+        result.all.return_value = rows
+        return result
+
+    def test_agenda_exclusao_duravel(self, client, session, arq) -> None:
+        conversation = _conversation()
+        contact_id = uuid.uuid4()
+        agent_id = uuid.uuid4()
+        session.scalar.side_effect = [conversation, None]
+        session.execute.side_effect = [
+            self._message_rows(
+                [
+                    SimpleNamespace(id=contact_id, sender_type="contact", media_url="media-id"),
+                    SimpleNamespace(id=agent_id, sender_type="agent", media_url=None),
+                ]
+            ),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        ]
 
         response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
 
-        assert response.status_code == 204
-        session.delete.assert_awaited_once()
-        session.commit.assert_awaited()
-        checkpoint_mock.assert_awaited_once_with(f"{TENANT_ID}:5511999998888")
-
-    def test_apaga_conversa_de_teste_tambem(self, client, session, monkeypatch) -> None:
-        # A rota generalizada não distingue origem — conversa de teste também
-        # pode ser apagada por aqui (o botão de teste continua existindo no
-        # front, mas o backend não faz mais essa distinção).
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        session.scalar.return_value = _conversation(is_test=True)
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-
-    def test_desvincula_ledger_do_tenant_e_do_cliente_final_antes_de_apagar(
-        self, client, session, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        session.scalar.return_value = _conversation()
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-        # três executes: UPDATE credit_transactions, UPDATE
-        # end_customer_credit_transactions e DELETE messages, nessa ordem.
-        statements = [str(call.args[0]) for call in session.execute.await_args_list]
-        tenant_ledger_idx = next(
-            i
-            for i, s in enumerate(statements)
-            if "credit_transactions" in s and "end_customer" not in s
+        assert response.status_code == 202
+        assert conversation.deletion_requested_at is not None
+        cleanup = next(
+            call.args[0]
+            for call in session.add.call_args_list
+            if type(call.args[0]).__name__ == "ConversationCleanupJob"
         )
-        end_customer_ledger_idx = next(
-            i for i, s in enumerate(statements) if "end_customer_credit_transactions" in s
+        assert cleanup.message_ids == [str(contact_id), str(agent_id)]
+        assert cleanup.attachment_document_ids == [str(contact_id)]
+        session.commit.assert_awaited_once()
+        session.delete.assert_not_awaited()
+        arq.enqueue_job.assert_awaited_once_with(
+            "process_conversation_cleanup",
+            tenant_id=str(TENANT_ID),
+            job_id=str(cleanup.id),
         )
-        delete_idx = next(i for i, s in enumerate(statements) if "DELETE FROM messages" in s)
-        assert tenant_ledger_idx < delete_idx
-        assert end_customer_ledger_idx < delete_idx
 
-    def test_conversa_inexistente_retorna_404(self, client, session, monkeypatch) -> None:
-        checkpoint_mock = AsyncMock()
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
+    def test_conversa_de_teste_tambem_e_agendada(self, client, session, arq) -> None:
+        conversation = _conversation(is_test=True)
+        session.scalar.side_effect = [conversation, None]
+        session.execute.side_effect = [self._message_rows([]), MagicMock()]
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 202
+        arq.enqueue_job.assert_awaited_once()
+
+    def test_solicitacao_repetida_e_idempotente(self, client, session, arq) -> None:
+        session.scalar.side_effect = [_conversation(), SimpleNamespace(id=uuid.uuid4())]
+
+        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
+
+        assert response.status_code == 202
+        session.add.assert_not_called()
+        arq.enqueue_job.assert_not_awaited()
+
+    def test_conversa_inexistente_retorna_404(self, client, session, arq) -> None:
         session.scalar.return_value = None
 
         response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
 
         assert response.status_code == 404
-        session.delete.assert_not_awaited()
-        checkpoint_mock.assert_not_awaited()
+        arq.enqueue_job.assert_not_awaited()
 
-    def test_falha_no_checkpoint_nao_impede_a_exclusao(self, client, session, monkeypatch) -> None:
-        # delete_agent_checkpoint já engole a própria exceção (best-effort) —
-        # aqui só confirmamos que a rota não depende do retorno dele.
-        checkpoint_mock = AsyncMock(return_value=None)
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", checkpoint_mock)
-        session.scalar.return_value = _conversation()
+    def test_falha_ao_enfileirar_nao_perde_a_pendencia(self, client, session, arq) -> None:
+        session.scalar.side_effect = [_conversation(), None]
+        session.execute.side_effect = [self._message_rows([]), MagicMock()]
+        arq.enqueue_job.side_effect = RuntimeError("redis indisponível")
 
         response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
 
-        assert response.status_code == 204
-        checkpoint_mock.assert_awaited_once()
-
-    def test_limpa_anexos_do_contato_no_api_rag(self, client, session, monkeypatch) -> None:
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        rag_mock = AsyncMock()
-        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
-        session.scalar.return_value = _conversation()
-        msg_id_1, msg_id_2 = uuid.uuid4(), uuid.uuid4()
-        session.execute.return_value = _execute_returning([msg_id_1, msg_id_2])
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-        rag_mock.assert_awaited_once()
-        args = rag_mock.await_args.args
-        assert args[0] == str(TENANT_ID)
-        assert sorted(args[1]) == sorted([str(msg_id_1), str(msg_id_2)])
-
-    def test_sem_anexos_nao_chama_delete_documents(self, client, session, monkeypatch) -> None:
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        rag_mock = AsyncMock()
-        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
-        session.scalar.return_value = _conversation()
-        session.execute.return_value = _execute_returning([])
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-        rag_mock.assert_not_awaited()
-
-    def test_falha_ao_limpar_anexos_no_api_rag_nao_impede_a_exclusao(
-        self, client, session, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        rag_mock = AsyncMock(side_effect=RagApiError("api_rag fora do ar"))
-        monkeypatch.setattr(conversations_module, "delete_documents", rag_mock)
-        session.scalar.return_value = _conversation()
-        session.execute.return_value = _execute_returning([uuid.uuid4()])
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-        rag_mock.assert_awaited_once()
-
-    def test_consulta_de_anexos_filtra_por_contato_e_media_url(
-        self, client, session, monkeypatch
-    ) -> None:
-        monkeypatch.setattr(conversations_module, "delete_agent_checkpoint", AsyncMock())
-        monkeypatch.setattr(conversations_module, "delete_documents", AsyncMock())
-        session.scalar.return_value = _conversation()
-        session.execute.return_value = _execute_returning([])
-
-        response = client.delete(f"/api/v1/conversations/{CONVERSATION_ID}")
-
-        assert response.status_code == 204
-        first_statement = str(
-            session.execute.await_args_list[0]
-            .args[0]
-            .compile(compile_kwargs={"literal_binds": True})
-        )
-        assert "sender_type" in first_statement
-        assert "media_url IS NOT NULL" in first_statement
+        assert response.status_code == 202
+        session.commit.assert_awaited_once()
 
 
 class TestEndCustomerBalance:
