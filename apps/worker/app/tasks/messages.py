@@ -112,11 +112,17 @@ async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
                 select(
                     tables.inbound_message_jobs.c.conversation_id,
                     tables.inbound_message_jobs.c.created_at,
-                ).where(
+                )
+                .join(
+                    tables.conversations,
+                    tables.conversations.c.id == tables.inbound_message_jobs.c.conversation_id,
+                )
+                .where(
                     tables.inbound_message_jobs.c.id == job_uuid,
                     tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
                     tables.inbound_message_jobs.c.status == "pending",
                     tables.inbound_message_jobs.c.available_at <= now,
+                    tables.conversations.c.deletion_requested_at.is_(None),
                 )
             )
         ).one_or_none()
@@ -148,11 +154,17 @@ async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
                 select(
                     tables.inbound_message_jobs.c.conversation_id,
                     tables.inbound_message_jobs.c.created_at,
-                ).where(
+                )
+                .join(
+                    tables.conversations,
+                    tables.conversations.c.id == tables.inbound_message_jobs.c.conversation_id,
+                )
+                .where(
                     tables.inbound_message_jobs.c.id == job_uuid,
                     tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
                     tables.inbound_message_jobs.c.status == "pending",
                     tables.inbound_message_jobs.c.available_at <= now,
+                    tables.conversations.c.deletion_requested_at.is_(None),
                 )
             )
         ).one_or_none()
@@ -340,13 +352,14 @@ async def _conversation_allows_automation(
     session: AsyncSession, conversation_id: str, *, lock: bool = False
 ) -> bool:
     """Lê a fonte de verdade; com lock, serializa com o takeover da API."""
-    statement = select(tables.conversations.c.state).where(
-        tables.conversations.c.id == uuid.UUID(conversation_id)
-    )
+    statement = select(
+        tables.conversations.c.state,
+        tables.conversations.c.deletion_requested_at,
+    ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
     if lock:
         statement = statement.with_for_update()
-    state = (await session.execute(statement)).scalar_one_or_none()
-    return state == "agent"
+    row = (await session.execute(statement)).one_or_none()
+    return row is not None and row.state == "agent" and row.deletion_requested_at is None
 
 
 async def _restore_agent_context_before_stale_response(
@@ -883,7 +896,10 @@ async def _load_context(
                 tables.conversations.c.billing_gate_retries,
                 tables.conversations.c.billing_gate_checkout_url,
                 tables.conversations.c.end_customer_billing_exempt,
-            ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
+            ).where(
+                tables.conversations.c.id == uuid.UUID(conversation_id),
+                tables.conversations.c.deletion_requested_at.is_(None),
+            )
         )
     ).one_or_none()
     if conversation is None:

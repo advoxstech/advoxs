@@ -51,6 +51,7 @@ async def get_onboarding(
         .where(
             Conversation.tenant_id == ctx.tenant_id,
             Conversation.is_test.is_(True),
+            Conversation.deletion_requested_at.is_(None),
             Message.sender_type == "agent",
         )
         .limit(1),
@@ -62,6 +63,7 @@ async def get_onboarding(
             Conversation.tenant_id == ctx.tenant_id,
             Conversation.is_test.is_(False),
             Conversation.last_message_at.is_not(None),
+            Conversation.deletion_requested_at.is_(None),
         )
         .limit(1),
     )

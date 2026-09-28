@@ -34,6 +34,7 @@ async def build_conversations_usage(
             .join(Conversation, Conversation.id == Message.conversation_id)
             .where(
                 Message.tenant_id == tenant_id,
+                Conversation.deletion_requested_at.is_(None),
                 Message.credits_consumed.is_not(None),
                 Message.created_at >= range_start,
                 Message.created_at <= range_end,

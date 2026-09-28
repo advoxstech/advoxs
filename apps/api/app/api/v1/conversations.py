@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
@@ -15,19 +16,21 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.agents import (
     AgentsApiError,
     AgentsNetworkError,
-    delete_agent_checkpoint,
     generate_conversation_summary,
     sync_conversation_context,
 )
-from app.clients.rag import RagApiError, delete_documents
 from app.clients.whatsapp import WhatsAppSendError
+from app.core.queue import get_arq_pool
 from app.core.safe_logging import safe_error, safe_identifier
 from app.models import (
     Agent,
     Conversation,
+    ConversationCleanupJob,
+    ConversationProcessingLock,
     CreditTransaction,
     EndCustomerBalance,
     EndCustomerCreditTransaction,
+    InboundMessageJob,
     Message,
     OutboundMessageJob,
     Tenant,
@@ -63,6 +66,7 @@ async def list_conversations(
         .where(
             Conversation.tenant_id == ctx.tenant_id,
             Conversation.is_test == (origin == "test"),
+            Conversation.deletion_requested_at.is_(None),
         )
         .order_by(Conversation.last_message_at.desc().nulls_last(), Conversation.id.desc())
         .limit(limit)
@@ -466,78 +470,113 @@ async def generate_summary(
     )
 
 
-@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{conversation_id}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_conversation(
     conversation_id: uuid.UUID,
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
+    arq: ArqRedis = Depends(get_arq_pool),
 ) -> None:
-    """Apaga mensagens + conversa (real ou de teste); ledger fica (related_message_id
-    vira NULL nas duas tabelas — tenant e cliente final —, o consumo continua
-    auditável). Checkpoint no agents e anexos do contato ingeridos no api_rag
-    (ver app/services/test_attachments.py e apps/worker/app/tasks/attachments.py
-    — o caminho real via WhatsApp) são limpos best-effort. Irreversível."""
-    conversation = await _get_conversation(conversation_id, ctx, session)
-    thread_id = f"{ctx.tenant_id}:{conversation.contact_phone_number}"
+    """Agenda a limpeza durável do histórico, checkpoint e anexos.
+
+    A conversa some do painel imediatamente, mas permanece no banco até o
+    worker confirmar as limpezas externas. Redis é apenas o disparador: a
+    pendência persistida é recuperada periodicamente.
+    """
+    conversation = await session.scalar(
+        select(Conversation)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == ctx.tenant_id,
+        )
+        .with_for_update()
+    )
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada")
+
+    existing_job = await session.scalar(
+        select(ConversationCleanupJob).where(
+            ConversationCleanupJob.conversation_id == conversation.id,
+            ConversationCleanupJob.tenant_id == ctx.tenant_id,
+        )
+    )
+    if existing_job is not None:
+        return
+
     logger.info(
-        "Excluindo histórico de conversa | tenant_id=%s conversation_id=%s contact_ref=%s",
+        "Agendando exclusão de conversa | tenant_id=%s conversation_id=%s contact_ref=%s",
         ctx.tenant_id,
         conversation.id,
         safe_identifier(conversation.contact_phone_number),
     )
 
-    # doc_id de cada anexo ingerido é sempre o id da própria mensagem do
-    # contato que carregou o arquivo (ver process_inbound_attachment/
-    # process_test_attachment) — precisa ser lido ANTES do delete abaixo.
-    # Inclui candidatos que nunca chegaram a existir no api_rag (formato não
-    # suportado, falha de ingestão) — sem problema, a exclusão de lá é
-    # idempotente pra id inexistente.
-    attachment_message_ids = (
-        (
-            await session.execute(
-                select(Message.id).where(
-                    Message.conversation_id == conversation.id,
-                    Message.sender_type == "contact",
-                    Message.media_url.is_not(None),
-                )
+    message_rows = (
+        await session.execute(
+            select(Message.id, Message.sender_type, Message.media_url).where(
+                Message.conversation_id == conversation.id
             )
         )
-        .scalars()
-        .all()
-    )
+    ).all()
+    message_ids = [row.id for row in message_rows]
+    attachment_document_ids = [
+        row.id for row in message_rows if row.sender_type == "contact" and row.media_url is not None
+    ]
 
-    message_ids = select(Message.id).where(Message.conversation_id == conversation.id)
-    await session.execute(
-        update(CreditTransaction)
-        .where(CreditTransaction.related_message_id.in_(message_ids))
-        .values(related_message_id=None)
+    conversation.deletion_requested_at = datetime.now(UTC)
+    cleanup_job = ConversationCleanupJob(
+        id=uuid.uuid4(),
+        tenant_id=ctx.tenant_id,
+        conversation_id=conversation.id,
+        message_ids=[str(message_id) for message_id in message_ids],
+        attachment_document_ids=[str(message_id) for message_id in attachment_document_ids],
     )
+    session.add(cleanup_job)
+
+    if message_ids:
+        now = datetime.now(UTC)
+        await session.execute(
+            update(InboundMessageJob)
+            .where(
+                InboundMessageJob.message_id.in_(message_ids),
+                InboundMessageJob.status.in_(("pending", "processing")),
+            )
+            .values(
+                status="failed", completed_at=now, locked_at=None, last_error="conversation_deleted"
+            )
+        )
+        await session.execute(
+            update(OutboundMessageJob)
+            .where(
+                OutboundMessageJob.message_id.in_(message_ids),
+                OutboundMessageJob.status.in_(("pending", "processing")),
+            )
+            .values(
+                status="cancelled",
+                completed_at=now,
+                locked_at=None,
+                last_error="conversation_deleted",
+            )
+        )
     await session.execute(
-        update(EndCustomerCreditTransaction)
-        .where(EndCustomerCreditTransaction.related_message_id.in_(message_ids))
-        .values(related_message_id=None)
+        sql_delete(ConversationProcessingLock).where(
+            ConversationProcessingLock.conversation_id == conversation.id
+        )
     )
-    await session.execute(sql_delete(Message).where(Message.conversation_id == conversation.id))
-    await session.delete(conversation)
+    await session.flush()
     await session.commit()
 
-    await delete_agent_checkpoint(thread_id)
-
-    if attachment_message_ids:
-        try:
-            await delete_documents(str(ctx.tenant_id), [str(mid) for mid in attachment_message_ids])
-        except RagApiError as exc:
-            # Best-effort, mesmo espírito de delete_agent_checkpoint acima: a
-            # conversa já foi apagada (mensagens+registro commitados antes) —
-            # uma falha aqui não pode bloquear a exclusão, só fica registrada
-            # pra eventual limpeza manual.
-            logger.warning(
-                "Falha ao limpar anexos do contato no api_rag (best-effort) | "
-                "tenant_id=%s conversation_id=%s error_type=%s",
-                ctx.tenant_id,
-                conversation.id,
-                safe_error(exc),
-            )
+    try:
+        await arq.enqueue_job(
+            "process_conversation_cleanup",
+            tenant_id=str(ctx.tenant_id),
+            job_id=str(cleanup_job.id),
+        )
+    except Exception as exc:
+        logger.error(
+            "Fila indisponível; exclusão será recuperada | conversation_id=%s error_type=%s",
+            conversation.id,
+            safe_error(exc),
+        )
 
 
 async def _end_customer_balances_by_phone(
@@ -741,6 +780,7 @@ async def _get_conversation(
     statement = select(Conversation).where(
         Conversation.id == conversation_id,
         Conversation.tenant_id == ctx.tenant_id,
+        Conversation.deletion_requested_at.is_(None),
     )
     if for_update:
         statement = statement.with_for_update()

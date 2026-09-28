@@ -6,6 +6,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from fastapi import UploadFile
+
 
 class InvalidUploadContentError(ValueError):
     """O conteúdo recebido não corresponde ao formato informado."""
@@ -13,6 +15,32 @@ class InvalidUploadContentError(ValueError):
 
 class UnsafeUploadPathError(ValueError):
     """Um caminho calculado saiu do diretório de armazenamento permitido."""
+
+
+class UploadTooLargeError(ValueError):
+    """O upload ultrapassou o limite durante a leitura."""
+
+
+async def read_upload_limited(
+    upload: UploadFile, max_bytes: int, *, chunk_size: int = 64 * 1024
+) -> bytes:
+    """Lê no máximo ``max_bytes`` sem materializar um upload excessivo.
+
+    ``UploadFile.read()`` sem tamanho copia o arquivo inteiro para a memória.
+    A leitura por blocos interrompe a requisição no primeiro byte excedente,
+    inclusive quando o cliente omite ou falsifica Content-Length.
+    """
+    if max_bytes < 0:
+        raise ValueError("max_bytes deve ser positivo")
+
+    data = bytearray()
+    while True:
+        chunk = await upload.read(min(chunk_size, max_bytes - len(data) + 1))
+        if not chunk:
+            return bytes(data)
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise UploadTooLargeError("Arquivo excede o limite permitido")
 
 
 def display_filename(filename: str) -> str:

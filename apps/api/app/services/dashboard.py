@@ -55,13 +55,18 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
 
     conversations_total = (
         await session.scalar(
-            select(func.count(Conversation.id)).where(Conversation.tenant_id == tenant_id)
+            select(func.count(Conversation.id)).where(
+                Conversation.tenant_id == tenant_id,
+                Conversation.deletion_requested_at.is_(None),
+            )
         )
     ) or 0
     waiting_human = (
         await session.scalar(
             select(func.count(Conversation.id)).where(
-                Conversation.tenant_id == tenant_id, Conversation.state == "human"
+                Conversation.tenant_id == tenant_id,
+                Conversation.state == "human",
+                Conversation.deletion_requested_at.is_(None),
             )
         )
     ) or 0
@@ -160,7 +165,10 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
         (
             await session.execute(
                 select(Conversation)
-                .where(Conversation.tenant_id == tenant_id)
+                .where(
+                    Conversation.tenant_id == tenant_id,
+                    Conversation.deletion_requested_at.is_(None),
+                )
                 .order_by(Conversation.last_message_at.desc().nulls_last())
                 .limit(RECENT_LIMIT)
             )

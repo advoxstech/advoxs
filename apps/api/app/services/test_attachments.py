@@ -12,6 +12,7 @@ from fastapi import UploadFile
 
 from app.clients.rag import RagApiError, insert_user_document
 from app.core.config import settings
+from app.services.upload_storage import UploadTooLargeError, read_upload_limited
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,12 @@ async def process_test_attachment(
         )
         return _NOTA_FORMATO_NAO_SUPORTADO
 
-    file_bytes = await file.read()
-    if len(file_bytes) > settings.kb_max_file_size_bytes:
+    try:
+        file_bytes = await read_upload_limited(file, settings.kb_max_file_size_bytes)
+    except UploadTooLargeError:
         logger.info(
-            "Anexo de teste excede o limite de tamanho | tenant=%s bytes=%s",
+            "Anexo de teste excede o limite de tamanho | tenant=%s",
             tenant_id,
-            len(file_bytes),
         )
         return _NOTA_ARQUIVO_GRANDE
 

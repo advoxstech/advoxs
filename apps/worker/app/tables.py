@@ -49,12 +49,15 @@ conversations = Table(
     Column("automation_status", String),
     Column("is_test", Boolean, nullable=False),
     Column("last_message_at", DateTime(timezone=True)),
+    Column("summary", Text),
+    Column("summary_generated_at", DateTime(timezone=True)),
     Column("human_last_seen_at", DateTime(timezone=True)),
     Column("billing_gate_step", String),
     Column("billing_gate_retries", Integer),
     Column("billing_gate_checkout_url", Text),
     Column("end_customer_billing_exempt", Boolean, nullable=False),
     Column("current_agent_id", Uuid),
+    Column("deletion_requested_at", DateTime(timezone=True)),
 )
 
 messages = Table(
@@ -113,6 +116,23 @@ outbound_message_jobs = Table(
     Column("last_enqueued_at", DateTime(timezone=True)),
     Column("locked_at", DateTime(timezone=True)),
     Column("completed_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("created_at", DateTime(timezone=True)),
+)
+
+conversation_cleanup_jobs = Table(
+    "conversation_cleanup_jobs",
+    metadata,
+    Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
+    Column("tenant_id", Uuid),
+    Column("conversation_id", Uuid),
+    Column("message_ids", JSONB),
+    Column("attachment_document_ids", JSONB),
+    Column("status", String),
+    Column("attempts", Integer),
+    Column("available_at", DateTime(timezone=True)),
+    Column("last_enqueued_at", DateTime(timezone=True)),
+    Column("locked_at", DateTime(timezone=True)),
     Column("last_error", Text),
     Column("created_at", DateTime(timezone=True)),
 )

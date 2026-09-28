@@ -4,6 +4,7 @@ from app.models.agent_version import AgentTestSession, AgentVersion
 from app.models.base import Base
 from app.models.billing import CreditPackage, CreditTransaction, PricingConfig
 from app.models.conversation import Conversation
+from app.models.conversation_cleanup_job import ConversationCleanupJob
 from app.models.conversation_processing_lock import ConversationProcessingLock
 from app.models.end_customer_billing import (
     EndCustomerBalance,
@@ -35,6 +36,7 @@ __all__ = [
     "CreditPackage",
     "CreditTransaction",
     "Conversation",
+    "ConversationCleanupJob",
     "ConversationProcessingLock",
     "EndCustomerBalance",
     "EndCustomerCreditPackage",

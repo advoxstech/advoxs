@@ -14,7 +14,12 @@ import logging
 
 import httpx
 
-from app.clients.media import MediaDownloadError, download_meta_media, download_zapi_media
+from app.clients.media import (
+    MediaDownloadError,
+    MediaTooLargeError,
+    download_meta_media,
+    download_zapi_media,
+)
 from app.clients.rag import ingest_document
 from app.config import settings
 from app.safe_logging import safe_error
@@ -78,20 +83,21 @@ async def process_inbound_attachment(
 
     try:
         if whatsapp_provider == "zapi":
-            file_bytes = await download_zapi_media(media_ref, zapi_client_token)
+            file_bytes = await download_zapi_media(
+                media_ref, zapi_client_token, settings.attachment_max_bytes
+            )
         else:
-            file_bytes = await download_meta_media(media_ref, access_token or "")
+            file_bytes = await download_meta_media(
+                media_ref, access_token or "", settings.attachment_max_bytes
+            )
+    except MediaTooLargeError:
+        logger.info("Anexo excede o limite de tamanho | tenant=%s", tenant_id)
+        return _NOTA_ARQUIVO_GRANDE
     except MediaDownloadError as exc:
         logger.warning(
             "Falha ao baixar anexo | tenant=%s error_type=%s", tenant_id, safe_error(exc)
         )
         return _NOTA_FALHA_DOWNLOAD
-
-    if len(file_bytes) > settings.attachment_max_bytes:
-        logger.info(
-            "Anexo excede o limite de tamanho | tenant=%s bytes=%s", tenant_id, len(file_bytes)
-        )
-        return _NOTA_ARQUIVO_GRANDE
 
     filename = f"anexo-{message_id}.{extension}"
     try:
