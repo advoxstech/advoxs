@@ -12,6 +12,7 @@ class WhatsappStatusOut(BaseModel):
 class ConversationsSummaryOut(BaseModel):
     total: int
     waiting_human: int
+    urgent: int = 0
 
 
 class UsageSummaryOut(BaseModel):

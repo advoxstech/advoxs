@@ -28,6 +28,7 @@ from app.core.security import hash_password
 from app.models import Tenant, User, WhatsAppNumber
 from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
+from app.services.urgency import build_default_urgency_keywords
 
 
 async def seed(args: argparse.Namespace) -> None:
@@ -51,6 +52,7 @@ async def seed(args: argparse.Namespace) -> None:
             )
             for agent in build_default_agents(tenant.id):
                 session.add(agent)
+            session.add_all(build_default_urgency_keywords(tenant.id))
             session.add(await build_default_subscription(session, tenant.id))
             print(f"Tenant {tenant.id} + usuário {args.email} criados (com os 4 agentes padrão).")
 

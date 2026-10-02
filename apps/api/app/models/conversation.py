@@ -32,6 +32,10 @@ class Conversation(Base):
             "automation_status IN ('idle', 'processing', 'failed')",
             name="automation_status",
         ),
+        CheckConstraint(
+            "urgent_source IS NULL OR urgent_source IN ('agent', 'keyword', 'manual')",
+            name="urgent_source",
+        ),
         UniqueConstraint("tenant_id", "contact_phone_number"),
     )
 
@@ -61,6 +65,10 @@ class Conversation(Base):
         Uuid, ForeignKey("agents.id", ondelete="SET NULL")
     )
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Urgente = urgent_since preenchido; limpo quando a equipe marca como resolvida.
+    urgent_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    urgent_reason: Mapped[str | None] = mapped_column(Text)
+    urgent_source: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

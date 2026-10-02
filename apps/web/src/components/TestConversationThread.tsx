@@ -10,11 +10,13 @@ import { formatMessageTime } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+import { MarkUrgentButton, UrgencyBanner } from "./ConversationUrgency";
 
 interface TestConversationThreadProps {
   conversation: Conversation;
   onDeleted: () => void;
   onBack?: () => void;
+  onConversationUpdate?: (conversation: Conversation) => void;
   pollMs?: number;
 }
 
@@ -24,6 +26,7 @@ export function TestConversationThread({
   conversation,
   onDeleted,
   onBack,
+  onConversationUpdate,
   pollMs = 4000,
 }: TestConversationThreadProps) {
   const {
@@ -122,14 +125,18 @@ export function TestConversationThread({
           </span>
           <ConversationStatusIndicator conversation={conversation} />
         </div>
-        <button
-          type="button"
-          onClick={() => void handleDelete()}
-          className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
-        >
-          Excluir conversa
-        </button>
+        <div className="flex items-center gap-3">
+          <MarkUrgentButton conversation={conversation} onUpdate={onConversationUpdate} />
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
+          >
+            Excluir conversa
+          </button>
+        </div>
       </header>
+      <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
 
       {loadError ? (
         <div

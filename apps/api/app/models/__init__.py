@@ -21,6 +21,7 @@ from app.models.outbound_message_job import OutboundMessageJob
 from app.models.platform_admin import PlatformAdmin
 from app.models.subscription import SubscriptionPlan, TenantSubscription
 from app.models.tenant import Tenant
+from app.models.urgency_keyword import UrgencyKeyword
 from app.models.usage_record import UsageRecord
 from app.models.user import User
 from app.models.whatsapp_number import WhatsAppNumber
@@ -53,6 +54,7 @@ __all__ = [
     "Tenant",
     "TenantBillingSettings",
     "TenantSubscription",
+    "UrgencyKeyword",
     "User",
     "UsageRecord",
     "WhatsAppNumber",

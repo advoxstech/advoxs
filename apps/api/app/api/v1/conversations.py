@@ -44,9 +44,12 @@ from app.schemas.conversations import (
     ConversationUsageOut,
     MessageOut,
     SendMessageRequest,
+    UrgencyUpdate,
+    UrgentCountOut,
 )
 from app.services.conversations_usage import build_conversations_usage
 from app.services.pricing import calcular_creditos, get_current_pricing_config
+from app.services.urgency import clear_urgent, mark_urgent
 from app.services.whatsapp_outbound import send_text_to_contact
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -58,16 +61,20 @@ async def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     origin: Literal["real", "test"] = Query(default="real"),
+    urgent: bool = Query(default=False),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[ConversationOut]:
+    filters = [
+        Conversation.tenant_id == ctx.tenant_id,
+        Conversation.is_test == (origin == "test"),
+        Conversation.deletion_requested_at.is_(None),
+    ]
+    if urgent:
+        filters.append(Conversation.urgent_since.is_not(None))
     result = await session.execute(
         select(Conversation)
-        .where(
-            Conversation.tenant_id == ctx.tenant_id,
-            Conversation.is_test == (origin == "test"),
-            Conversation.deletion_requested_at.is_(None),
-        )
+        .where(*filters)
         .order_by(Conversation.last_message_at.desc().nulls_last(), Conversation.id.desc())
         .limit(limit)
         .offset(offset)
@@ -94,6 +101,22 @@ async def list_conversations(
         )
         for c in conversations
     ]
+
+
+@router.get("/urgent-count")
+async def get_urgent_count(
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> UrgentCountOut:
+    count = await session.scalar(
+        select(func.count(Conversation.id)).where(
+            Conversation.tenant_id == ctx.tenant_id,
+            Conversation.is_test.is_(False),
+            Conversation.deletion_requested_at.is_(None),
+            Conversation.urgent_since.is_not(None),
+        )
+    )
+    return UrgentCountOut(count=count or 0)
 
 
 @router.get("/usage")
@@ -292,6 +315,36 @@ async def update_billing_exemption(
         cycles.get(conversation.contact_phone_number),
         billing_enabled,
         agent_names,
+    )
+
+
+@router.patch("/{conversation_id}/urgency")
+async def update_urgency(
+    conversation_id: uuid.UUID,
+    body: UrgencyUpdate,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConversationOut:
+    """`urgent=false` marca como resolvida; `true` sinaliza manualmente."""
+    conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
+    if body.urgent:
+        mark_urgent(conversation, "Marcada manualmente pela equipe", "manual")
+    else:
+        clear_urgent(conversation)
+    await session.commit()
+    await session.refresh(conversation)
+    phone = conversation.contact_phone_number
+    balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, [phone])
+    cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, [phone])
+    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
+    latest = await _latest_message_previews(session, ctx.tenant_id, [conversation.id])
+    return _to_conversation_out(
+        conversation,
+        balances.get(phone),
+        cycles.get(phone),
+        await _is_end_customer_billing_enabled(session, ctx.tenant_id),
+        agent_names,
+        latest.get(conversation.id),
     )
 
 

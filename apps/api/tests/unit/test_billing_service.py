@@ -19,6 +19,7 @@ from app.services.billing import (
     get_usage_report,
     process_checkout_completed,
 )
+from app.services.urgency import DEFAULT_URGENCY_KEYWORDS
 
 TENANT_ID = uuid.uuid4()
 PACKAGE_ID = uuid.uuid4()
@@ -200,9 +201,9 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._stripe_session())
 
-        # tenant + user + transaction + os 4 agentes padrão + a assinatura
-        # padrão (plano Legado) — ver default_subscription.py.
-        assert len(added) == 8
+        # tenant + user + transaction + os 4 agentes padrão + as palavras-chave
+        # de urgência padrão + a assinatura padrão (plano Legado).
+        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
         tenant, user, transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         assert tenant.credit_balance == 2750
@@ -264,7 +265,7 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._real_stripe_session())
 
-        assert len(added) == 8
+        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
         tenant, _user, _transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         session.commit.assert_awaited_once()
@@ -507,7 +508,7 @@ class TestProcessCheckoutCompletedRecompra:
         }
         await process_checkout_completed(session, {"id": "cs_999", "metadata": metadata})
 
-        assert len(added) == 8
+        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
         session.commit.assert_awaited_once()
 
 

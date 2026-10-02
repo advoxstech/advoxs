@@ -25,6 +25,15 @@ export interface Conversation {
   end_customer_billing_exempt: boolean;
   end_customer_billing_enabled: boolean;
   current_agent_name: string | null;
+  urgent_since?: string | null;
+  urgent_reason?: string | null;
+  urgent_source?: "agent" | "keyword" | "manual" | null;
+}
+
+export interface UrgencyKeyword {
+  id: string;
+  keyword: string;
+  created_at: string;
 }
 
 export type SenderType = "agent" | "human" | "contact";
@@ -80,7 +89,7 @@ export interface AdminDashboard {
 export interface TenantDashboard {
   credit_balance: number;
   whatsapp: { connected: boolean; display_phone_number: string | null };
-  conversations: { total: number; waiting_human: number };
+  conversations: { total: number; waiting_human: number; urgent?: number };
   usage_last_30_days: { agent_messages: number; credits_consumed: number };
   knowledge_base: { ready: number; error: number };
   end_customer_earnings: { connected: boolean; total_brl: number | null };
