@@ -486,3 +486,69 @@ async def test_tool_node_transfer_sem_billing_no_state_funciona_normalmente() ->
     result = await tool_node(state)
 
     assert result.get("current_agent_id") == "other-1"
+
+
+# ──────────────────────────────────────────────
+# Sinalização de urgência
+# ──────────────────────────────────────────────
+
+
+def _bound_tool_names(model) -> set[str]:
+    return {t.name for t in model.bind_tools.call_args.args[0]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("current_agent_id", [None, "other-1"])
+async def test_sinalizar_urgencia_vinculada_e_regra_no_prompt(monkeypatch, current_agent_id):
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(current_agent_id=current_agent_id))
+
+    assert "sinalizar_urgencia" in _bound_tool_names(model)
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "Regra de urgência" in prompt_arg.content
+    assert "O escritório também considera urgentes" not in prompt_arg.content
+
+
+@pytest.mark.asyncio
+async def test_prompt_inclui_palavras_chave_do_escritorio(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(urgency_keywords=["despejo", "audiência amanhã"]))
+
+    prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
+    assert "considera urgentes mensagens que mencionem: despejo, audiência amanhã." in (
+        prompt_arg.content
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_node_sinalizar_urgencia_atualiza_estado_e_confirma() -> None:
+    from agents.nodes import tool_node
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "sinalizar_urgencia",
+                "args": {"motivo": "  audiência   amanhã às 9h "},
+                "id": "call-1",
+            }
+        ],
+    )
+    state = {
+        "messages": [message],
+        "conversation_id": "tenant-1:5511999998888",
+        "agents": base_state()["agents"],
+    }
+
+    result = await tool_node(state)
+
+    assert result["urgency_flags"] == [{"reason": "audiência amanhã às 9h"}]
+    assert "sinalizada como urgente" in result["messages"][0].content

@@ -22,6 +22,7 @@ from app.services.pricing import (
     get_current_pricing_config,
 )
 from app.services.test_attachments import process_test_attachment
+from app.services.urgency import flag_contact_message, list_keywords, mark_urgent
 
 
 async def send_test_message(
@@ -63,6 +64,7 @@ async def send_test_message(
     )
     session.add(contact_message)
     conversation.last_message_at = now
+    await flag_contact_message(session, conversation, content)
     # Commit ANTES da chamada ao agents: se ele falhar, a mensagem do usuário
     # sobrevive no histórico (mesma filosofia do fluxo real via webhook).
     await session.commit()
@@ -90,6 +92,7 @@ async def send_test_message(
         contact_phone_number=conversation.contact_phone_number,
         message=message_for_agent,
         agents=agents,
+        urgency_keywords=[k.keyword for k in await list_keywords(session, tenant_id)],
         **({"test_start_agent_id": str(snapshot.agent_id)} if snapshot is not None else {}),
     )
     if result is None:
@@ -108,6 +111,8 @@ async def send_test_message(
         # usada pelas conversas reais (worker), atualizada aqui pro caminho
         # síncrono das conversas de teste.
         conversation.current_agent_id = uuid.UUID(current_agent_id)
+    if result.get("urgency"):
+        mark_urgent(conversation, result["urgency"], "agent")
     config = await get_current_pricing_config(session)
     # Custo de tokens + custo fixo de cada documento gerado nesta execução
     # (ver agents/tools.py) — mesma fórmula do worker (conversas reais).

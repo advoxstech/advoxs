@@ -188,9 +188,15 @@ mensagem de erro genérica, sem chamar o LLM.
   "current_agent": "Condominial",
   "current_agent_id": "uuid-do-agente",
   "delivery_failures": [],
-  "documents": []
+  "documents": [],
+  "urgency": null
 }
 ```
+
+`urgency`: motivo da última chamada a `sinalizar_urgencia` nesta execução
+(ou `null`). O chamador grava em `conversations.urgent_*`. O request aceita
+`urgency_keywords` (lista opcional de palavras-chave de urgência do
+escritório), citadas na regra de urgência do prompt.
 
 Todas as respostas geradas são devolvidas ao chamador (`worker`) para
 persistência em `messages`. `tokens_used` é a soma de tokens (input+output)
@@ -435,6 +441,12 @@ instrução extra pedindo que o agente se apresente e assuma o atendimento;
 depois a flag é zerada. O ponto de entrada nunca recebe essa instrução, mesmo
 que a flag venha `True` por engano no estado.
 
+**Regra de urgência (`_URGENCY_RULE`):** colocada no **início** do prompt de
+todo agente (no fim, o modelo a ignorava ao transferir). Lista as situações
+urgentes e manda chamar `sinalizar_urgencia` antes de responder ou transferir,
+depois avisar o cliente que a equipe foi notificada. Inclui as
+`urgency_keywords` do escritório quando houver.
+
 **Injeção da regra de continuidade (`_CONTINUITY_RULE`):** diferente das
 injeções acima (condicionais), esta é concatenada **incondicionalmente** a
 `prompt = current["instructions"]`, pra todo agente, em toda execução —
@@ -518,6 +530,7 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 | `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
 | `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. A base é opcional: sem arquivo ou resultado, o agente usa seu conhecimento nativo. |
 | `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
+| `sinalizar_urgencia(motivo)`                                    | sync   | Vinculada a todos os agentes, inclusive o ponto de entrada. Retorna `Command` que acumula `{"reason"}` em `urgency_flags` (reducer `operator.add`); `run_agent` fatia só os desta execução e devolve o último motivo como `urgency`. |
 | `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. O PDF fica em volume privado e o link exige token temporário. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
 
 A lista `tools` exportada (usada pelo `tool_node`) contém as 3 primeiras da

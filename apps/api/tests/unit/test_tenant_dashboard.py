@@ -41,6 +41,7 @@ class TestBuildTenantDashboard:
                 "5511987654321",  # display_phone_number (conectado)
                 12,  # conversations_total
                 3,  # waiting_human
+                2,  # urgent
                 87,  # agent_messages (30d)
                 -240,  # credits_consumed (negativo no ledger)
                 5,  # kb_ready
@@ -59,6 +60,7 @@ class TestBuildTenantDashboard:
         assert result.whatsapp.display_phone_number == "551 **** 4321"  # mascarado
         assert result.conversations.total == 12
         assert result.conversations.waiting_human == 3
+        assert result.conversations.urgent == 2
         assert result.usage_last_30_days.agent_messages == 87
         assert result.usage_last_30_days.credits_consumed == 240  # abs()
         assert result.knowledge_base.ready == 5
@@ -69,7 +71,7 @@ class TestBuildTenantDashboard:
 
     async def test_sem_whatsapp_conectado_retorna_disconnected(self, session) -> None:
         session.scalar = AsyncMock(
-            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "standalone", None]
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, 0, False, "standalone", None]
         )
         session.execute = AsyncMock(return_value=_execute_result([]))
 
@@ -83,7 +85,7 @@ class TestBuildTenantDashboard:
         """Isolamento: nenhuma query do dashboard pode esquecer o filtro de
         tenant — mesma classe de bug do vazamento corrigido em billing/status."""
         session.scalar = AsyncMock(
-            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "standalone", None]
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, 0, False, "standalone", None]
         )
         session.execute = AsyncMock(return_value=_execute_result([]))
 
@@ -107,6 +109,7 @@ class TestBuildTenantDashboard:
                 None,  # display_phone_number
                 0,  # conversations_total
                 0,  # waiting_human
+                0,  # urgent
                 0,  # agent_messages (30d)
                 0,  # credits_consumed
                 0,  # kb_ready
@@ -132,7 +135,7 @@ class TestBuildTenantDashboard:
         desabilitado ainda mostra "sem conta conectada" — evita a tile levar
         pra um /configuracoes/cobranca-clientes sem a aba Faturamento visível."""
         session.scalar = AsyncMock(
-            side_effect=[0, None, 0, 0, 0, 0, 0, 0, False, "connect", "acct_123"]
+            side_effect=[0, None, 0, 0, 0, 0, 0, 0, 0, False, "connect", "acct_123"]
         )
         session.execute = AsyncMock(return_value=_execute_result([]))
 

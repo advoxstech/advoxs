@@ -5,7 +5,7 @@ formaria um ciclo (`app.tasks.messages` -> `app.billing_gate` -> de volta
 pra `app.tasks.messages` pelo `InboundContext`). Continua reexportado por
 `app.tasks.messages.InboundContext` pra não quebrar nenhum import existente."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
@@ -38,3 +38,4 @@ class InboundContext:
     # opaco da Meta ou a URL final da Z-API (ver app/tasks/attachments.py).
     media_url: str | None = None
     media_type: str | None = None
+    urgency_keywords: list[str] = field(default_factory=list)

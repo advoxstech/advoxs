@@ -4,6 +4,7 @@ import { formatMessageTime, formatPhone } from "@/lib/format";
 import type { Conversation } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+import { UrgentTag } from "./ConversationUrgency";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -45,6 +46,7 @@ export function ConversationList({
     <ul className="flex-1 overflow-y-auto">
       {conversations.map((conversation) => {
         const isSelected = conversation.id === selectedId;
+        const isUrgent = Boolean(conversation.urgent_since);
         const mediaType = conversation.last_message_media_type?.toLowerCase() ?? "";
         const direction =
           conversation.last_message_sender_type === "contact" ? "recebido" : "enviado";
@@ -68,11 +70,13 @@ export function ConversationList({
               type="button"
               onClick={() => onSelect(conversation.id)}
               aria-current={isSelected ? "true" : undefined}
-              className={`flex w-full flex-col gap-1 px-5 py-3.5 text-left transition-colors ${
-                isSelected
-                  ? "border-l-2 border-l-accent bg-surface"
-                  : "border-l-2 border-l-transparent hover:bg-surface/60"
-              }`}
+              className={`flex w-full flex-col gap-1 border-l-2 px-5 py-3.5 text-left transition-colors ${
+                isUrgent
+                  ? "border-l-danger"
+                  : isSelected
+                    ? "border-l-accent"
+                    : "border-l-transparent"
+              } ${isSelected ? "bg-surface" : isUrgent ? "bg-danger/5 hover:bg-danger/10" : "hover:bg-surface/60"}`}
             >
               <span className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-mono text-sm font-medium">
@@ -91,6 +95,7 @@ export function ConversationList({
               </span>
               <span className="flex items-center justify-between gap-2">
                 <ConversationStatusIndicator conversation={conversation} />
+                {isUrgent ? <UrgentTag /> : null}
               </span>
             </button>
           </li>

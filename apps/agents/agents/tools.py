@@ -128,6 +128,20 @@ def transfer_to_agent(agent_id: str, valid_agent_ids: list[str] | None = None) -
     )
 
 
+@tool("sinalizar_urgencia")
+def sinalizar_urgencia(motivo: str) -> Command:
+    """Sinaliza esta conversa como urgente para a equipe do escritório.
+
+    Use quando o cliente relatar algo que exige ação humana rápida (ver a
+    regra de urgência no seu contexto). Depois de sinalizar, continue o
+    atendimento normalmente.
+
+    Args:
+        motivo: frase curta explicando a urgência (ex: "audiência amanhã às 9h").
+    """
+    return Command(update={"urgency_flags": [{"reason": " ".join(motivo.split())[:300]}]})
+
+
 @tool("fazer_contrato")
 async def fazer_contrato(
     tipo_contrato: str,
@@ -500,6 +514,7 @@ tools = [
     buscar_base_conhecimento_agente,
     bucar_base_conhecimento_usuario,
     transfer_to_agent,
+    sinalizar_urgencia,
     fazer_contrato,
     fazer_multa,
     fazer_advertencia,

@@ -10,6 +10,7 @@ import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } fro
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+import { MarkUrgentButton, UrgencyBanner } from "./ConversationUrgency";
 
 function formatUpdateTime(date: Date): string {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -228,6 +229,7 @@ export function ConversationThread({
               </button>
             </div>
           ) : null}
+          <MarkUrgentButton conversation={conversation} onUpdate={onConversationUpdate} />
           <button
             type="button"
             onClick={() => void toggleState()}
@@ -244,6 +246,7 @@ export function ConversationThread({
           </button>
         </div>
       </header>
+      <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
       {conversation.end_customer_billing_enabled &&
       (conversation.end_customer_balance != null || conversation.end_customer_cycle_total != null) ? (
         <aside className="border-b border-line bg-surface px-4 py-2 text-xs md:px-6">

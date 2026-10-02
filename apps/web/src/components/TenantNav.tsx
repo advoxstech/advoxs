@@ -14,6 +14,7 @@ type TenantNavItem =
   | "base"
   | "agentes"
   | "config"
+  | "urgencia"
   | "cobranca"
   | "creditos"
   | "perfil";
@@ -66,6 +67,17 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
     ),
   },
   {
+    key: "urgencia",
+    href: "/configuracoes/urgencia",
+    label: "Urgência",
+    icon: (
+      <>
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        <path d="M12 9v4M12 17h.01" />
+      </>
+    ),
+  },
+  {
     key: "cobranca",
     href: "/configuracoes/cobranca-clientes",
     label: "Cobrança de clientes",
@@ -100,6 +112,20 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
   },
 ];
 
+const URGENT_POLL_MS = 30000;
+
+function UrgentBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      aria-label={`${count} conversa(s) urgente(s)`}
+      className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-semibold leading-none text-white"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 function NavIcon({ children }: { children: ReactNode }) {
   return (
     <svg
@@ -122,6 +148,28 @@ function NavIcon({ children }: { children: ReactNode }) {
 export function TenantNav({ active }: { active: TenantNavItem | null }) {
   const [hasLogo, setHasLogo] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [urgentCount, setUrgentCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadUrgent() {
+      try {
+        const response = await backendFetch("conversations/urgent-count");
+        if (response.ok && !cancelled) {
+          const body = await response.json();
+          setUrgentCount(Number(body.count) || 0);
+        }
+      } catch {
+        // fail-safe silencioso — o contador é só um atalho visual
+      }
+    }
+    void loadUrgent();
+    const interval = setInterval(() => void loadUrgent(), URGENT_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadProfile() {
@@ -164,7 +212,10 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
               key={item.key}
               className="flex h-10 items-center gap-3.5 rounded-md bg-nav-active px-[11px] text-sm font-semibold text-nav-ink"
             >
-              <NavIcon>{item.icon}</NavIcon>
+              <span className="relative">
+                <NavIcon>{item.icon}</NavIcon>
+                {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
+              </span>
               <span
                 className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
               >
@@ -177,7 +228,10 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
               href={item.href}
               className="flex h-10 items-center gap-3.5 rounded-md px-[11px] text-sm font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
             >
-              <NavIcon>{item.icon}</NavIcon>
+              <span className="relative">
+                <NavIcon>{item.icon}</NavIcon>
+                {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
+              </span>
               <span
                 className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
               >

@@ -45,6 +45,7 @@ def _session_with(
             _result(value=billing_settings),
             _result(rows=agents_rows),
             _result(rows=agent_kb_links),
+            _result(rows=[SimpleNamespace(keyword="despejo")]),
             _result(scalar=balance),
             _result(rows=packages),
             _result(scalar=active_subscription),
@@ -98,6 +99,7 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
     assert context.end_customer_billing_enabled is False
     assert context.end_customer_balance == 0
     assert context.end_customer_packages == []
+    assert context.urgency_keywords == ["despejo"]
 
 
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
@@ -208,7 +210,7 @@ async def test_sem_agentes_retorna_lista_vazia() -> None:
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert context.agents == []
-    assert session.execute.await_count == 7
+    assert session.execute.await_count == 8
 
 
 async def test_carrega_campos_do_billing_gate_da_conversa() -> None:

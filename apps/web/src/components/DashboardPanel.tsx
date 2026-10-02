@@ -70,6 +70,13 @@ export function DashboardPanel() {
             tone={data.conversations.waiting_human > 0 ? "warning" : "neutral"}
           />
         </Link>
+        <Link href="/conversas?urgentes=1">
+          <StatTile
+            label="Urgentes"
+            value={String(data.conversations.urgent ?? 0)}
+            tone={(data.conversations.urgent ?? 0) > 0 ? "critical" : "neutral"}
+          />
+        </Link>
         <StatTile
           label="Respostas do agente (30 dias)"
           value={String(data.usage_last_30_days.agent_messages)}

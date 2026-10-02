@@ -19,6 +19,7 @@ from app.api.v1.platform_admin.whatsapp import router as platform_admin_whatsapp
 from app.api.v1.profile import router as profile_router
 from app.api.v1.signup import router as signup_router
 from app.api.v1.test_conversations import router as test_conversations_router
+from app.api.v1.urgency_keywords import router as urgency_keywords_router
 from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.stripe_connect import router as stripe_connect_webhook_router
 from app.api.v1.webhooks.stripe_tenant import router as stripe_tenant_webhook_router
@@ -46,6 +47,7 @@ api_router.include_router(platform_admin_whatsapp_router)
 api_router.include_router(profile_router)
 api_router.include_router(signup_router, dependencies=[Depends(require_stripe)])
 api_router.include_router(test_conversations_router)
+api_router.include_router(urgency_keywords_router)
 api_router.include_router(stripe_webhook_router, dependencies=[Depends(require_stripe)])
 api_router.include_router(
     stripe_connect_webhook_router, dependencies=[Depends(require_stripe_connect)]

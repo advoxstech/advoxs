@@ -58,6 +58,18 @@ conversations = Table(
     Column("end_customer_billing_exempt", Boolean, nullable=False),
     Column("current_agent_id", Uuid),
     Column("deletion_requested_at", DateTime(timezone=True)),
+    Column("urgent_since", DateTime(timezone=True)),
+    Column("urgent_reason", Text),
+    Column("urgent_source", String),
+)
+
+urgency_keywords = Table(
+    "urgency_keywords",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("keyword", String),
+    Column("created_at", DateTime(timezone=True)),
 )
 
 messages = Table(

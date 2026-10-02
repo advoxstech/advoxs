@@ -33,6 +33,7 @@ from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
 from app.services.email_notifications import send_new_tenant_notification
 from app.services.signup_tokens import store_login_token
+from app.services.urgency import build_default_urgency_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,8 @@ async def _process_signup(
     # nasce sem nenhum agente (C2 do review final da Etapa 1).
     for agent in build_default_agents(tenant.id):
         session.add(agent)
+    for keyword in build_default_urgency_keywords(tenant.id):
+        session.add(keyword)
 
     # Mesma transação do tenant/user/transação — sem isso, o tenant novo
     # nasce sem assinatura, e POST /api/v1/agents e /knowledge-base/files

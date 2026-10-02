@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.safe_logging import safe_error, safe_identifier
 from app.models import Conversation, InboundMessageJob, Message, WhatsAppNumber
 from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
+from app.services.urgency import flag_contact_message
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,7 @@ async def _persist_inbound_message(
     )
     session.add(message)
     await session.flush()
+    await flag_contact_message(session, conversation, content)
 
     job = InboundMessageJob(
         id=uuid.uuid4(),
