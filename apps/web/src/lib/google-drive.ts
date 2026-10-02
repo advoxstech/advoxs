@@ -9,7 +9,15 @@ export type DriveConfig = {
 
 type PickerResult = { action: string; docs?: { id: string; name: string }[] };
 type Picker = { setVisible: (visible: boolean) => void; dispose: () => void };
-type View = { setMimeTypes: (types: string) => View; setIncludeFolders: (value: boolean) => View };
+type View = {
+  setMimeTypes: (types: string) => View;
+  setIncludeFolders: (value: boolean) => View;
+  setSelectFolderEnabled: (value: boolean) => View;
+  setParent: (folderId: string) => View;
+  setOwnedByMe: (value: boolean) => View;
+  setMode: (mode: string) => View;
+  setLabel: (label: string) => View;
+};
 type Builder = {
   setDeveloperKey: (value: string) => Builder;
   setAppId: (value: string) => Builder;
@@ -31,6 +39,7 @@ type GoogleSdk = {
   }) => { requestAccessToken: (options: { prompt: string }) => void } } };
   picker: {
     DocsView: new () => View;
+    DocsViewMode: { LIST: string };
     PickerBuilder: new () => Builder;
     Feature: { MULTISELECT_ENABLED: string };
     Action: { PICKED: string; CANCEL: string };
@@ -109,14 +118,25 @@ export function chooseDriveFiles(config: DriveConfig): Promise<{
         }
         try {
           const token = result.access_token;
-          const view = new google.picker.DocsView().setIncludeFolders(false).setMimeTypes([
-          "application/pdf", "text/plain", "application/vnd.google-apps.document",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ].join(","));
+          const mimeTypes = [
+            "application/pdf", "text/plain", "application/vnd.google-apps.document",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          ].join(",");
+          const { DocsView, DocsViewMode } = google.picker;
+          // Pastas aparecem para navegar, mas só arquivos podem ser selecionados.
+          const myDrive = new DocsView().setLabel("Meu Drive").setParent("root")
+            .setIncludeFolders(true).setSelectFolderEnabled(false)
+            .setMimeTypes(mimeTypes).setMode(DocsViewMode.LIST);
+          const shared = new DocsView().setLabel("Compartilhados comigo").setOwnedByMe(false)
+            .setIncludeFolders(true).setSelectFolderEnabled(false)
+            .setMimeTypes(mimeTypes).setMode(DocsViewMode.LIST);
+          const recent = new DocsView().setLabel("Todos os arquivos").setIncludeFolders(false)
+            .setMimeTypes(mimeTypes).setMode(DocsViewMode.LIST);
         const picker = new google.picker.PickerBuilder()
           .setDeveloperKey(config.api_key).setAppId(config.project_number)
           .setOAuthToken(token).setOrigin(window.location.origin).setLocale("pt-BR")
-          .addView(view).enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+          .addView(myDrive).addView(shared).addView(recent)
+          .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
           .setCallback((event) => {
             if (event.action === google.picker.Action.CANCEL) {
               picker.dispose(); resolve(null);
