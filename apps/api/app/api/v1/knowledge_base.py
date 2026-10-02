@@ -17,7 +17,7 @@ from app.clients.rag import RagApiError, delete_documents, read_office_document
 from app.core.config import settings
 from app.core.queue import get_arq_pool
 from app.core.safe_logging import safe_error
-from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
+from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 from app.schemas.knowledge_base import (
     KnowledgeBaseCategory,
     KnowledgeBaseFileCategoryUpdate,
@@ -147,6 +147,7 @@ async def upload_file(
             detail=f"Arquivo excede o limite de {limite_mb} MB",
         )
 
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
     used = await session.scalar(
         select(func.coalesce(func.sum(KnowledgeBaseFile.size_bytes), 0)).where(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id
@@ -165,7 +166,11 @@ async def upload_file(
     file_count = await session.scalar(
         select(func.count())
         .select_from(KnowledgeBaseFile)
-        .where(KnowledgeBaseFile.tenant_id == ctx.tenant_id)
+        .where(
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.replaces_file_id.is_(None),
+        )
     )
     if plan.max_knowledge_base_files is not None and file_count >= plan.max_knowledge_base_files:
         raise HTTPException(
@@ -187,6 +192,8 @@ async def upload_file(
         select(KnowledgeBaseFile.id).where(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
             KnowledgeBaseFile.filename == filename,
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.replaces_file_id.is_(None),
         )
     )
     if duplicate is not None:
@@ -258,7 +265,10 @@ async def list_files(
 ) -> list[KnowledgeBaseFileOut]:
     result = await session.execute(
         select(KnowledgeBaseFile)
-        .where(KnowledgeBaseFile.tenant_id == ctx.tenant_id)
+        .where(
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.superseded_at.is_(None),
+        )
         .order_by(KnowledgeBaseFile.uploaded_at.desc())
         .limit(limit)
         .offset(offset)
@@ -268,7 +278,11 @@ async def list_files(
     links_result = await session.execute(
         select(
             AgentKnowledgeBaseFile.knowledge_base_file_id, AgentKnowledgeBaseFile.agent_id
-        ).where(AgentKnowledgeBaseFile.knowledge_base_file_id.in_([f.id for f in files]))
+        ).where(
+            AgentKnowledgeBaseFile.knowledge_base_file_id.in_(
+                [getattr(f, "replaces_file_id", None) or f.id for f in files]
+            )
+        )
     )
     agent_ids_by_file: dict[uuid.UUID, list[uuid.UUID]] = {}
     for file_id, agent_id in links_result.all():
@@ -284,7 +298,10 @@ async def list_files(
             error_message=f.error_message,
             category=f.category,
             uploaded_at=f.uploaded_at,
-            agent_ids=agent_ids_by_file.get(f.id, []),
+            agent_ids=agent_ids_by_file.get(getattr(f, "replaces_file_id", None) or f.id, []),
+            drive_file_id=getattr(f, "drive_file_id", None),
+            imported_at=getattr(f, "imported_at", None),
+            replaces_file_id=getattr(f, "replaces_file_id", None),
         )
         for f in files
     ]
@@ -297,10 +314,13 @@ async def update_file_category(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> KnowledgeBaseFileOut:
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
     record = await session.scalar(
         select(KnowledgeBaseFile).where(
             KnowledgeBaseFile.id == file_id,
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.replaces_file_id.is_(None),
         )
     )
     if record is None:
@@ -334,6 +354,7 @@ async def delete_file(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> None:
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
     record = await session.scalar(
         select(KnowledgeBaseFile).where(
             KnowledgeBaseFile.id == file_id,
@@ -342,6 +363,9 @@ async def delete_file(
     )
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
+    if getattr(record, "drive_file_id", None):
+        await _delete_drive_files(record, ctx, session)
+        return
     if record.status == "processing":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -369,6 +393,37 @@ async def delete_file(
     await session.commit()
 
 
+async def _delete_drive_files(record, ctx, session) -> None:
+    # Excluir uma tentativa com falha preserva a versão em uso.
+    # Excluir o documento em uso remove também os originais históricos.
+    if record.replaces_file_id:
+        records = [record]
+    else:
+        result = await session.execute(
+            select(KnowledgeBaseFile).where(
+                KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+                KnowledgeBaseFile.drive_file_id == record.drive_file_id,
+            )
+        )
+        records = list(result.scalars().all())
+    if any(item.status == "processing" for item in records):
+        raise HTTPException(409, "Aguarde o processamento terminar antes de excluir.")
+    try:
+        await delete_documents(str(ctx.tenant_id), [str(item.id) for item in records])
+    except RagApiError:
+        raise HTTPException(502, "Falha ao excluir. Tente novamente em instantes.") from None
+    # Remove tentativas primeiro para respeitar a FK sem publicar uma versão por acidente.
+    for item in records:
+        if item.replaces_file_id:
+            await session.delete(item)
+    await session.flush()
+    for item in records:
+        if not item.replaces_file_id:
+            await session.delete(item)
+        safe_delete(settings.kb_upload_dir, str(ctx.tenant_id), str(item.id))
+    await session.commit()
+
+
 @router.post("/files/{file_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
 async def reprocess_file(
     file_id: uuid.UUID,
@@ -376,6 +431,7 @@ async def reprocess_file(
     session: AsyncSession = Depends(get_tenant_session),
     arq: ArqRedis = Depends(get_arq_pool),
 ) -> None:
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
     record = await session.scalar(
         select(KnowledgeBaseFile).where(
             KnowledgeBaseFile.id == file_id,
@@ -400,4 +456,5 @@ async def reprocess_file(
         "ingest_knowledge_base_file",
         tenant_id=str(ctx.tenant_id),
         file_id=str(file_id),
+        **({"_job_id": f"kb:{file_id}"} if getattr(record, "drive_file_id", None) else {}),
     )

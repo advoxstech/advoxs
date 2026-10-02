@@ -16,6 +16,7 @@ from app.models import (
     AgentVersion,
     Conversation,
     KnowledgeBaseFile,
+    Tenant,
     User,
 )
 from app.schemas.agents import (
@@ -299,11 +300,14 @@ async def attach_knowledge_base_file(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> AgentKnowledgeBaseFileOut:
     await _get_agent(agent_id, ctx, session)
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
 
     file = await session.scalar(
         select(KnowledgeBaseFile).where(
             KnowledgeBaseFile.id == body.knowledge_base_file_id,
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.replaces_file_id.is_(None),
         )
     )
     if file is None:
@@ -330,6 +334,7 @@ async def detach_knowledge_base_file(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> None:
     await _get_agent(agent_id, ctx, session)
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
 
     link = await session.get(AgentKnowledgeBaseFile, (agent_id, file_id))
     if link is None:

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 # Categorias fixas (POP GVA Digital) — só organização/visual na árvore de
 # /base-de-conhecimento, não afeta a busca do agente. Mesmos valores do CHECK
@@ -33,7 +33,22 @@ class KnowledgeBaseFileOut(BaseModel):
     category: KnowledgeBaseCategory | None = None
     uploaded_at: datetime
     agent_ids: list[uuid.UUID] = Field(default_factory=list)
+    drive_file_id: str | None = None
+    imported_at: datetime | None = None
+    replaces_file_id: uuid.UUID | None = None
 
 
 class KnowledgeBaseFileCategoryUpdate(BaseModel):
     category: KnowledgeBaseCategory | None = None
+
+
+class DriveSelection(BaseModel):
+    access_token: SecretStr = Field(repr=False)
+    file_id: str = Field(min_length=1, max_length=200, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+class DriveImport(DriveSelection):
+    agent_id: uuid.UUID
+    category: KnowledgeBaseCategory | None = None
+    expected_version: str = Field(min_length=1, max_length=100)
+    replace_file_id: uuid.UUID | None = None

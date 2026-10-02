@@ -103,14 +103,18 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
     kb_ready = (
         await session.scalar(
             select(func.count(KnowledgeBaseFile.id)).where(
-                KnowledgeBaseFile.tenant_id == tenant_id, KnowledgeBaseFile.status == "ready"
+                KnowledgeBaseFile.tenant_id == tenant_id,
+                KnowledgeBaseFile.status == "ready",
+                KnowledgeBaseFile.superseded_at.is_(None),
             )
         )
     ) or 0
     kb_error = (
         await session.scalar(
             select(func.count(KnowledgeBaseFile.id)).where(
-                KnowledgeBaseFile.tenant_id == tenant_id, KnowledgeBaseFile.status == "error"
+                KnowledgeBaseFile.tenant_id == tenant_id,
+                KnowledgeBaseFile.status == "error",
+                KnowledgeBaseFile.superseded_at.is_(None),
             )
         )
     ) or 0

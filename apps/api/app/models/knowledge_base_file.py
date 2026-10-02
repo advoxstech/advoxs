@@ -6,9 +6,9 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     text,
 )
@@ -31,7 +31,21 @@ class KnowledgeBaseFile(Base):
             ") OR category IS NULL",
             name="category",
         ),
-        UniqueConstraint("tenant_id", "filename", name="uq_knowledge_base_files_tenant_filename"),
+        Index(
+            "uq_knowledge_base_files_tenant_filename",
+            "tenant_id",
+            "filename",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL AND replaces_file_id IS NULL"),
+        ),
+        Index(
+            "uq_kb_drive_active",
+            "tenant_id",
+            "drive_file_id",
+            unique=True,
+            postgresql_where=text("superseded_at IS NULL AND replaces_file_id IS NULL"),
+        ),
+        Index("uq_kb_pending_replacement", "replaces_file_id", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -45,6 +59,15 @@ class KnowledgeBaseFile(Base):
     mime_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'processing'"))
     error_message: Mapped[str | None] = mapped_column(Text)
+    drive_file_id: Mapped[str | None] = mapped_column(String(200))
+    drive_version: Mapped[str | None] = mapped_column(String(100))
+    content_sha256: Mapped[str | None] = mapped_column(String(64))
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A versão anterior permanece disponível para as fontes de respostas antigas.
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaces_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("knowledge_base_files.id", ondelete="RESTRICT")
+    )
     # Categoria fixa (POP GVA Digital) — só organização/visual, não afeta a
     # busca do agente. NULL = "sem categoria" (arquivos legados ou upload sem
     # categoria escolhida).
