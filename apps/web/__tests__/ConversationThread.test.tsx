@@ -654,7 +654,7 @@ describe("ConversationThread", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "DELETE") {
-        return jsonResponse(null, 204);
+        return jsonResponse({ status: "pending" }, 202);
       }
       return jsonResponse([]);
     });

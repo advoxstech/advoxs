@@ -58,7 +58,9 @@ async def test_sem_redis_a_entrega_fica_disponivel_para_recuperacao() -> None:
 async def test_cancela_entrega_quando_atendimento_nao_esta_com_ia() -> None:
     session = AsyncMock()
     state_result = MagicMock()
-    state_result.scalar_one_or_none.return_value = "human"
+    state_result.one_or_none.return_value = SimpleNamespace(
+        state="human", deletion_requested_at=None
+    )
     session.execute.side_effect = [state_result, MagicMock()]
 
     cancelled = await outbound_outbox._cancel_if_automation_paused(
@@ -76,7 +78,9 @@ async def test_cancela_entrega_quando_atendimento_nao_esta_com_ia() -> None:
 async def test_mantem_entrega_quando_atendimento_esta_com_ia() -> None:
     session = AsyncMock()
     state_result = MagicMock()
-    state_result.scalar_one_or_none.return_value = "agent"
+    state_result.one_or_none.return_value = SimpleNamespace(
+        state="agent", deletion_requested_at=None
+    )
     session.execute.return_value = state_result
 
     cancelled = await outbound_outbox._cancel_if_automation_paused(
@@ -85,3 +89,18 @@ async def test_mantem_entrega_quando_atendimento_esta_com_ia() -> None:
 
     assert cancelled is False
     session.commit.assert_not_awaited()
+
+
+async def test_cancela_entrega_durante_exclusao() -> None:
+    session = AsyncMock()
+    state_result = MagicMock()
+    state_result.one_or_none.return_value = SimpleNamespace(
+        state="agent", deletion_requested_at=object()
+    )
+    session.execute.side_effect = [state_result, MagicMock()]
+
+    cancelled = await outbound_outbox._cancel_if_automation_paused(
+        session, uuid.uuid4(), uuid.uuid4()
+    )
+
+    assert cancelled is True

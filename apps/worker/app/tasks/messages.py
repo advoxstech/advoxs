@@ -112,11 +112,17 @@ async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
                 select(
                     tables.inbound_message_jobs.c.conversation_id,
                     tables.inbound_message_jobs.c.created_at,
-                ).where(
+                )
+                .join(
+                    tables.conversations,
+                    tables.conversations.c.id == tables.inbound_message_jobs.c.conversation_id,
+                )
+                .where(
                     tables.inbound_message_jobs.c.id == job_uuid,
                     tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
                     tables.inbound_message_jobs.c.status == "pending",
                     tables.inbound_message_jobs.c.available_at <= now,
+                    tables.conversations.c.deletion_requested_at.is_(None),
                 )
             )
         ).one_or_none()
@@ -148,11 +154,17 @@ async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
                 select(
                     tables.inbound_message_jobs.c.conversation_id,
                     tables.inbound_message_jobs.c.created_at,
-                ).where(
+                )
+                .join(
+                    tables.conversations,
+                    tables.conversations.c.id == tables.inbound_message_jobs.c.conversation_id,
+                )
+                .where(
                     tables.inbound_message_jobs.c.id == job_uuid,
                     tables.inbound_message_jobs.c.tenant_id == tenant_uuid,
                     tables.inbound_message_jobs.c.status == "pending",
                     tables.inbound_message_jobs.c.available_at <= now,
+                    tables.conversations.c.deletion_requested_at.is_(None),
                 )
             )
         ).one_or_none()
@@ -340,13 +352,14 @@ async def _conversation_allows_automation(
     session: AsyncSession, conversation_id: str, *, lock: bool = False
 ) -> bool:
     """Lê a fonte de verdade; com lock, serializa com o takeover da API."""
-    statement = select(tables.conversations.c.state).where(
-        tables.conversations.c.id == uuid.UUID(conversation_id)
-    )
+    statement = select(
+        tables.conversations.c.state,
+        tables.conversations.c.deletion_requested_at,
+    ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
     if lock:
         statement = statement.with_for_update()
-    state = (await session.execute(statement)).scalar_one_or_none()
-    return state == "agent"
+    row = (await session.execute(statement)).one_or_none()
+    return row is not None and row.state == "agent" and row.deletion_requested_at is None
 
 
 async def _restore_agent_context_before_stale_response(
@@ -632,6 +645,7 @@ async def _process_inbound_message(
             contact_phone_number=inbound.contact_phone_number,
             message=message_content,
             agents=inbound.agents,
+            urgency_keywords=inbound.urgency_keywords,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -762,6 +776,20 @@ async def _process_inbound_message(
             .values(automation_status="processing" if outbound_job_ids else "idle")
         )
 
+        if result.get("urgency"):
+            # Mesma regra de app/services/urgency.py::mark_urgent no api: mantém
+            # o horário da primeira sinalização aberta; motivo do agente prevalece.
+            conversations = tables.conversations
+            await session.execute(
+                update(conversations)
+                .where(conversations.c.id == uuid.UUID(conversation_id))
+                .values(
+                    urgent_since=func.coalesce(conversations.c.urgent_since, func.now()),
+                    urgent_reason=str(result["urgency"])[:300],
+                    urgent_source="agent",
+                )
+            )
+
         if current_agent_id:
             # Permite identificar o agente atual no status do painel; atualiza
             # mesmo se `responses` veio vazio.
@@ -883,7 +911,10 @@ async def _load_context(
                 tables.conversations.c.billing_gate_retries,
                 tables.conversations.c.billing_gate_checkout_url,
                 tables.conversations.c.end_customer_billing_exempt,
-            ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
+            ).where(
+                tables.conversations.c.id == uuid.UUID(conversation_id),
+                tables.conversations.c.deletion_requested_at.is_(None),
+            )
         )
     ).one_or_none()
     if conversation is None:
@@ -941,6 +972,16 @@ async def _load_context(
     ).one_or_none()
 
     agents = await _load_agents(session, tenant_id)
+    urgency_keywords = [
+        row.keyword
+        for row in (
+            await session.execute(
+                select(tables.urgency_keywords.c.keyword)
+                .where(tables.urgency_keywords.c.tenant_id == uuid.UUID(tenant_id))
+                .order_by(tables.urgency_keywords.c.created_at)
+            )
+        ).all()
+    ]
 
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
     end_customer_balance = Decimal(0)
@@ -1024,6 +1065,7 @@ async def _load_context(
         end_customer_subscription_id=(str(active_subscription) if active_subscription else None),
         media_url=message_row.media_url,
         media_type=message_row.media_type,
+        urgency_keywords=urgency_keywords,
     )
 
 

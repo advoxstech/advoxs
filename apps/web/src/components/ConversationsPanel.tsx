@@ -25,11 +25,14 @@ function appendConversations(current: Conversation[], incoming: Conversation[]):
 export function ConversationsPanel({
   pollMs = 5000,
   initialOrigin = "real",
+  initialUrgentOnly = false,
 }: {
   pollMs?: number;
   initialOrigin?: "real" | "test";
+  initialUrgentOnly?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>(initialOrigin);
+  const [urgentOnly, setUrgentOnly] = useState(initialUrgentOnly);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -39,6 +42,7 @@ export function ConversationsPanel({
   const [loadError, setLoadError] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const refreshSequenceRef = useRef(0);
   const conversationsRef = useRef<Conversation[]>([]);
 
@@ -51,12 +55,13 @@ export function ConversationsPanel({
     setRefreshing(true);
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}&limit=${PAGE_SIZE}&offset=0`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}&limit=${PAGE_SIZE}&offset=0`,
       );
       if (!response.ok) throw new Error("conversations request failed");
       const data: Conversation[] = await response.json();
       if (sequence !== refreshSequenceRef.current) return;
-      setConversations((current) => mergeConversations(current, data));
+      // Com o filtro ativo, uma conversa resolvida precisa sair da lista.
+      setConversations((current) => (urgentOnly ? data : mergeConversations(current, data)));
       if (conversationsRef.current.length <= PAGE_SIZE) {
         setHasMore(data.length === PAGE_SIZE);
       }
@@ -70,14 +75,14 @@ export function ConversationsPanel({
         setRefreshing(false);
       }
     }
-  }, [tab]);
+  }, [tab, urgentOnly]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
       );
       if (!response.ok) throw new Error("older conversations request failed");
       const data: Conversation[] = await response.json();
@@ -108,6 +113,17 @@ export function ConversationsPanel({
     setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
+  const toggleUrgentOnly = () => {
+    setUrgentOnly((value) => !value);
+    setSelectedId(null);
+    setConversations([]);
+    setLoaded(false);
+    setHasMore(true);
+    setLoadError(false);
+    setLastUpdatedAt(null);
+    setActionNotice(null);
+  };
+
   const switchTab = (next: Tab) => {
     if (next === tab) return;
     setTab(next);
@@ -117,6 +133,7 @@ export function ConversationsPanel({
     setHasMore(true);
     setLoadError(false);
     setLastUpdatedAt(null);
+    setActionNotice(null);
   };
 
   const createTestConversation = async () => {
@@ -137,6 +154,9 @@ export function ConversationsPanel({
   const handleDeleted = (id: string) => {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     setSelectedId(null);
+    setActionNotice(
+      "Exclusão iniciada. O histórico será removido com segurança em segundo plano.",
+    );
   };
 
   return (
@@ -166,6 +186,14 @@ export function ConversationsPanel({
           </button>
         </div>
       </header>
+      {actionNotice ? (
+        <p
+          role="status"
+          className="border-b border-line bg-brass-soft px-5 py-2 text-sm text-ink"
+        >
+          {actionNotice}
+        </p>
+      ) : null}
 
       {loadError ? (
         <div
@@ -193,7 +221,19 @@ export function ConversationsPanel({
         <aside
           className={`${selected ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-r border-line md:w-80`}
         >
-          <div className="flex items-center justify-end px-5 py-3">
+          <div className="flex items-center justify-between px-5 py-3">
+            <button
+              type="button"
+              onClick={toggleUrgentOnly}
+              aria-pressed={urgentOnly}
+              className={`rounded-sm border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+                urgentOnly
+                  ? "border-danger bg-danger text-white"
+                  : "border-line text-muted hover:border-danger hover:text-danger"
+              }`}
+            >
+              Urgentes
+            </button>
             <span className="font-mono text-xs text-muted">{conversations.length}</span>
           </div>
           {tab === "test" ? (
@@ -228,6 +268,7 @@ export function ConversationsPanel({
                 conversation={selected}
                 onDeleted={() => handleDeleted(selected.id)}
                 onBack={() => setSelectedId(null)}
+                onConversationUpdate={handleConversationUpdate}
               />
             ) : (
               <ConversationThread

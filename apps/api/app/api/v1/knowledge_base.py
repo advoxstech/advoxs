@@ -26,9 +26,11 @@ from app.schemas.knowledge_base import (
 from app.services.subscriptions import get_active_subscription
 from app.services.upload_storage import (
     InvalidUploadContentError,
+    UploadTooLargeError,
     atomic_write,
     display_filename,
     managed_path,
+    read_upload_limited,
     safe_delete,
     validate_upload_content,
 )
@@ -136,8 +138,9 @@ async def upload_file(
             detail=f"Tipo de conteúdo não corresponde à extensão {extension}",
         )
 
-    data = await file.read()
-    if len(data) > settings.kb_max_file_size_bytes:
+    try:
+        data = await read_upload_limited(file, settings.kb_max_file_size_bytes)
+    except UploadTooLargeError:
         limite_mb = settings.kb_max_file_size_bytes // (1024 * 1024)
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,

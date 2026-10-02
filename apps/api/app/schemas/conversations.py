@@ -26,6 +26,9 @@ class ConversationOut(BaseModel):
     end_customer_billing_exempt: bool = False
     end_customer_billing_enabled: bool = False
     current_agent_name: str | None = None
+    urgent_since: datetime | None = None
+    urgent_reason: str | None = None
+    urgent_source: Literal["agent", "keyword", "manual"] | None = None
 
 
 class ResponseSource(BaseModel):
@@ -63,6 +66,14 @@ class ConversationStateUpdate(BaseModel):
 
 class BillingExemptionUpdate(BaseModel):
     exempt: bool
+
+
+class UrgencyUpdate(BaseModel):
+    urgent: bool
+
+
+class UrgentCountOut(BaseModel):
+    count: int
 
 
 class SendMessageRequest(BaseModel):

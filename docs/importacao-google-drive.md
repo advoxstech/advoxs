@@ -15,7 +15,7 @@ Para liberar a funcionalidade no futuro, ainda será necessário:
 - criar e restringir a API key para Drive, Picker e sites autorizados;
 - preencher `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_API_KEY` e
   `GOOGLE_DRIVE_PROJECT_NUMBER` na `.env` da VPS;
-- publicar o código e aplicar a migration **0040**;
+- publicar o código e aplicar a migration **0042**;
 - ativar `GOOGLE_DRIVE_ENABLED=true`, recriar os serviços e executar o teste real
   de autorização, seleção, importação e atualização de arquivos.
 
@@ -93,7 +93,7 @@ autenticada em runtime; não há valores Google embutidos no build do frontend.
 Não alterar chaves do WhatsApp, agentes ou banco. Sem configuração completa, o
 botão fica oculto, as rotas de importação recusam chamadas e o upload local continua.
 
-A migration **0040** adiciona metadados opcionais à tabela existente e índices para
+A migration **0042** adiciona metadados opcionais à tabela existente e índices para
 duplicados/atualizações. Usa a RLS já existente. Não há migration no serviço RAG.
 O deploy precisa aplicar a migration antes de iniciar as novas versões de API/worker.
 Rollback operacional: desative a integração mantendo o schema. O downgrade da migration

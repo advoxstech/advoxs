@@ -5,6 +5,10 @@ from arq.worker import func
 
 from app.config import settings
 from app.db import create_engine_and_factory, create_system_engine_and_factory
+from app.tasks.conversation_cleanup import (
+    process_conversation_cleanup,
+    recover_conversation_cleanup_jobs,
+)
 from app.tasks.inbound_outbox import recover_inbound_message_jobs
 from app.tasks.knowledge_base import ingest_knowledge_base_file, recover_drive_imports
 from app.tasks.messages import process_inbound_message
@@ -36,15 +40,18 @@ async def shutdown(ctx: dict) -> None:
 class WorkerSettings:
     functions = [
         func(ingest_knowledge_base_file, keep_result=0),
+        process_conversation_cleanup,
         process_inbound_message,
         recover_inbound_message_jobs,
         deliver_outbound_message,
         recover_outbound_message_jobs,
+        recover_conversation_cleanup_jobs,
     ]
     cron_jobs = [
         cron(recover_drive_imports, second=30),
         cron(recover_inbound_message_jobs, second=0),
         cron(recover_outbound_message_jobs, second=0),
+        cron(recover_conversation_cleanup_jobs, second=30),
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = startup

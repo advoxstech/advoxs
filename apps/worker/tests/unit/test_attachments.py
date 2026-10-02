@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 import app.tasks.attachments as attachments_task
-from app.clients.media import MediaDownloadError
+from app.clients.media import MediaDownloadError, MediaTooLargeError
 from app.config import settings
 from app.tasks.attachments import process_inbound_attachment
 
@@ -76,7 +76,9 @@ async def test_pdf_via_meta_baixa_e_ingere_com_sucesso(patched) -> None:
         access_token="token-abc",
     )
 
-    patched["download_meta"].assert_awaited_once_with("media-123", "token-abc")
+    patched["download_meta"].assert_awaited_once_with(
+        "media-123", "token-abc", settings.attachment_max_bytes
+    )
     patched["ingest"].assert_awaited_once()
     kwargs = patched["ingest"].await_args.kwargs
     assert kwargs["tenant_id"] == TENANT_ID
@@ -102,7 +104,9 @@ async def test_docx_via_zapi_usa_download_zapi(patched) -> None:
     )
 
     patched["download_zapi"].assert_awaited_once_with(
-        "https://z-api.example/media/x.docx", "client-token-abc"
+        "https://z-api.example/media/x.docx",
+        "client-token-abc",
+        settings.attachment_max_bytes,
     )
     patched["download_meta"].assert_not_awaited()
     kwargs = patched["ingest"].await_args.kwargs
@@ -131,6 +135,7 @@ async def test_falha_no_download_devolve_nota_de_erro_sem_levantar(patched) -> N
 
 async def test_arquivo_grande_demais_nao_ingere(patched, monkeypatch) -> None:
     monkeypatch.setattr(settings, "attachment_max_bytes", 4)
+    patched["download_meta"].side_effect = MediaTooLargeError("grande")
 
     result = await process_inbound_attachment(
         AsyncMock(),

@@ -809,3 +809,47 @@ async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> N
     patched["send"].assert_awaited_once()
     patched["debitar"].assert_not_awaited()
     patched["debitar_cliente_final"].assert_not_awaited()
+
+
+async def test_urgencia_do_agente_marca_a_conversa(patched) -> None:
+    inbound = _inbound()
+    inbound.urgency_keywords = ["despejo"]
+    patched["load"].return_value = inbound
+    patched["send"].return_value = {
+        "responses": ["resposta"],
+        "tokens_used": 10,
+        "tokens_input": 5,
+        "tokens_output": 5,
+        "urgency": "audiência amanhã",
+    }
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert patched["send"].await_args.kwargs["urgency_keywords"] == ["despejo"]
+    statements = [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in ctx[
+            "session_factory"
+        ].return_value.__aenter__.return_value.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+    ]
+    urgent = [s for s in statements if "urgent_since" in s]
+    assert len(urgent) == 1
+    assert "coalesce(conversations.urgent_since, now())" in urgent[0]
+    assert "urgent_source='agent'" in urgent[0]
+
+
+async def test_sem_urgencia_nao_toca_nas_colunas(patched) -> None:
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    statements = [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in ctx[
+            "session_factory"
+        ].return_value.__aenter__.return_value.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+    ]
+    assert not any("urgent_since" in s for s in statements)

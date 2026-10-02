@@ -22,6 +22,7 @@ from agents.tools import (
     fazer_contrato,
     fazer_multa,
     fazer_oficio,
+    sinalizar_urgencia,
     tools,
     transfer_to_agent,
 )
@@ -53,6 +54,33 @@ _KNOWLEDGE_BASE_RULE = (
     "conhecimento nativo. Se a busca estiver indisponível, você também pode responder com seu "
     "conhecimento nativo, mas nunca afirme que consultou ou encontrou algo nos documentos."
 )
+
+# Injetada em todo prompt, igual à de continuidade: a IA sinaliza e continua
+# atendendo — quem decide assumir a conversa é a equipe do escritório.
+_URGENCY_RULE = (
+    "**Regra de urgência (obrigatória, vale acima de qualquer outra instrução):** "
+    "são urgentes: risco à integridade física, prisão ou flagrante, violência ou ameaça, "
+    "medida protetiva, audiência, prazo processual ou prazo legal vencendo nos próximos 3 "
+    "dias, e bloqueio de conta, penhora, leilão, despejo, busca e apreensão ou intimação "
+    "urgente. Se a última mensagem do cliente indicar qualquer uma dessas situações e a "
+    "conversa ainda não foi sinalizada por esse assunto, sua PRIMEIRA ação deve ser chamar "
+    'sinalizar_urgencia (motivo curto, ex: "audiência trabalhista em 2 dias"), antes de '
+    "responder, de transferir ou de usar outra ferramenta — inclusive quando você for "
+    "transferir o atendimento. Depois da confirmação, siga normalmente e avise o cliente "
+    "que a equipe do escritório foi notificada com prioridade."
+)
+
+
+def _urgency_rule(keywords: list[str]) -> str:
+    rule = _URGENCY_RULE
+    if keywords:
+        rule += (
+            " O escritório também considera urgentes mensagens que mencionem: "
+            + ", ".join(keywords[:100])
+            + "."
+        )
+    return rule + "\n\n---\n\n"
+
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
 # o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
@@ -102,6 +130,7 @@ async def agent_node(state: dict) -> Command:
 
     tools_for_agent = [
         transfer_to_agent,
+        sinalizar_urgencia,
         responder_com_fontes,
         buscar_base_conhecimento_agente,
         bucar_base_conhecimento_usuario,
@@ -121,7 +150,14 @@ async def agent_node(state: dict) -> Command:
         ]
     model_with_tools = model.bind_tools(tools_for_agent)
 
-    prompt = current["instructions"] + _CONTINUITY_RULE + _KNOWLEDGE_BASE_RULE + SOURCE_RULE
+    # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
+    prompt = (
+        _urgency_rule(state.get("urgency_keywords") or [])
+        + current["instructions"]
+        + _CONTINUITY_RULE
+        + _KNOWLEDGE_BASE_RULE
+        + SOURCE_RULE
+    )
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
     if other_agents:
         roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)
@@ -245,7 +281,11 @@ async def tool_node(state: dict) -> dict:
                     list(observation.update.keys()),
                 )
                 state_updates.update(observation.update)
-            content = ""
+            content = (
+                "Conversa sinalizada como urgente para a equipe. Continue o atendimento."
+                if tool_call["name"] == "sinalizar_urgencia"
+                else ""
+            )
         else:
             content = str(observation)
 

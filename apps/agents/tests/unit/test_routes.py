@@ -81,6 +81,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
         "response_sources": [],
         "delivery_failures": [],
         "documents": [],
+        "urgency": None,
     }
 
     # thread_id composto por tenant + telefone do contato
@@ -135,6 +136,7 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         "response_sources": [],
         "delivery_failures": [],
         "documents": [],
+        "urgency": None,
     }
     wa_cls.assert_not_called()
     wa_instance.send_text_message.assert_not_awaited()
@@ -628,3 +630,31 @@ def test_sources_return_internally_but_never_in_whatsapp_payload(client, monkeyp
     assert response.status_code == 200
     assert response.json()["response_sources"] == [evidence]
     assert whatsapp.send_text_message.await_args.args[-1] == "Resposta ao cliente"
+
+
+def test_repassa_palavras_chave_e_devolve_urgencia(client, monkeypatch):
+    debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
+    run_agent = AsyncMock(
+        return_value=(
+            ["resposta"],
+            {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15,
+                "urgency": "audiência amanhã",
+            },
+            "agente",
+            "a1",
+            [],
+        )
+    )
+    monkeypatch.setattr(routes, "debounce_messages", debounce)
+    monkeypatch.setattr(routes, "run_agent", run_agent)
+    _mock_whatsapp_client(monkeypatch)
+
+    payload = {**PAYLOAD, "send_to_whatsapp": False, "urgency_keywords": ["despejo"]}
+    response = client.post("/messages", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["urgency"] == "audiência amanhã"
+    assert run_agent.await_args.kwargs["urgency_keywords"] == ["despejo"]

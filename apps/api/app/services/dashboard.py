@@ -55,13 +55,28 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
 
     conversations_total = (
         await session.scalar(
-            select(func.count(Conversation.id)).where(Conversation.tenant_id == tenant_id)
+            select(func.count(Conversation.id)).where(
+                Conversation.tenant_id == tenant_id,
+                Conversation.deletion_requested_at.is_(None),
+            )
         )
     ) or 0
     waiting_human = (
         await session.scalar(
             select(func.count(Conversation.id)).where(
-                Conversation.tenant_id == tenant_id, Conversation.state == "human"
+                Conversation.tenant_id == tenant_id,
+                Conversation.state == "human",
+                Conversation.deletion_requested_at.is_(None),
+            )
+        )
+    ) or 0
+    urgent = (
+        await session.scalar(
+            select(func.count(Conversation.id)).where(
+                Conversation.tenant_id == tenant_id,
+                Conversation.is_test.is_(False),
+                Conversation.urgent_since.is_not(None),
+                Conversation.deletion_requested_at.is_(None),
             )
         )
     ) or 0
@@ -164,7 +179,10 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
         (
             await session.execute(
                 select(Conversation)
-                .where(Conversation.tenant_id == tenant_id)
+                .where(
+                    Conversation.tenant_id == tenant_id,
+                    Conversation.deletion_requested_at.is_(None),
+                )
                 .order_by(Conversation.last_message_at.desc().nulls_last())
                 .limit(RECENT_LIMIT)
             )
@@ -182,7 +200,7 @@ async def build_tenant_dashboard(session: AsyncSession, tenant_id: uuid.UUID) ->
             ),
         ),
         conversations=ConversationsSummaryOut(
-            total=conversations_total, waiting_human=waiting_human
+            total=conversations_total, waiting_human=waiting_human, urgent=urgent
         ),
         usage_last_30_days=UsageSummaryOut(
             agent_messages=agent_messages, credits_consumed=abs(credits_consumed_negative)

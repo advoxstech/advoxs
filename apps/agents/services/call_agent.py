@@ -53,6 +53,7 @@ async def run_agent(
     extra_data: dict = {},
     agents: list[dict] | None = None,
     test_start_agent_id: str | None = None,
+    urgency_keywords: list[str] | None = None,
 ) -> tuple[list[str], dict, str | None, str | None, list[dict]]:
     started_at = time.perf_counter()
     config = {
@@ -77,6 +78,9 @@ async def run_agent(
         prior_doc_count = (
             len(prior_state.values.get("generated_documents", [])) if prior_state.values else 0
         )
+        prior_urgency_count = (
+            len(prior_state.values.get("urgency_flags", [])) if prior_state.values else 0
+        )
         # Only seed a new isolated test. Later messages preserve transfers and checkpoint state.
         initial_state = {}
         if test_start_agent_id is not None and prior_count == 0:
@@ -92,6 +96,7 @@ async def run_agent(
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
                 "agents": agents,
+                "urgency_keywords": urgency_keywords or [],
                 "source_candidates": {},
                 "source_searches": {},
                 **initial_state,
@@ -108,6 +113,8 @@ async def run_agent(
     usage = sum_usage_breakdown(new_messages)
     usage["response_sources"] = response_sources
     generated_documents = response.get("generated_documents", [])[prior_doc_count:]
+    urgency_flags = response.get("urgency_flags", [])[prior_urgency_count:]
+    usage["urgency"] = urgency_flags[-1]["reason"] if urgency_flags else None
 
     agents_by_id = {a["id"]: a for a in agents}
     current_agent_id = response.get("current_agent_id")

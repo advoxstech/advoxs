@@ -5,15 +5,18 @@ import { TenantNav } from "@/components/TenantNav";
 export default async function ConversasPage({
   searchParams,
 }: {
-  searchParams: Promise<{ aba?: string }>;
+  searchParams: Promise<{ aba?: string; urgentes?: string }>;
 }) {
-  const { aba } = await searchParams;
+  const { aba, urgentes } = await searchParams;
   return (
     <div className="flex h-screen overflow-hidden">
       <TenantNav active="conversas" />
       <div className="flex flex-1 flex-col overflow-hidden">
         <LowBalanceBanner />
-        <ConversationsPanel initialOrigin={aba === "testes" ? "test" : "real"} />
+        <ConversationsPanel
+          initialOrigin={aba === "testes" ? "test" : "real"}
+          initialUrgentOnly={urgentes === "1"}
+        />
       </div>
     </div>
   );

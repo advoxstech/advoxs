@@ -95,8 +95,12 @@ jobs:
           SYSTEM_DATABASE_URL: postgresql+asyncpg://advoxs_system:advoxs@localhost:5432/advoxs_test
           REDIS_URL: redis://localhost:6379/0
           JWT_SECRET: ci-test-secret
-      - name: Migrations, response sources, tenant isolation and concurrent publication
-        run: uv run pytest tests/integration/test_agent_versions.py tests/integration/test_response_sources.py
+      - name: Migrations, response sources, cleanup, tenant isolation and concurrent publication
+        run: >-
+          uv run pytest
+          tests/integration/test_agent_versions.py
+          tests/integration/test_response_sources.py
+          tests/integration/test_conversation_cleanup.py
         env:
           AGENT_VERSIONS_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/agent_versions_test
 
@@ -119,6 +123,20 @@ jobs:
     needs: changes
     if: needs.changes.outputs.worker == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: advoxs_test
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: cleanup_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U advoxs_test -d cleanup_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: apps/worker
@@ -133,7 +151,9 @@ jobs:
           # advoxs_app (RLS ativo, ver migration 0008 no apps/api) — o worker não
           # roda migrations nem conecta como owner, só consome esse papel.
           APP_DATABASE_URL: postgresql+asyncpg://advoxs_app:advoxs@localhost:5432/advoxs_test
+          SYSTEM_DATABASE_URL: postgresql+asyncpg://advoxs_system:advoxs@localhost:5432/advoxs_test
           REDIS_URL: redis://localhost:6379/0
+          CONVERSATION_CLEANUP_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/cleanup_test
 
   api_rag:
     needs: changes

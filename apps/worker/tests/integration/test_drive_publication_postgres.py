@@ -1,7 +1,7 @@
 """Opt-in: TEST_DRIVE_DATABASE_URL deve apontar para um Postgres descartável.
 
 Não usa DATABASE_URL da aplicação. Cria um schema e papel temporários exclusivos,
-aplica a migration real 0040 e exercita publicação/rollback com RLS real.
+aplica a migration real 0042 e exercita publicação/rollback com RLS real.
 """
 
 import importlib.util
@@ -61,7 +61,7 @@ async def database():
                 await conn.execute(text(statement))
             migration_path = (
                 Path(__file__).resolve().parents[3]
-                / "api/alembic/versions/0040_google_drive_imports.py"
+                / "api/alembic/versions/0042_google_drive_imports.py"
             )
             spec = importlib.util.spec_from_file_location("drive_migration", migration_path)
             migration = importlib.util.module_from_spec(spec)
