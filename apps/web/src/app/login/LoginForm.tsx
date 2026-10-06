@@ -14,7 +14,7 @@ export function LoginForm({ notice }: { notice?: string }) {
   return (
     <form action={formAction} className="flex w-full max-w-[424px] flex-col gap-7">
       <header className="flex flex-col gap-2.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
+        <span className="font-mono text-micro uppercase tracking-[0.2em] text-muted">
           Painel do escritório
         </span>
         <h1 className="font-display text-4xl font-semibold tracking-tight text-ink">
@@ -22,7 +22,7 @@ export function LoginForm({ notice }: { notice?: string }) {
         </h1>
         <p className="text-[15px] leading-relaxed text-muted">
           Ainda não tem acesso?{" "}
-          <Link href="/" className="font-semibold text-auth-accent hover:underline">
+          <Link href="/" className="font-semibold text-auth-accent-ink hover:underline">
             Criar conta
           </Link>
         </p>
@@ -61,7 +61,7 @@ export function LoginForm({ notice }: { notice?: string }) {
             <button
               type="button"
               onClick={() => setShowPassword((value) => !value)}
-              className="absolute right-2 top-2 h-[34px] rounded-lg bg-auth-accent-soft px-3 font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-auth-accent transition-colors hover:bg-auth-accent/20"
+              className="absolute right-2 top-2 h-[34px] rounded-lg bg-auth-accent-soft px-3 font-mono text-micro font-medium uppercase tracking-[0.08em] text-auth-accent-ink transition-colors hover:bg-auth-accent/20"
             >
               {showPassword ? "Ocultar" : "Mostrar"}
             </button>
@@ -84,7 +84,7 @@ export function LoginForm({ notice }: { notice?: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="h-[56px] rounded-2xl bg-gradient-to-b from-auth-accent to-ink text-base font-semibold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
+        className="h-[56px] rounded-2xl bg-gradient-to-b from-auth-accent-ink to-ink text-base font-semibold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
       >
         {pending ? "Entrando…" : "Entrar no painel"}
       </button>

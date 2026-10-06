@@ -2,7 +2,7 @@ import { CreditosExtrato } from "@/components/CreditosExtrato";
 import { CreditosPanel } from "@/components/CreditosPanel";
 import { FinancialUsagePanel } from "@/components/FinancialUsagePanel";
 import { SpendingChart } from "@/components/SpendingChart";
-import { TenantNav } from "@/components/TenantNav";
+import { TenantShell } from "@/components/TenantShell";
 import { API_URL } from "@/lib/backend";
 import type { CreditPackage } from "@/lib/types";
 
@@ -20,8 +20,7 @@ export default async function CreditosPage() {
   const packages = await getPackages();
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <TenantNav active="creditos" />
+    <TenantShell active="creditos">
       <main className="flex-1 overflow-y-auto bg-ground">
         <CreditosPanel packages={packages} />
         <div className="px-8 pb-8">
@@ -32,6 +31,6 @@ export default async function CreditosPage() {
           </div>
         </div>
       </main>
-    </div>
+    </TenantShell>
   );
 }

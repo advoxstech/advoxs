@@ -63,7 +63,7 @@ export function MonthlyBarChart({ data }: { data: DataPoint[] }) {
               x={bar.x + bar.width / 2}
               y={HEIGHT - PADDING + 14}
               textAnchor="middle"
-              className="fill-muted text-[10px]"
+              className="fill-muted text-micro"
             >
               {monthLabel(bar.month)}
             </text>

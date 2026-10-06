@@ -209,7 +209,7 @@ export function EndCustomerBillingPanel() {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-xl font-semibold text-ink">Cobrança dos clientes</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Cobrança dos clientes</h1>
         <p className="text-sm text-muted">
           Esta área controla os saldos, pacotes e assinaturas dos clientes atendidos. Ela é separada
           dos créditos do escritório, usados para custear o funcionamento dos agentes.
@@ -247,7 +247,7 @@ export function EndCustomerBillingPanel() {
             </p>
             {settings.stripe_account_status === "active" ? (
               <>
-                <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-accent">
+                <p className="mt-4 inline-flex w-fit items-center gap-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] text-accent">
                   Sua conta de pagamentos já está configurada
                 </p>
                 <ConnectEarnings />
@@ -413,7 +413,7 @@ export function EndCustomerBillingPanel() {
 
         <hr className="my-6 border-line" />
 
-        <h2 className="font-display text-lg font-semibold text-ink">Pacotes de crédito</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Pacotes de crédito</h2>
         <ul className="mt-4 max-w-md">
           {packages.length === 0 && (
             <li className="py-4 text-sm text-muted">Nenhum pacote cadastrado ainda.</li>
@@ -423,7 +423,7 @@ export function EndCustomerBillingPanel() {
               <div>
                 <p className="font-medium text-ink">
                   {pkg.name}{" "}
-                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                  <span className="font-mono text-micro uppercase tracking-[0.1em] text-muted">
                     {pkg.kind === "subscription" ? "Mensal" : "Avulso"}
                   </span>
                 </p>
@@ -436,7 +436,7 @@ export function EndCustomerBillingPanel() {
               <button
                 type="button"
                 onClick={() => void handleDeletePackage(pkg)}
-                className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
+                className="text-action text-muted transition-colors hover:text-danger"
               >
                 Excluir
               </button>

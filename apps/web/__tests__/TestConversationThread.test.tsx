@@ -128,7 +128,8 @@ describe("TestConversationThread", () => {
 
     render(<TestConversationThread conversation={conversation} onDeleted={onDeleted} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mais ações" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Excluir conversa" }));
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
   });

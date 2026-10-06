@@ -8,7 +8,7 @@ import { logout } from "@/app/conversas/actions";
 import { AdvoxsIcon } from "@/components/AdvoxsLogo";
 import { backendFetch } from "@/lib/client-api";
 
-type TenantNavItem =
+export type TenantNavItem =
   | "inicio"
   | "conversas"
   | "base"
@@ -19,7 +19,7 @@ type TenantNavItem =
   | "creditos"
   | "perfil";
 
-const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode }[] = [
+export const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode }[] = [
   {
     key: "inicio",
     href: "/inicio",
@@ -112,21 +112,19 @@ const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode 
   },
 ];
 
-const URGENT_POLL_MS = 30000;
-
-function UrgentBadge({ count }: { count: number }) {
+export function UrgentBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <span
       aria-label={`${count} conversa(s) urgente(s)`}
-      className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-danger px-1 font-mono text-[10px] font-semibold leading-none text-white"
+      className="absolute -right-2 -top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-1 font-mono text-micro font-semibold leading-none text-white"
     >
       {count > 99 ? "99+" : count}
     </span>
   );
 }
 
-function NavIcon({ children }: { children: ReactNode }) {
+export function NavIcon({ children }: { children: ReactNode }) {
   return (
     <svg
       width="18"
@@ -145,31 +143,20 @@ function NavIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export function TenantNav({ active }: { active: TenantNavItem | null }) {
+// Rótulos aparecem no hover e também no foco de teclado (focus-within).
+const REVEAL =
+  "whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100";
+
+/** Menu lateral do desktop. No celular quem navega é a MobileTabBar (ver TenantShell). */
+export function TenantNav({
+  active,
+  urgentCount = 0,
+}: {
+  active: TenantNavItem | null;
+  urgentCount?: number;
+}) {
   const [hasLogo, setHasLogo] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const [urgentCount, setUrgentCount] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadUrgent() {
-      try {
-        const response = await backendFetch("conversations/urgent-count");
-        if (response.ok && !cancelled) {
-          const body = await response.json();
-          setUrgentCount(Number(body.count) || 0);
-        }
-      } catch {
-        // fail-safe silencioso — o contador é só um atalho visual
-      }
-    }
-    void loadUrgent();
-    const interval = setInterval(() => void loadUrgent(), URGENT_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     async function loadProfile() {
@@ -180,103 +167,91 @@ export function TenantNav({ active }: { active: TenantNavItem | null }) {
           setHasLogo(Boolean(body.has_logo));
         }
       } catch {
-        // fail-safe silencioso — mantém o monograma
+        // Falha silenciosa: mantém o monograma.
       }
     }
     void loadProfile();
   }, []);
 
+  const reveal = pinned ? `${REVEAL} opacity-100` : REVEAL;
+
   return (
-    <nav
-      className={`group flex shrink-0 flex-col overflow-hidden bg-nav-bg py-5 transition-[width] duration-150 ease-out ${
-        pinned ? "w-[232px]" : "w-[72px] hover:w-[232px]"
-      }`}
-    >
-      <div className="flex h-8 items-center justify-between px-[22px]">
-        <span aria-label="Advoxs" className="text-nav-ink">
-          <AdvoxsIcon className="h-7 w-7" />
-        </span>
-        {hasLogo && (
-          <img
-            src="/api/backend/profile/logo"
-            alt="Logo do escritório"
-            className={`h-8 w-8 shrink-0 rounded-sm object-cover opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
-          />
-        )}
-      </div>
-
-      <div className="mt-6 flex flex-1 flex-col gap-0.5 px-3">
-        {ITEMS.map((item) =>
-          item.key === active ? (
-            <span
-              key={item.key}
-              className="flex h-10 items-center gap-3.5 rounded-md bg-nav-active px-[11px] text-sm font-semibold text-nav-ink"
-            >
-              <span className="relative">
-                <NavIcon>{item.icon}</NavIcon>
-                {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
-              </span>
-              <span
-                className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
-              >
-                {item.label}
-              </span>
-            </span>
-          ) : (
-            <Link
-              key={item.key}
-              href={item.href}
-              className="flex h-10 items-center gap-3.5 rounded-md px-[11px] text-sm font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
-            >
-              <span className="relative">
-                <NavIcon>{item.icon}</NavIcon>
-                {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
-              </span>
-              <span
-                className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
-              >
-                {item.label}
-              </span>
-            </Link>
-          ),
-        )}
-      </div>
-
-      <div className="flex flex-col gap-0.5 border-t border-nav-bg-2 px-3 pt-3.5">
-        <button
-          type="button"
-          onClick={() => setPinned((v) => !v)}
-          className="flex h-9 items-center gap-3.5 rounded-md px-[11px] text-left text-[13px] font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
-        >
-          <NavIcon>
-            <path d={pinned ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
-          </NavIcon>
-          <span
-            className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
-          >
-            {pinned ? "Recolher menu" : "Fixar menu aberto"}
+    // O espaço reservado fica fixo; o menu expande por cima do conteúdo, sem empurrá-lo.
+    <div className={`relative hidden shrink-0 md:block ${pinned ? "w-[232px]" : "w-[72px]"}`}>
+      <nav
+        aria-label="Navegação principal"
+        className={`group absolute inset-y-0 left-0 z-30 flex flex-col overflow-hidden bg-nav-bg py-5 ${
+          pinned
+            ? "w-[232px]"
+            : "w-[72px] hover:w-[232px] hover:shadow-[8px_0_24px_rgb(20_33_61/0.18)] focus-within:w-[232px] focus-within:shadow-[8px_0_24px_rgb(20_33_61/0.18)]"
+        }`}
+      >
+        <div className="flex h-8 items-center justify-between px-[22px]">
+          <span aria-label="Advoxs" className="text-nav-ink">
+            <AdvoxsIcon className="h-7 w-7" />
           </span>
-        </button>
-        <form action={logout}>
+          {hasLogo && (
+            <img
+              src="/api/backend/profile/logo"
+              alt="Logo do escritório"
+              className={`h-8 w-8 shrink-0 rounded-sm object-cover ${reveal}`}
+            />
+          )}
+        </div>
+
+        <div className="mt-6 flex flex-1 flex-col gap-0.5 px-3">
+          {ITEMS.map((item) => {
+            const isActive = item.key === active;
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`flex h-10 items-center gap-3.5 rounded-md px-[11px] text-sm transition-colors ${
+                  isActive
+                    ? "bg-nav-active font-semibold text-nav-ink"
+                    : "font-medium text-nav-ink-muted hover:bg-nav-bg-2 hover:text-nav-ink"
+                }`}
+              >
+                <span className="relative">
+                  <NavIcon>{item.icon}</NavIcon>
+                  {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
+                </span>
+                <span className={reveal}>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col gap-0.5 border-t border-nav-bg-2 px-3 pt-3.5">
           <button
-            type="submit"
-            className="flex h-9 w-full items-center gap-3.5 rounded-md px-[11px] text-left text-[13px] font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
+            type="button"
+            onClick={() => setPinned((v) => !v)}
+            aria-pressed={pinned}
+            className="flex h-9 items-center gap-3.5 rounded-md px-[11px] text-left text-[13px] font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
           >
             <NavIcon>
-              <>
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="m16 17 5-5-5-5" />
-                <path d="M21 12H9" />
-              </>
+              <path d={pinned ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
             </NavIcon>
-            <span
-              className={`whitespace-nowrap opacity-0 transition-opacity duration-100 group-hover:opacity-100 ${pinned ? "opacity-100" : ""}`}
-            >
-              Sair
-            </span>
+            <span className={reveal}>{pinned ? "Recolher menu" : "Fixar menu aberto"}</span>
           </button>
-        </form>
-      </div>
-    </nav>
+          <form action={logout}>
+            <button
+              type="submit"
+              className="flex h-9 w-full items-center gap-3.5 rounded-md px-[11px] text-left text-[13px] font-medium text-nav-ink-muted transition-colors hover:bg-nav-bg-2 hover:text-nav-ink"
+            >
+              <NavIcon>
+                <>
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <path d="m16 17 5-5-5-5" />
+                  <path d="M21 12H9" />
+                </>
+              </NavIcon>
+              <span className={reveal}>Sair</span>
+            </button>
+          </form>
+        </div>
+      </nav>
+    </div>
   );
 }

@@ -158,7 +158,8 @@ describe("ConversationsPanel — abas", () => {
     render(<ConversationsPanel pollMs={0} />);
 
     fireEvent.click(await screen.findByText("+55 11 99999-8888"));
-    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mais ações" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Excluir conversa" }));
 
     expect(
       await screen.findByText(

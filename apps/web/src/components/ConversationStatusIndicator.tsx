@@ -3,8 +3,8 @@ import type { Conversation, ConversationStatus } from "@/lib/types";
 const styles: Record<ConversationStatus, { text: string; dot: string }> = {
   agent: { text: "text-muted", dot: "bg-accent" },
   processing: { text: "text-accent", dot: "bg-accent" },
-  human: { text: "text-brass", dot: "bg-brass" },
-  billing_gate: { text: "text-brass", dot: "bg-brass" },
+  human: { text: "text-brass-ink", dot: "bg-brass" },
+  billing_gate: { text: "text-brass-ink", dot: "bg-brass" },
   failed: { text: "text-danger", dot: "bg-danger" },
 };
 

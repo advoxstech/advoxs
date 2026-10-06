@@ -116,7 +116,7 @@ export function FinancialUsagePanel() {
           </div>
 
           <div className="mt-4 overflow-hidden rounded border border-line bg-surface">
-            <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-line px-4 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+            <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-line px-4 py-2 font-mono text-micro uppercase tracking-[0.12em] text-muted">
               <span>Quem custeou</span>
               <span>Custo real</span>
               <span>Créditos debitados</span>
@@ -150,7 +150,7 @@ export function FinancialUsagePanel() {
 function Metric({ label, value, warning = false }: { label: string; value: string; warning?: boolean }) {
   return (
     <div className="rounded border border-line bg-surface p-4">
-      <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">{label}</p>
       <p className={`mt-2 text-xl font-semibold ${warning ? "text-danger" : "text-ink"}`}>
         {value}
       </p>

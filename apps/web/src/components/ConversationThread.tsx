@@ -10,7 +10,8 @@ import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } fro
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
-import { MarkUrgentButton, UrgencyBanner } from "./ConversationUrgency";
+import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 function formatUpdateTime(date: Date): string {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -53,6 +54,7 @@ export function ConversationThread({
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const isManual = conversation.state === "human";
+  const urgency = useUrgencyUpdate(conversation, onConversationUpdate);
 
   const [exemptionError, setExemptionError] = useState<string | null>(null);
   const [exemptionSuccess, setExemptionSuccess] = useState<string | null>(null);
@@ -186,6 +188,23 @@ export function ConversationThread({
     }
   };
 
+  const moreActions: ActionMenuItem[] = [
+    ...(conversation.urgent_since
+      ? []
+      : [{ label: "Marcar como urgente", onSelect: () => void urgency.update(true) }]),
+    ...(conversation.end_customer_billing_enabled
+      ? [
+          {
+            label: conversation.end_customer_billing_exempt
+              ? "Retomar cobrança deste cliente"
+              : "Isentar cliente de cobrança",
+            onSelect: () => void toggleBillingExemption(),
+          },
+        ]
+      : []),
+    { label: "Excluir conversa", onSelect: () => void handleDelete(), tone: "danger" as const },
+  ];
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3.5 md:px-6">
@@ -203,50 +222,31 @@ export function ConversationThread({
             {formatPhone(conversation.contact_phone_number)}
           </h2>
           <ConversationStatusIndicator conversation={conversation} />
-        </div>
-        <div className="flex w-full flex-wrap items-center justify-end gap-3 md:w-auto md:gap-4">
-          {conversation.end_customer_billing_enabled ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted">Cobrança gratuita</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={conversation.end_customer_billing_exempt}
-                aria-label="Cobrança gratuita"
-                onClick={() => void toggleBillingExemption()}
-                className={`relative h-5 w-9 rounded-full transition-colors ${
-                  conversation.end_customer_billing_exempt ? "bg-accent" : "bg-line"
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface transition-transform ${
-                    conversation.end_customer_billing_exempt
-                      ? "translate-x-4"
-                      : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+          {conversation.end_customer_billing_enabled && conversation.end_customer_billing_exempt ? (
+            <span className="rounded-sm bg-accent-soft px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.12em] text-accent">
+              Cobrança isenta
+            </span>
           ) : null}
-          <MarkUrgentButton conversation={conversation} onUpdate={onConversationUpdate} />
+        </div>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => void toggleState()}
-            className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+            className={`rounded-sm px-3.5 py-2 text-action text-white transition-colors ${
+              isManual ? "bg-accent hover:bg-accent/90" : "bg-brass-ink hover:bg-brass-ink/90"
+            }`}
           >
             {isManual ? "Devolver para IA" : "Assumir atendimento"}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleDelete()}
-            className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
-          >
-            Excluir conversa
-          </button>
+          <ActionMenu items={moreActions} />
         </div>
       </header>
       <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
+      {urgency.error ? (
+        <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
+          {urgency.error}
+        </p>
+      ) : null}
       {conversation.end_customer_billing_enabled &&
       (conversation.end_customer_balance != null || conversation.end_customer_cycle_total != null) ? (
         <aside className="border-b border-line bg-surface px-4 py-2 text-xs md:px-6">
@@ -440,8 +440,8 @@ function MessageBubble({ message }: { message: Message }) {
       >
         {!fromContact ? (
           <span
-            className={`mb-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] ${
-              fromHuman ? "text-brass" : "text-accent"
+            className={`mb-0.5 block font-mono text-micro uppercase tracking-[0.14em] ${
+              fromHuman ? "text-brass-ink" : "text-accent"
             }`}
           >
             {fromHuman ? "Você" : "Agente"}
@@ -463,19 +463,19 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
       <div className="mt-1 flex items-center gap-1.5">
         {message.delivery_status === "failed" ? (
-          <span className="rounded-sm bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-danger">
+          <span className="rounded-sm bg-danger/10 px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.1em] text-danger">
             Não entregue
           </span>
         ) : message.delivery_status === "cancelled" ? (
-          <span className="rounded-sm bg-muted/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+          <span className="rounded-sm bg-muted/10 px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.1em] text-muted">
             Cancelado
           </span>
         ) : message.delivery_status === "pending" ? (
-          <span className="rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-brass">
+          <span className="rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.1em] text-brass-ink">
             Enviando
           </span>
         ) : null}
-        <time className="font-mono text-[10px] text-muted">
+        <time className="font-mono text-micro text-muted">
           {formatMessageTime(message.created_at)}
         </time>
       </div>

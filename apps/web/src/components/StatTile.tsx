@@ -3,7 +3,7 @@ type StatTileTone = "neutral" | "good" | "warning" | "critical";
 const TONE_CLASS: Record<StatTileTone, string> = {
   neutral: "text-ink",
   good: "text-accent",
-  warning: "text-brass",
+  warning: "text-brass-ink",
   critical: "text-danger",
 };
 
@@ -18,8 +18,12 @@ export function StatTile({
 }) {
   return (
     <div className="rounded-none border border-line bg-surface p-5">
-      <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">{label}</p>
-      <p className={`mt-2 font-display text-3xl font-semibold ${TONE_CLASS[tone]}`}>{value}</p>
+      <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p
+        className={`mt-2 break-words font-display text-2xl font-semibold sm:text-3xl ${TONE_CLASS[tone]}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }

@@ -17,6 +17,7 @@ const config: Config = {
         "accent-soft": "var(--accent-soft)",
         brass: "var(--brass)",
         "brass-soft": "var(--brass-soft)",
+        "brass-ink": "var(--brass-ink)",
         danger: "var(--danger)",
         "nav-bg": "var(--nav-bg)",
         "nav-bg-2": "var(--nav-bg-2)",
@@ -25,6 +26,12 @@ const config: Config = {
         "nav-ink-muted": "var(--nav-ink-muted)",
         "auth-accent": "var(--auth-accent)",
         "auth-accent-soft": "var(--auth-accent-soft)",
+        "auth-accent-ink": "var(--auth-accent-ink)",
+      },
+      // Piso de legibilidade: nada funcional abaixo de 11px no painel.
+      fontSize: {
+        micro: ["11px", { lineHeight: "1.4" }],
+        action: ["13px", { lineHeight: "1.3", fontWeight: "500" }],
       },
       fontFamily: {
         display: ["var(--font-spectral)", "Georgia", "serif"],

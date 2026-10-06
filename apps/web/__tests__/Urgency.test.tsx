@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationList } from "@/components/ConversationList";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
-import { MarkUrgentButton, UrgencyBanner } from "@/components/ConversationUrgency";
-import { TenantNav } from "@/components/TenantNav";
+import { TestConversationThread } from "@/components/TestConversationThread";
+import { UrgencyBanner } from "@/components/ConversationUrgency";
+import { TenantShell } from "@/components/TenantShell";
 import { UrgencyKeywordsPanel } from "@/components/UrgencyKeywordsPanel";
 import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
@@ -61,7 +62,7 @@ describe("ConversationList — urgência", () => {
   });
 });
 
-describe("UrgencyBanner / MarkUrgentButton", () => {
+describe("UrgencyBanner / marcar como urgente", () => {
   it("mostra o motivo e marca como resolvida", async () => {
     const resolved = conversation({ urgent_since: null, urgent_reason: null, urgent_source: null });
     backendFetchMock.mockResolvedValue(jsonResponse(resolved));
@@ -86,11 +87,21 @@ describe("UrgencyBanner / MarkUrgentButton", () => {
   });
 
   it("marca manualmente como urgente", async () => {
-    backendFetchMock.mockResolvedValue(jsonResponse(conversation(URGENT)));
+    backendFetchMock.mockImplementation(async (path: string) =>
+      path.endsWith("/urgency") ? jsonResponse(conversation(URGENT)) : jsonResponse([]),
+    );
     const onUpdate = vi.fn();
 
-    render(<MarkUrgentButton conversation={conversation()} onUpdate={onUpdate} />);
-    fireEvent.click(screen.getByRole("button", { name: "Marcar como urgente" }));
+    render(
+      <TestConversationThread
+        conversation={conversation({ is_test: true })}
+        onDeleted={() => {}}
+        onConversationUpdate={onUpdate}
+        pollMs={0}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Mais ações" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Marcar como urgente" }));
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());
     expect(backendFetchMock).toHaveBeenCalledWith("conversations/c1/urgency", {
@@ -125,15 +136,17 @@ describe("ConversationsPanel — filtro Urgentes", () => {
   });
 });
 
-describe("TenantNav — contador de urgentes", () => {
+describe("TenantShell — contador de urgentes", () => {
   it("mostra o contador vindo de urgent-count e o link de configuração", async () => {
     backendFetchMock.mockImplementation(async (path: string) =>
       path === "conversations/urgent-count" ? jsonResponse({ count: 3 }) : jsonResponse({}, 404),
     );
 
-    render(<TenantNav active="inicio" />);
+    render(<TenantShell active="inicio">conteúdo</TenantShell>);
 
-    expect(await screen.findByLabelText("3 conversa(s) urgente(s)")).toHaveTextContent("3");
+    // Rail (desktop) e barra inferior (celular) mostram o mesmo contador.
+    const badges = await screen.findAllByLabelText("3 conversa(s) urgente(s)");
+    expect(badges[0]).toHaveTextContent("3");
     expect(screen.getByText("Urgência").closest("a")).toHaveAttribute(
       "href",
       "/configuracoes/urgencia",
@@ -145,7 +158,7 @@ describe("TenantNav — contador de urgentes", () => {
       path === "conversations/urgent-count" ? jsonResponse({ count: 0 }) : jsonResponse({}, 404),
     );
 
-    render(<TenantNav active="inicio" />);
+    render(<TenantShell active="inicio">conteúdo</TenantShell>);
 
     await waitFor(() =>
       expect(backendFetchMock).toHaveBeenCalledWith("conversations/urgent-count"),

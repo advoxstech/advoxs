@@ -67,7 +67,7 @@ export function ConversationsUsageReport() {
             type="button"
             onClick={() => selectPreset(p)}
             aria-pressed={preset === p}
-            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+            className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
               preset === p ? "bg-ink text-ground" : "text-muted hover:text-ink"
             }`}
           >
@@ -78,7 +78,7 @@ export function ConversationsUsageReport() {
           type="button"
           onClick={() => setPreset("custom")}
           aria-pressed={preset === "custom"}
-          className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+          className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
             preset === "custom" ? "bg-ink text-ground" : "text-muted hover:text-ink"
           }`}
         >
@@ -131,7 +131,7 @@ export function ConversationsUsageReport() {
                 <td className="py-3">
                   {formatPhone(row.contact_phone_number)}
                   {row.is_test && (
-                    <span className="ml-2 rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] text-brass">
+                    <span className="ml-2 rounded-sm bg-brass-soft px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.1em] text-brass-ink">
                       teste
                     </span>
                   )}

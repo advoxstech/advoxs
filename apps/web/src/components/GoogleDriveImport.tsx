@@ -149,7 +149,7 @@ export function GoogleDriveImport({ agents, onImported }: {
       ) : (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-display text-lg text-ink">Importar do Google Drive</h2>
+            <h2 className="font-display text-xl text-ink">Importar do Google Drive</h2>
             <button type="button" disabled={busy} onClick={() => {
               token.current = null; setOpen(false); setItems([]); setProgress("");
               window.setTimeout(() => button.current?.focus(), 0);

@@ -1,6 +1,6 @@
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { LowBalanceBanner } from "@/components/LowBalanceBanner";
-import { TenantNav } from "@/components/TenantNav";
+import { TenantShell } from "@/components/TenantShell";
 
 export default async function ConversasPage({
   searchParams,
@@ -9,8 +9,7 @@ export default async function ConversasPage({
 }) {
   const { aba, urgentes } = await searchParams;
   return (
-    <div className="flex h-screen overflow-hidden">
-      <TenantNav active="conversas" />
+    <TenantShell active="conversas">
       <div className="flex flex-1 flex-col overflow-hidden">
         <LowBalanceBanner />
         <ConversationsPanel
@@ -18,6 +17,6 @@ export default async function ConversasPage({
           initialUrgentOnly={urgentes === "1"}
         />
       </div>
-    </div>
+    </TenantShell>
   );
 }

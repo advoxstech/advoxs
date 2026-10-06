@@ -42,7 +42,7 @@ export function CreditosExtrato() {
 
   return (
     <div>
-      <h2 className="font-display text-lg font-semibold text-ink">Extrato</h2>
+      <h2 className="font-display text-xl font-semibold text-ink">Extrato</h2>
       {!loaded ? (
         <p className="mt-3 text-sm text-muted">Carregando...</p>
       ) : (
@@ -54,7 +54,7 @@ export function CreditosExtrato() {
             <li key={t.id} className="flex items-center justify-between px-4 py-3 text-sm">
               <div>
                 <p className="text-ink">{t.description ?? TYPE_LABEL[t.type] ?? t.type}</p>
-                <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                <p className="font-mono text-micro uppercase tracking-[0.1em] text-muted">
                   {TYPE_LABEL[t.type] ?? t.type} · {formatFullDateTime(t.created_at)}
                 </p>
               </div>

@@ -85,7 +85,7 @@ export function ConversationList({
                     : formatPhone(conversation.contact_phone_number)}
                 </span>
                 {conversation.last_message_at ? (
-                  <time className="shrink-0 font-mono text-[11px] text-muted">
+                  <time className="shrink-0 font-mono text-micro text-muted">
                     {formatMessageTime(conversation.last_message_at)}
                   </time>
                 ) : null}

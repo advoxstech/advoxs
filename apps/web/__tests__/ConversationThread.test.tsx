@@ -75,6 +75,11 @@ beforeEach(() => {
   backendFetchMock.mockReset();
 });
 
+async function chooseMenuAction(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name: "Mais ações" }));
+  fireEvent.click(screen.getByRole("menuitem", { name }));
+}
+
 describe("ConversationThread", () => {
   it("mostra o nome do agente ativo quando current_agent_name está presente", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
@@ -668,7 +673,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+    await chooseMenuAction("Excluir conversa");
 
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
     expect(window.confirm).toHaveBeenCalledWith(
@@ -688,7 +693,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+    await chooseMenuAction("Excluir conversa");
 
     expect(
       backendFetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
@@ -712,7 +717,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluir conversa" }));
+    await chooseMenuAction("Excluir conversa");
 
     await waitFor(() =>
       expect(
@@ -782,7 +787,7 @@ describe("ConversationThread", () => {
     expect(screen.queryByText(/créditos usados/)).not.toBeInTheDocument();
   });
 
-  it("não mostra o switch de cobrança gratuita quando end_customer_billing_enabled é false", async () => {
+  it("não oferece isenção de cobrança quando end_customer_billing_enabled é false", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -793,12 +798,11 @@ describe("ConversationThread", () => {
       />,
     );
 
-    expect(
-      screen.queryByRole("switch", { name: "Cobrança gratuita" }),
-    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mais ações" }));
+    expect(screen.queryByRole("menuitem", { name: /cobrança/i })).not.toBeInTheDocument();
   });
 
-  it("mostra o switch de cobrança gratuita quando end_customer_billing_enabled é true", async () => {
+  it("oferece isentar a cobrança no menu quando end_customer_billing_enabled é true", async () => {
     backendFetchMock.mockResolvedValue(jsonResponse([]));
 
     render(
@@ -809,8 +813,9 @@ describe("ConversationThread", () => {
       />,
     );
 
-    const switchControl = screen.getByRole("switch", { name: "Cobrança gratuita" });
-    expect(switchControl).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Mais ações" }));
+    expect(screen.getByRole("menuitem", { name: "Isentar cliente de cobrança" })).toBeInTheDocument();
+    expect(screen.queryByText("Cobrança isenta")).not.toBeInTheDocument();
   });
 
   it("ligar a isenção pede confirmação e faz PATCH com exempt=true", async () => {
@@ -836,7 +841,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+    await chooseMenuAction("Isentar cliente de cobrança");
 
     expect(window.confirm).toHaveBeenCalledWith(
       "Isentar este cliente de cobrança? Ele poderá conversar livremente e receberá um aviso de que a conversa passou a ser gratuita.",
@@ -874,7 +879,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+    await chooseMenuAction("Retomar cobrança deste cliente");
 
     expect(window.confirm).toHaveBeenCalledWith(
       "A partir da próxima mensagem, esse cliente volta a ser cobrado normalmente. Confirmar?",
@@ -900,7 +905,7 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+    await chooseMenuAction("Isentar cliente de cobrança");
 
     expect(window.confirm).toHaveBeenCalled();
     expect(
@@ -910,7 +915,7 @@ describe("ConversationThread", () => {
     ).toBe(false);
   });
 
-  it("mostra erro inline quando o PATCH de isenção falha, sem alterar o switch", async () => {
+  it("mostra erro inline quando o PATCH de isenção falha, sem marcar como isento", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     backendFetchMock.mockImplementation(async (path, init) => {
       if (init?.method === "PATCH" && String(path).includes("billing-exemption")) {
@@ -927,16 +932,13 @@ describe("ConversationThread", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "Cobrança gratuita" }));
+    await chooseMenuAction("Isentar cliente de cobrança");
 
     await waitFor(() => {
       expect(
         screen.getByText("Não foi possível alterar a cobrança deste cliente. Tente novamente."),
       ).toBeInTheDocument();
     });
-    expect(screen.getByRole("switch", { name: "Cobrança gratuita" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+    expect(screen.queryByText("Cobrança isenta")).not.toBeInTheDocument();
   });
 });
