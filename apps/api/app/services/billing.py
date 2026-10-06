@@ -21,7 +21,7 @@ from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.safe_logging import safe_error
 from app.core.security import hash_password
-from app.models import CreditPackage, CreditTransaction, Tenant, UsageRecord, User
+from app.models import CreditPackage, CreditTransaction, PendingSignup, Tenant, UsageRecord, User
 from app.schemas.billing import (
     SpendingByMonthOut,
     SpendingReportOut,
@@ -99,6 +99,39 @@ async def create_checkout_session(
     return checkout_session.url
 
 
+async def create_verified_checkout_session(
+    session: AsyncSession, pending: PendingSignup
+) -> tuple[str, str]:
+    """Usa o checkout existente; a metadata leva apenas o cadastro confirmado."""
+    if await session.scalar(select(User.id).where(User.email == pending.email)) is not None:
+        raise EmailAlreadyExistsError("Este e-mail já está cadastrado — faça login.")
+    package = await session.get(CreditPackage, pending.credit_package_id)
+    if package is None or not package.active:
+        raise InvalidPackageError("Pacote de créditos inválido")
+    try:
+        checkout_session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
+            mode="payment",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "brl",
+                        "unit_amount": int(package.price_brl * 100),
+                        "product_data": {"name": f"Advoxs — {package.name}"},
+                    },
+                    "quantity": 1,
+                }
+            ],
+            metadata={"pending_signup_id": str(pending.id)},
+            success_url=f"{settings.web_app_url}/cadastro/sucesso?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.web_app_url}/cadastro/cancelado",
+        )
+    except stripe.error.StripeError as exc:
+        logger.error("Falha ao criar sessão de checkout | error_type=%s", safe_error(exc))
+        raise StripeApiError("Falha ao iniciar o pagamento — tente novamente em instantes") from exc
+    return checkout_session.id, checkout_session.url
+
+
 async def create_recompra_checkout_session(
     session: AsyncSession,
     tenant_id: uuid.UUID,
@@ -174,10 +207,34 @@ async def _process_signup(
     metadata: dict,
     amount_brl: Decimal | None,
 ) -> None:
-    tenant_name = metadata.get("tenant_name")
-    email = metadata.get("email")
-    password_hash = metadata.get("password_hash")
-    credit_package_id = metadata.get("credit_package_id")
+    pending: PendingSignup | None = None
+    pending_id = metadata.get("pending_signup_id")
+    if pending_id:
+        try:
+            pending = await session.get(PendingSignup, uuid.UUID(pending_id), with_for_update=True)
+        except ValueError:
+            pending = None
+        if (
+            pending is None
+            or pending.verified_at is None
+            or pending.stripe_checkout_id != session_id
+        ):
+            logger.critical(
+                "Pagamento sem cadastro confirmado correspondente | session=%s", session_id
+            )
+            raise RuntimeError("Pagamento requer reconciliação do cadastro")
+        if pending.completed_at is not None:
+            return
+        tenant_name = pending.tenant_name
+        email = pending.email
+        password_hash = pending.password_hash
+        credit_package_id = str(pending.credit_package_id)
+    else:
+        # Compatibilidade com sessões Stripe iniciadas antes desta versão.
+        tenant_name = metadata.get("tenant_name")
+        email = metadata.get("email")
+        password_hash = metadata.get("password_hash")
+        credit_package_id = metadata.get("credit_package_id")
     if not all([tenant_name, email, password_hash, credit_package_id]):
         logger.error("Metadata incompleta no checkout.session.completed | session=%s", session_id)
         return
@@ -233,6 +290,11 @@ async def _process_signup(
     # substituir isso por escolha real de plano no cadastro.
     session.add(await build_default_subscription(session, tenant.id))
 
+    if pending is not None:
+        pending.completed_at = datetime.now(UTC)
+        pending.password_hash = None
+        pending.checkout_token_hash = None
+
     try:
         await session.commit()
     except IntegrityError:
@@ -243,6 +305,8 @@ async def _process_signup(
             session_id,
             email,
         )
+        if pending is not None:
+            raise RuntimeError("Pagamento requer reconciliação do cadastro")
         return
 
     # Best-effort — a conta já foi criada, uma falha aqui nunca deve

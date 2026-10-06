@@ -14,12 +14,12 @@ describe("SignupForm", () => {
     render(<SignupForm packages={PACKAGES} />);
 
     expect(screen.getByText("Plano Starter · 1.000 créditos")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Comprar por R$ 100,00" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar e-mail para continuar" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /Growth/ }));
 
     expect(screen.getByText("Plano Growth · 2.750 créditos")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Comprar por R$ 250,00" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmar e-mail para continuar" })).toBeInTheDocument();
   });
 
   it("mostra/oculta a senha ao clicar no botão", () => {

@@ -20,6 +20,22 @@ class SignupCheckoutRequest(BaseModel):
     credit_package_id: uuid.UUID
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyEmailOut(BaseModel):
+    checkout_token: str
+
+
+class VerifiedCheckoutRequest(BaseModel):
+    checkout_token: str = Field(min_length=1)
+
+
 class CheckoutUrlOut(BaseModel):
     checkout_url: str
 

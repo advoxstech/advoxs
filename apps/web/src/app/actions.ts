@@ -14,9 +14,8 @@ export async function signup(_prev: SignupState, formData: FormData): Promise<Si
   const password = String(formData.get("password") ?? "");
   const credit_package_id = String(formData.get("credit_package_id") ?? "");
 
-  let checkoutUrl: string;
   try {
-    const response = await fetch(`${API_URL}/api/v1/signup/checkout`, {
+    const response = await fetch(`${API_URL}/api/v1/signup/request-verification`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ tenant_name, email, password, credit_package_id }),
@@ -26,13 +25,11 @@ export async function signup(_prev: SignupState, formData: FormData): Promise<Si
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       const detail = typeof body?.detail === "string" ? body.detail : null;
-      return { error: detail ?? "Não foi possível iniciar o pagamento. Tente novamente." };
+      return { error: detail ?? "Não foi possível enviar a confirmação. Tente novamente." };
     }
-    const parsed = await response.json();
-    checkoutUrl = parsed.checkout_url;
   } catch {
     return { error: "Não foi possível conectar ao servidor. Tente novamente." };
   }
 
-  redirect(checkoutUrl);
+  redirect("/cadastro/verifique");
 }

@@ -9,10 +9,10 @@ export default function CadastroCanceladoPage() {
           Nenhuma cobrança foi feita. Você pode tentar de novo quando quiser.
         </p>
         <Link
-          href="/"
+          href="/cadastro/pagamento"
           className="mt-6 inline-block rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink"
         >
-          Voltar
+          Tentar pagamento novamente
         </Link>
       </div>
     </main>

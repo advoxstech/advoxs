@@ -55,6 +55,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
         <h1 className="font-display text-4xl font-semibold tracking-tight text-ink">
           Escolha um plano e comece agora
         </h1>
+        <p className="text-sm text-muted">Você confirmará seu e-mail antes de pagar.</p>
       </header>
 
       <fieldset className="flex flex-col gap-3">
@@ -213,7 +214,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
           disabled={pending}
           className="h-[58px] rounded-2xl bg-gradient-to-b from-auth-accent-ink to-ink text-base font-bold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
         >
-          {pending ? "Preparando pagamento…" : `Comprar por ${selectedPrice ?? ""}`}
+          {pending ? "Enviando confirmação…" : "Confirmar e-mail para continuar"}
         </button>
         <div className="flex flex-wrap items-center justify-center gap-4">
           <span className="flex items-center gap-1.5 text-xs text-muted">
