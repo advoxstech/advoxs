@@ -52,12 +52,12 @@ export function CreditosPanel({ packages }: { packages: CreditPackage[] }) {
   return (
     <div className="flex flex-col gap-8 p-8">
       <div>
-        <h1 className="font-display text-xl font-semibold text-ink">Créditos do escritório</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Créditos do escritório</h1>
         <p className="mt-1 max-w-xl text-sm text-muted">
           Esses créditos custeiam o uso dos agentes pelo escritório. São separados dos saldos,
           pacotes e cobranças dos clientes atendidos.
         </p>
-        <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted">
+        <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
           Saldo atual
         </p>
         <p className="mt-1 font-display text-4xl font-semibold text-ink">

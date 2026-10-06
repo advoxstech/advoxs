@@ -102,7 +102,7 @@ export function UrgencyKeywordsPanel() {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-xl font-semibold text-ink">Urgência</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Urgência</h1>
         <p className="text-sm text-muted">
           Conversas urgentes ficam destacadas em vermelho em Conversas. A IA sinaliza pelo
           contexto da conversa, e qualquer mensagem do cliente que contenha uma das palavras abaixo

@@ -12,7 +12,7 @@ const SOURCE_LABEL: Record<NonNullable<Conversation["urgent_source"]>, string> =
   manual: "Marcada pela equipe",
 };
 
-function useUrgencyUpdate(
+export function useUrgencyUpdate(
   conversation: Conversation,
   onUpdate?: (conversation: Conversation) => void,
 ) {
@@ -83,32 +83,9 @@ export function UrgencyBanner({
   );
 }
 
-export function MarkUrgentButton({
-  conversation,
-  onUpdate,
-}: {
-  conversation: Conversation;
-  onUpdate?: (conversation: Conversation) => void;
-}) {
-  const { saving, error, update } = useUrgencyUpdate(conversation, onUpdate);
-  if (conversation.urgent_since) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={() => void update(true)}
-      disabled={saving}
-      title={error ?? undefined}
-      className="rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
-    >
-      {saving ? "Salvando…" : error ? "Tentar marcar de novo" : "Marcar como urgente"}
-    </button>
-  );
-}
-
 export function UrgentTag() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-sm bg-danger px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
+    <span className="inline-flex items-center gap-1 rounded-sm bg-danger px-1.5 py-0.5 font-mono text-micro font-semibold uppercase tracking-[0.12em] text-white">
       Urgente
     </span>
   );

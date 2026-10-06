@@ -52,7 +52,7 @@ export function OnboardingProgress() {
   return (
     <main className="min-h-screen bg-ground px-6 py-10">
       <div className="mx-auto w-full max-w-3xl">
-        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+        <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
           Configuração inicial
         </p>
         <h1 className="mt-3 font-display text-3xl font-semibold text-ink">
@@ -86,7 +86,7 @@ export function OnboardingProgress() {
             <section className="mt-8 rounded-sm border border-line bg-surface p-5">
               <div className="flex items-end justify-between gap-4">
                 <div>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+                  <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
                     Progresso real
                   </p>
                   <p className="mt-2 font-display text-2xl font-semibold text-ink">
@@ -124,7 +124,7 @@ export function OnboardingProgress() {
                 if (steps.length === 0) return null;
                 return (
                   <section key={kind}>
-                    <h2 className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">
+                    <h2 className="font-mono text-micro uppercase tracking-[0.16em] text-muted">
                       {sectionLabels[kind]}
                     </h2>
                     <div className="mt-2 divide-y divide-line rounded-sm border border-line bg-surface">

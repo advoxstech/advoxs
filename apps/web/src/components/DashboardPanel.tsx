@@ -111,7 +111,7 @@ export function DashboardPanel() {
       </div>
 
       <div>
-        <h2 className="font-display text-lg font-semibold text-ink">Conversas recentes</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Conversas recentes</h2>
         <ul className="mt-3 divide-y divide-line rounded-none border border-line bg-surface">
           {data.recent_conversations.map((c) => (
             <li key={c.id}>
@@ -121,7 +121,7 @@ export function DashboardPanel() {
               >
                 <span className="text-ink">{c.contact_phone_number}</span>
                 <span className="flex items-center gap-4">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted">
+                  <span className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
                     {STATE_LABEL[c.state]}
                   </span>
                   <span className="text-muted">

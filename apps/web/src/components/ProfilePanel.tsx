@@ -95,7 +95,7 @@ export function ProfilePanel() {
   return (
     <div className="flex flex-col gap-8 p-8">
       <section className="flex flex-col gap-4 rounded-sm border border-line bg-surface p-6">
-        <h2 className="font-display text-lg font-semibold text-ink">Dados do escritório</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Dados do escritório</h2>
 
         <div className="flex items-center gap-4">
           {profile.has_logo ? (
@@ -153,7 +153,7 @@ export function ProfilePanel() {
       </section>
 
       <section className="flex flex-col gap-4 rounded-sm border border-line bg-surface p-6">
-        <h2 className="font-display text-lg font-semibold text-ink">Trocar senha</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Trocar senha</h2>
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="current-password" className="text-sm font-medium text-ink">

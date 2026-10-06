@@ -88,7 +88,7 @@ export function AgentsPanel() {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-xl font-semibold text-ink">Agentes</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Agentes</h1>
         <p className="text-sm text-muted">
           Um agente é uma &quot;persona&quot; de IA — tem um nome, um conjunto de instruções
           (o que ele sabe e como deve responder) e pode ter uma base de conhecimento própria. O
@@ -119,7 +119,7 @@ export function AgentsPanel() {
                   {agent.name}
                 </Link>
                 {agent.is_entry_point && (
-                  <span className="ml-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-accent">
+                  <span className="ml-2 rounded-full bg-accent-soft px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] text-accent">
                     ponto de entrada
                   </span>
                 )}
@@ -127,7 +127,7 @@ export function AgentsPanel() {
               <button
                 type="button"
                 onClick={() => void handleDelete(agent)}
-                className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
+                className="text-action text-muted transition-colors hover:text-danger"
               >
                 Excluir
               </button>
@@ -137,7 +137,7 @@ export function AgentsPanel() {
 
         <hr className="my-6 border-line" />
 
-        <h2 className="font-display text-lg font-semibold text-ink">Criar agente</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Criar agente</h2>
         <p className="mt-2 max-w-md text-sm text-muted">
           Não sabe por onde começar? Pense num atendente que você está treinando: dê um nome pra
           ele e escreva, em texto livre, quem ele é, o que ele deve saber e como deve se comportar

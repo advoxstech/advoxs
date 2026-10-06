@@ -1,5 +1,5 @@
 import { CreditosSucessoPanel } from "@/components/CreditosSucessoPanel";
-import { TenantNav } from "@/components/TenantNav";
+import { TenantShell } from "@/components/TenantShell";
 
 export default async function CreditosSucessoPage({
   searchParams,
@@ -9,11 +9,10 @@ export default async function CreditosSucessoPage({
   const { session_id } = await searchParams;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <TenantNav active="creditos" />
+    <TenantShell active="creditos">
       <main className="flex-1 overflow-y-auto bg-ground">
         <CreditosSucessoPanel sessionId={session_id ?? null} />
       </main>
-    </div>
+    </TenantShell>
   );
 }

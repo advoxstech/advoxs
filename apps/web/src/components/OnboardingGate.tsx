@@ -39,7 +39,7 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
         <section className="mx-6 mt-6 rounded-sm border border-line bg-surface p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+              <p className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
                 Configuração inicial · {progress.completed_steps} de {progress.total_steps}
               </p>
               <h2 className="mt-2 font-display text-xl font-semibold text-ink">

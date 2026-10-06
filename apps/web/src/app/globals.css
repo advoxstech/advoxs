@@ -16,6 +16,8 @@
   /* Latão — estados que exigem atenção humana */
   --brass: #9c6b33;
   --brass-soft: #f3eadd;
+  /* Latão para texto: --brass não passa 4.5:1 sobre o fundo nem sobre brass-soft */
+  --brass-ink: #7d5426;
   --danger: #96372b;
   /* Azul-marinho — exclusivo da barra de navegação lateral */
   --nav-bg: #14213d;
@@ -26,6 +28,15 @@
   /* Azul claro — exclusivo das telas públicas de autenticação (/ e /login), não usado no painel logado */
   --auth-accent: #5a7fb0;
   --auth-accent-soft: #eaf1f8;
+  /* Azul para texto e para o topo do CTA: --auth-accent fica em 4.1:1 sobre branco */
+  --auth-accent-ink: #3f6496;
+}
+
+/* Mesma especificidade do preflight do Tailwind (gray-400, 2.5:1), que vinha antes. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 body {

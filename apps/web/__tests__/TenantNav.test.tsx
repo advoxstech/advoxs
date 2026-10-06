@@ -16,11 +16,11 @@ describe("TenantNav", () => {
     mockedFetch.mockResolvedValue({ ok: false });
   });
 
-  it("renderiza o item ativo como texto (não link) e os demais como links", () => {
+  it("marca o item ativo com aria-current e mantém todos como links", () => {
     render(<TenantNav active="conversas" />);
 
     expect(screen.getByText("Início").closest("a")).toHaveAttribute("href", "/inicio");
-    expect(screen.getByText("Conversas").closest("a")).toBeNull();
+    expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Base").closest("a")).toHaveAttribute(
       "href",
       "/base-de-conhecimento",
@@ -38,38 +38,45 @@ describe("TenantNav", () => {
     expect(screen.getByText("Perfil").closest("a")).toHaveAttribute("href", "/perfil");
   });
 
+  it("expõe o menu como navegação nomeada", () => {
+    render(<TenantNav active="inicio" />);
+
+    expect(screen.getByRole("navigation", { name: "Navegação principal" })).toBeInTheDocument();
+    expect(screen.getByText("Conversas").closest("a")).not.toHaveAttribute("aria-current");
+  });
+
   it("marca inicio como ativo quando active='inicio'", () => {
     render(<TenantNav active="inicio" />);
 
-    expect(screen.getByText("Início").closest("a")).toBeNull();
+    expect(screen.getByText("Início").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca agentes como ativo quando active='agentes'", () => {
     render(<TenantNav active="agentes" />);
 
-    expect(screen.getByText("Agentes").closest("a")).toBeNull();
+    expect(screen.getByText("Agentes").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca creditos como ativo quando active='creditos'", () => {
     render(<TenantNav active="creditos" />);
 
-    expect(screen.getByText("Créditos do escritório").closest("a")).toBeNull();
+    expect(screen.getByText("Créditos do escritório").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca cobranca como ativo quando active='cobranca'", () => {
     render(<TenantNav active="cobranca" />);
 
-    expect(screen.getByText("Cobrança de clientes").closest("a")).toBeNull();
+    expect(screen.getByText("Cobrança de clientes").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Conversas").closest("a")).toHaveAttribute("href", "/conversas");
   });
 
   it("marca perfil como ativo quando active='perfil'", () => {
     render(<TenantNav active="perfil" />);
 
-    expect(screen.getByText("Perfil").closest("a")).toBeNull();
+    expect(screen.getByText("Perfil").closest("a")).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Início").closest("a")).toHaveAttribute("href", "/inicio");
   });
 

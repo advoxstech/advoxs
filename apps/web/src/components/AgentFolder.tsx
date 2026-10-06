@@ -30,7 +30,7 @@ const STATUS_LABEL: Record<KbFile["status"], string> = {
 };
 
 const STATUS_CLASS: Record<KbFile["status"], string> = {
-  processing: "bg-brass-soft text-brass",
+  processing: "bg-brass-soft text-brass-ink",
   ready: "bg-accent-soft text-accent",
   error: "bg-danger/10 text-danger",
 };
@@ -105,7 +105,7 @@ export function AgentFolder({
           <span className="text-muted">{expanded ? "▾" : "▸"}</span>
           <span className="font-medium text-ink">{agent.name}</span>
           {agent.is_entry_point && (
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.15em] text-accent">
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 font-mono text-micro uppercase tracking-[0.12em] text-accent">
               ponto de entrada
             </span>
           )}
@@ -127,7 +127,7 @@ export function AgentFolder({
           ))}
         </select>
         <label
-          className={`cursor-pointer whitespace-nowrap rounded border border-line bg-surface px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
+          className={`cursor-pointer whitespace-nowrap rounded border border-line bg-surface px-3 py-1.5 text-action text-ink transition-colors hover:border-accent ${uploading ? "pointer-events-none opacity-50" : ""}`}
         >
           + Enviar arquivos
           <input
@@ -237,7 +237,7 @@ function CategoryGroup({
                   )}
                 </div>
                 <span
-                  className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] ${STATUS_CLASS[file.status]}`}
+                  className={`rounded-full px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] ${STATUS_CLASS[file.status]}`}
                 >
                   {STATUS_LABEL[file.status]}
                 </span>
@@ -277,7 +277,7 @@ function CategoryGroup({
                     type="button"
                     onClick={() => onReprocess(file)}
                     aria-label={`Reprocessar ${file.filename}`}
-                    className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-accent"
+                    className="text-action text-muted transition-colors hover:text-accent"
                   >
                     Reprocessar
                   </button>
@@ -292,7 +292,7 @@ function CategoryGroup({
                       ? "Este é o único agente anexado — exclua o arquivo se não for mais usar"
                       : undefined
                   }
-                  className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-40"
+                  className="text-action text-muted transition-colors hover:text-danger disabled:opacity-40"
                 >
                   Desanexar
                 </button>
@@ -301,7 +301,7 @@ function CategoryGroup({
                   onClick={() => onDelete(file)}
                   disabled={file.status === "processing"}
                   aria-label={`Excluir ${file.filename}`}
-                  className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-40"
+                  className="text-action text-muted transition-colors hover:text-danger disabled:opacity-40"
                 >
                   Excluir
                 </button>

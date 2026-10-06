@@ -65,7 +65,7 @@ export function EndCustomerList() {
 
   return (
     <div className="mt-8">
-      <h2 className="font-display text-lg font-semibold text-ink">Clientes finais</h2>
+      <h2 className="font-display text-xl font-semibold text-ink">Clientes finais</h2>
       {feedback && (
         <p role="alert" className="mt-3 text-sm text-danger">
           {feedback}
@@ -98,7 +98,7 @@ export function EndCustomerList() {
                     type="button"
                     disabled={removing === c.contact_phone_number}
                     onClick={() => void handleRemoveCredits(c.contact_phone_number)}
-                    className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-50"
+                    className="text-action text-muted transition-colors hover:text-danger disabled:opacity-50"
                   >
                     {removing === c.contact_phone_number ? "Removendo..." : "Remover créditos"}
                   </button>

@@ -35,7 +35,7 @@ export function EndCustomerBillingTabs() {
   const showRevenueReport = enabled && billingProvider === "connect";
 
   const tabClass = (active: boolean) =>
-    `rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+    `rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
       active ? "bg-ink text-ground" : "text-muted hover:text-ink"
     }`;
 

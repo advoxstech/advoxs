@@ -57,7 +57,7 @@ const STATUS_LABEL: Record<Connection["status"], string> = {
 
 const STATUS_CLASS: Record<Connection["status"], string> = {
   connected: "bg-accent-soft text-accent",
-  disconnected: "bg-brass-soft text-brass",
+  disconnected: "bg-brass-soft text-brass-ink",
 };
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -339,7 +339,7 @@ export function WhatsAppConnectionPanel() {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-xl font-semibold text-ink">WhatsApp Business</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">WhatsApp Business</h1>
         <p className="text-sm text-muted">
           Conecte o número de WhatsApp do escritório para os agentes atenderem pelo canal — pela
           via oficial da Meta ou pela Z-API.
@@ -373,7 +373,7 @@ export function WhatsAppConnectionPanel() {
             <div className="flex items-center justify-between">
               <p className="font-medium text-ink">{connection.display_phone_number}</p>
               <span
-                className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] ${STATUS_CLASS[connection.status]}`}
+                className={`rounded-full px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] ${STATUS_CLASS[connection.status]}`}
               >
                 {STATUS_LABEL[connection.status]}
               </span>
@@ -387,7 +387,7 @@ export function WhatsAppConnectionPanel() {
                 <button
                   type="button"
                   onClick={() => void handleDisconnect()}
-                  className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
+                  className="text-action text-muted transition-colors hover:text-danger"
                 >
                   Desconectar
                 </button>
@@ -396,7 +396,7 @@ export function WhatsAppConnectionPanel() {
                 <button
                   type="button"
                   onClick={startReconnect}
-                  className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                  className="text-action text-muted transition-colors hover:text-ink"
                 >
                   {connection.status === "connected" ? "Trocar número" : "Reconectar"}
                 </button>
@@ -415,7 +415,7 @@ export function WhatsAppConnectionPanel() {
               type="button"
               onClick={() => void handleCancelManagedRequest()}
               disabled={cancellingRequest}
-              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger disabled:opacity-50"
+              className="w-fit text-action text-muted transition-colors hover:text-danger disabled:opacity-50"
             >
               {cancellingRequest ? "Cancelando..." : "Cancelar solicitação"}
             </button>
@@ -447,7 +447,7 @@ export function WhatsAppConnectionPanel() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="mt-1 w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                className="mt-1 w-fit text-action text-muted transition-colors hover:text-ink"
               >
                 Cancelar
               </button>
@@ -458,7 +458,7 @@ export function WhatsAppConnectionPanel() {
             <button
               type="button"
               onClick={backToPicker}
-              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+              className="w-fit text-action text-muted transition-colors hover:text-ink"
             >
               ← Escolher outro provedor
             </button>
@@ -539,7 +539,7 @@ export function WhatsAppConnectionPanel() {
             <button
               type="button"
               onClick={backToPicker}
-              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+              className="w-fit text-action text-muted transition-colors hover:text-ink"
             >
               ← Escolher outro provedor
             </button>
@@ -579,7 +579,7 @@ export function WhatsAppConnectionPanel() {
             <button
               type="button"
               onClick={backToPicker}
-              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+              className="w-fit text-action text-muted transition-colors hover:text-ink"
             >
               Cancelar
             </button>
@@ -589,7 +589,7 @@ export function WhatsAppConnectionPanel() {
             <button
               type="button"
               onClick={backToPicker}
-              className="w-fit font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+              className="w-fit text-action text-muted transition-colors hover:text-ink"
             >
               ← Escolher outro provedor
             </button>
@@ -750,7 +750,7 @@ export function WhatsAppConnectionPanel() {
                       type="button"
                       aria-label="Copiar Callback URL"
                       onClick={() => void handleCopy("url", webhookConfig!.callback_url)}
-                      className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                      className="rounded border border-line px-3 py-2 text-action text-muted transition-colors hover:text-ink"
                     >
                       {copied === "url" ? "Copiado!" : "Copiar"}
                     </button>
@@ -766,7 +766,7 @@ export function WhatsAppConnectionPanel() {
                       type="button"
                       aria-label="Copiar Verify token"
                       onClick={() => void handleCopy("token", webhookConfig!.verify_token)}
-                      className="rounded border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-ink"
+                      className="rounded border border-line px-3 py-2 text-action text-muted transition-colors hover:text-ink"
                     >
                       {copied === "token" ? "Copiado!" : "Copiar"}
                     </button>

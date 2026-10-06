@@ -162,13 +162,13 @@ export function ConversationsPanel({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
-        <h1 className="font-display text-xl font-semibold">Conversas</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold">Conversas</h1>
         <div className="flex gap-1">
           <button
             type="button"
             onClick={() => switchTab("real")}
             aria-pressed={tab === "real"}
-            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+            className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
               tab === "real" ? "bg-ink text-ground" : "text-muted hover:text-ink"
             }`}
           >
@@ -178,7 +178,7 @@ export function ConversationsPanel({
             type="button"
             onClick={() => switchTab("test")}
             aria-pressed={tab === "test"}
-            className={`rounded-sm px-3 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+            className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
               tab === "test" ? "bg-ink text-ground" : "text-muted hover:text-ink"
             }`}
           >
@@ -226,7 +226,7 @@ export function ConversationsPanel({
               type="button"
               onClick={toggleUrgentOnly}
               aria-pressed={urgentOnly}
-              className={`rounded-sm border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors ${
+              className={`rounded-sm border px-2.5 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
                 urgentOnly
                   ? "border-danger bg-danger text-white"
                   : "border-line text-muted hover:border-danger hover:text-danger"

@@ -10,7 +10,8 @@ import { formatMessageTime } from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
-import { MarkUrgentButton, UrgencyBanner } from "./ConversationUrgency";
+import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 interface TestConversationThreadProps {
   conversation: Conversation;
@@ -92,6 +93,8 @@ export function TestConversationThread({
     }
   };
 
+  const urgency = useUrgencyUpdate(conversation, onConversationUpdate);
+
   const handleDelete = async () => {
     if (!window.confirm("Excluir esta conversa de teste? O histórico será apagado.")) {
       return;
@@ -105,6 +108,13 @@ export function TestConversationThread({
       setError("Não foi possível excluir. Tente novamente.");
     }
   };
+
+  const moreActions: ActionMenuItem[] = [
+    ...(conversation.urgent_since
+      ? []
+      : [{ label: "Marcar como urgente", onSelect: () => void urgency.update(true) }]),
+    { label: "Excluir conversa", onSelect: () => void handleDelete(), tone: "danger" as const },
+  ];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -120,23 +130,19 @@ export function TestConversationThread({
             </button>
           ) : null}
           <h2 className="font-mono text-sm font-medium">Conversa de teste</h2>
-          <span className="rounded-full bg-brass-soft px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-brass">
+          <span className="rounded-full bg-muted/10 px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] text-muted">
             ambiente de teste
           </span>
           <ConversationStatusIndicator conversation={conversation} />
         </div>
-        <div className="flex items-center gap-3">
-          <MarkUrgentButton conversation={conversation} onUpdate={onConversationUpdate} />
-          <button
-            type="button"
-            onClick={() => void handleDelete()}
-            className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-danger"
-          >
-            Excluir conversa
-          </button>
-        </div>
+        <ActionMenu items={moreActions} />
       </header>
       <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
+      {urgency.error ? (
+        <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
+          {urgency.error}
+        </p>
+      ) : null}
 
       {loadError ? (
         <div
@@ -288,8 +294,8 @@ function TestMessageBubble({ message }: { message: Message }) {
         }`}
       >
         <span
-          className={`mb-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] ${
-            fromContact ? "text-brass" : "text-accent"
+          className={`mb-0.5 block font-mono text-micro uppercase tracking-[0.14em] ${
+            fromContact ? "text-brass-ink" : "text-accent"
           }`}
         >
           {fromContact ? "Você (cliente)" : "Agente"}
@@ -308,7 +314,7 @@ function TestMessageBubble({ message }: { message: Message }) {
         )}
         <ResponseSources message={message} />
       </div>
-      <time className="mt-1 font-mono text-[10px] text-muted">
+      <time className="mt-1 font-mono text-micro text-muted">
         {formatMessageTime(message.created_at)}
       </time>
     </li>

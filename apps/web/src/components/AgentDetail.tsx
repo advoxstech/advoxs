@@ -234,7 +234,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
         <Link href="/agentes" className="text-xs text-muted hover:text-ink">
           ← Agentes
         </Link>
-        <h1 className="font-display text-xl font-semibold text-ink">
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">
           {agent.name}
         </h1>
         <p className="mt-2 text-sm text-muted">
@@ -283,7 +283,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
             vai transferir a conversa pra outro agente ou pra um humano.
           </p>
           {hasUnsavedChanges ? (
-            <p role="status" className="mt-4 text-sm text-brass">
+            <p role="status" className="mt-4 text-sm text-brass-ink">
               Há alterações não salvas.
             </p>
           ) : null}
@@ -415,7 +415,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
 
           <hr className="my-6 border-line" />
 
-          <h2 className="font-display text-lg font-semibold text-ink">
+          <h2 className="font-display text-xl font-semibold text-ink">
             Base de conhecimento
           </h2>
           <p className="mt-4 max-w-md text-sm text-muted">
@@ -459,7 +459,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
               escritório.
             </p>
             {hasUnsavedChanges && (
-              <p role="status" className="text-sm text-brass">
+              <p role="status" className="text-sm text-brass-ink">
                 Salve as alterações na aba Configuração antes de iniciar um
                 teste.
               </p>

@@ -196,7 +196,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-xl font-semibold text-ink">Base de conhecimento</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Base de conhecimento</h1>
         <p className="text-sm text-muted">
           PDF, DOCX ou TXT, até 20 MB por arquivo — organizada por agente e, dentro de cada
           agente, por categoria. Selecione vários arquivos de uma vez pra enviar em lote. Um

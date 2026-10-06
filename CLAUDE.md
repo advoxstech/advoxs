@@ -331,6 +331,16 @@ tenant_subscriptions N───1 subscription_plans
 
 ## Frontend (`apps/web`) — páginas e funcionalidades
 
+**Convenções de interface (revisão Impeccable, 2026-10):**
+- **Layout:** toda página do painel usa `TenantShell`, com menu lateral `TenantNav` no desktop e `MobileTabBar` abaixo de `md`.
+- **Menu lateral:** expande por cima do conteúdo, sem reflow, também com foco de teclado, e marca a página com `aria-current`.
+- **Tamanhos de texto:** nada funcional abaixo de 11px.
+  - `text-micro` (11px) é para rótulos e selos em mono maiúsculo.
+  - `text-action` (13px, sans) é para botões e links de ação.
+- **Cores de texto:** latão e azul público como texto usam `brass-ink` e `auth-accent-ink`, para manter o contraste ≥ 4,5:1. `brass` e `auth-accent` ficam para preenchimentos.
+- **Conversa:** o cabeçalho tem uma ação primária ("Assumir atendimento" em latão ou "Devolver para IA" em verde) e o resto vai no `ActionMenu` ("Mais ações").
+- **Revisões:** ficam arquivadas em `.impeccable/critique/`.
+
 Páginas e funcionalidades atuais:
 
 - **`/`** — ✅ implementada: página pública de cadastro self-service. Sem sessão, mostra os 4 pacotes de créditos (`GET /api/v1/credit-packages`) + formulário (nome do escritório, e-mail, senha — CNPJ e verificação de e-mail ficam de fora desta entrega); submit chama `POST /api/v1/signup/checkout` (server action, chamada direto em `API_URL`, sem passar pelo proxy) e redireciona pro Checkout hospedado da Stripe. Com sessão, o middleware redireciona pra `/conversas` (comportamento preservado). `/cadastro/sucesso` faz polling em `GET /api/v1/signup/status` até a conta ficar pronta (nunca mostra erro, mesmo em timeout — o pagamento já foi aprovado pela Stripe nesse ponto) e **loga sozinho**: o status entrega um `login_token` one-time (gerado no webhook, Redis `signup:handoff:{session_id}`/`signup:token:{sha256}`, TTL 900s, GETDEL nos dois — o `session_id` da URL nunca vira credencial), trocado por par JWT em `POST /api/v1/auth/signup-login` via server action que seta os cookies; o cliente então navega pro `/inicio` com `window.location.assign` (a action não usa `redirect()` — chamada fora de `useActionState`, a promise seria rejeitada no cliente e o sucesso viraria erro); sem token (expirado/já usado), cai no fallback com o botão pro `/login`. `/cadastro/cancelado` é estática. Ver seção Billing / Créditos para o fluxo completo (o que acontece no backend após o pagamento).

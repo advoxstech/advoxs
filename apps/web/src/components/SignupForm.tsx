@@ -42,12 +42,12 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
     <form action={formAction} className="flex w-full max-w-[520px] flex-col gap-8">
       <header className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-4">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+          <span className="font-mono text-micro uppercase tracking-[0.12em] text-muted">
             Criar conta
           </span>
           <span className="text-[13px] text-muted">
             Já tem conta?{" "}
-            <Link href="/login" className="font-semibold text-auth-accent hover:underline">
+            <Link href="/login" className="font-semibold text-auth-accent-ink hover:underline">
               Entrar
             </Link>
           </span>
@@ -164,7 +164,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
             <button
               type="button"
               onClick={() => setShowPassword((value) => !value)}
-              className="absolute right-2 top-2 h-[34px] rounded-lg bg-auth-accent-soft px-3 font-mono text-[12px] font-bold uppercase tracking-[0.04em] text-auth-accent transition-colors hover:bg-auth-accent/20"
+              className="absolute right-2 top-2 h-[34px] rounded-lg bg-auth-accent-soft px-3 font-mono text-[12px] font-bold uppercase tracking-[0.04em] text-auth-accent-ink transition-colors hover:bg-auth-accent/20"
             >
               {showPassword ? "Ocultar" : "Mostrar"}
             </button>
@@ -211,7 +211,7 @@ export function SignupForm({ packages }: { packages: CreditPackage[] }) {
         <button
           type="submit"
           disabled={pending}
-          className="h-[58px] rounded-2xl bg-gradient-to-b from-auth-accent to-ink text-base font-bold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
+          className="h-[58px] rounded-2xl bg-gradient-to-b from-auth-accent-ink to-ink text-base font-bold text-surface shadow-lg transition-transform hover:-translate-y-px disabled:opacity-60"
         >
           {pending ? "Preparando pagamento…" : `Comprar por ${selectedPrice ?? ""}`}
         </button>
