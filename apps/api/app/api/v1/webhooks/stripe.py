@@ -31,7 +31,9 @@ async def receive_webhook(
         logger.warning("Assinatura de webhook inválida | error_type=%s", safe_error(exc))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assinatura inválida")
 
-    if event["type"] == "checkout.session.completed":
-        await process_checkout_completed(session, event["data"]["object"])
+    if event["type"] in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        checkout_session = event["data"]["object"]
+        if checkout_session["payment_status"] == "paid":
+            await process_checkout_completed(session, checkout_session)
 
     return {"status": "ok"}

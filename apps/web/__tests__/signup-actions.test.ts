@@ -24,10 +24,9 @@ function formData(fields: Record<string, string>): FormData {
 }
 
 describe("signup action", () => {
-  it("redireciona para o checkout_url em caso de sucesso", async () => {
+  it("envia a confirmação e redireciona para a página de instruções", async () => {
     mockedFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ checkout_url: "https://checkout.stripe.com/pay/cs_123" }),
     });
 
     await signup(
@@ -40,7 +39,11 @@ describe("signup action", () => {
       }),
     );
 
-    expect(mockedRedirect).toHaveBeenCalledWith("https://checkout.stripe.com/pay/cs_123");
+    expect(mockedFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/signup/request-verification"),
+      expect.any(Object),
+    );
+    expect(mockedRedirect).toHaveBeenCalledWith("/cadastro/verifique");
   });
 
   it("retorna a mensagem de erro (string) quando a API rejeita", async () => {
@@ -65,7 +68,7 @@ describe("signup action", () => {
 
     const result = await signup({ error: null }, formData({ email: "a@b.com" }));
 
-    expect(result.error).toBe("Não foi possível iniciar o pagamento. Tente novamente.");
+    expect(result.error).toBe("Não foi possível enviar a confirmação. Tente novamente.");
   });
 
   it("trata falha de rede", async () => {

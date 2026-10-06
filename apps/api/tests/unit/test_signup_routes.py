@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -35,45 +37,89 @@ def client(session):
 
 
 class TestCheckout:
-    def test_sucesso_retorna_checkout_url(self, client, monkeypatch) -> None:
-        create = AsyncMock(return_value="https://checkout.stripe.com/pay/cs_123")
-        monkeypatch.setattr(signup_module, "create_checkout_session", create)
+    @staticmethod
+    def _verified(monkeypatch):
+        pending = SimpleNamespace(
+            stripe_checkout_url=None,
+            stripe_checkout_created_at=None,
+            stripe_checkout_id=None,
+        )
+        monkeypatch.setattr(signup_module, "get_verified_signup", AsyncMock(return_value=pending))
+        return pending
 
-        response = client.post("/api/v1/signup/checkout", json=CHECKOUT_BODY)
+    def test_sucesso_retorna_checkout_url(self, client, monkeypatch) -> None:
+        pending = self._verified(monkeypatch)
+        create = AsyncMock(return_value=("cs_123", "https://checkout.stripe.com/pay/cs_123"))
+        monkeypatch.setattr(signup_module, "create_verified_checkout_session", create)
+
+        response = client.post("/api/v1/signup/checkout", json={"checkout_token": "confirmed"})
 
         assert response.status_code == 200
         assert response.json()["checkout_url"] == "https://checkout.stripe.com/pay/cs_123"
+        assert pending.stripe_checkout_id == "cs_123"
 
     def test_email_duplicado_retorna_409(self, client, monkeypatch) -> None:
+        self._verified(monkeypatch)
         create = AsyncMock(side_effect=EmailAlreadyExistsError("já cadastrado"))
-        monkeypatch.setattr(signup_module, "create_checkout_session", create)
+        monkeypatch.setattr(signup_module, "create_verified_checkout_session", create)
 
-        response = client.post("/api/v1/signup/checkout", json=CHECKOUT_BODY)
+        response = client.post("/api/v1/signup/checkout", json={"checkout_token": "confirmed"})
 
         assert response.status_code == 409
 
     def test_pacote_invalido_retorna_400(self, client, monkeypatch) -> None:
+        self._verified(monkeypatch)
         create = AsyncMock(side_effect=InvalidPackageError("pacote inválido"))
-        monkeypatch.setattr(signup_module, "create_checkout_session", create)
+        monkeypatch.setattr(signup_module, "create_verified_checkout_session", create)
 
-        response = client.post("/api/v1/signup/checkout", json=CHECKOUT_BODY)
+        response = client.post("/api/v1/signup/checkout", json={"checkout_token": "confirmed"})
 
         assert response.status_code == 400
 
     def test_falha_stripe_retorna_502(self, client, monkeypatch) -> None:
+        self._verified(monkeypatch)
         create = AsyncMock(side_effect=StripeApiError("falhou"))
-        monkeypatch.setattr(signup_module, "create_checkout_session", create)
+        monkeypatch.setattr(signup_module, "create_verified_checkout_session", create)
 
-        response = client.post("/api/v1/signup/checkout", json=CHECKOUT_BODY)
+        response = client.post("/api/v1/signup/checkout", json={"checkout_token": "confirmed"})
 
         assert response.status_code == 502
 
     def test_senha_curta_retorna_422(self, client) -> None:
         body = {**CHECKOUT_BODY, "password": "curta"}
 
-        response = client.post("/api/v1/signup/checkout", json=body)
+        response = client.post("/api/v1/signup/request-verification", json=body)
 
         assert response.status_code == 422
+
+    def test_checkout_sem_confirmacao_retorna_422(self, client) -> None:
+        response = client.post("/api/v1/signup/checkout", json=CHECKOUT_BODY)
+        assert response.status_code == 422
+
+    def test_checkout_reutiliza_sessao(self, client, monkeypatch) -> None:
+        pending = self._verified(monkeypatch)
+        pending.stripe_checkout_url = "https://checkout.stripe.com/pay/cs_123"
+        pending.stripe_checkout_created_at = datetime.now(UTC)
+        create = AsyncMock()
+        monkeypatch.setattr(signup_module, "create_verified_checkout_session", create)
+        response = client.post("/api/v1/signup/checkout", json={"checkout_token": "confirmed"})
+        assert response.status_code == 200
+        create.assert_not_awaited()
+
+
+class TestVerification:
+    def test_solicita_confirmacao_antes_do_checkout(self, client, monkeypatch) -> None:
+        request = AsyncMock()
+        monkeypatch.setattr(signup_module, "request_verification", request)
+        response = client.post("/api/v1/signup/request-verification", json=CHECKOUT_BODY)
+        assert response.status_code == 202
+        request.assert_awaited_once()
+
+    def test_confirmacao_entrega_credencial_de_checkout(self, client, monkeypatch) -> None:
+        verify = AsyncMock(return_value="checkout-secret")
+        monkeypatch.setattr(signup_module, "verify_email", verify)
+        response = client.post("/api/v1/signup/verify-email", json={"token": "email-secret"})
+        assert response.json() == {"checkout_token": "checkout-secret"}
 
 
 class TestStatus:

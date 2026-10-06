@@ -89,8 +89,8 @@ class Settings(BaseSettings):
     # segredo vazado nunca forja o outro tipo de token.
     platform_jwt_secret: str = ""
 
-    # Notificação por e-mail (Gmail SMTP) quando um tenant pede a conexão
-    # Z-API gerenciada pela Advoxs — ver app/services/email_notifications.py.
+    # Gmail SMTP usado na confirmação obrigatória do cadastro e nas
+    # notificações internas — ver signup_verification.py/email_notifications.py.
     # gmail_smtp_app_password é a "Senha de app" gerada na conta Google
     # (exige verificação em 2 etapas), nunca a senha normal da conta. Sem
     # as 3 configuradas, o envio é pulado silenciosamente (best-effort).

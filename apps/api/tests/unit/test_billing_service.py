@@ -216,6 +216,48 @@ class TestProcessCheckoutCompleted:
         assert transaction.stripe_payment_id == "cs_123"
         session.commit.assert_awaited_once()
 
+    async def test_cadastro_confirmado_e_concluido_sem_dados_sensiveis_na_metadata(
+        self, session
+    ) -> None:
+        pending_id = uuid.uuid4()
+        pending = SimpleNamespace(
+            id=pending_id,
+            verified_at=datetime.now(UTC),
+            completed_at=None,
+            stripe_checkout_id="cs_123",
+            tenant_name="Escritório Confirmado",
+            email="confirmado@example.com",
+            password_hash="hash-confirmado",
+            credit_package_id=PACKAGE_ID,
+            checkout_token_hash="checkout-hash",
+        )
+        session.scalar.side_effect = [None, SimpleNamespace(id=uuid.uuid4(), is_legacy=True)]
+        session.get.side_effect = [pending, _package()]
+        added = []
+        session.add = MagicMock(side_effect=lambda obj: added.append(obj))
+
+        async def fake_flush():
+            for obj in added:
+                if getattr(obj, "id", None) is None:
+                    obj.id = uuid.uuid4()
+
+        session.flush = AsyncMock(side_effect=fake_flush)
+        await process_checkout_completed(
+            session,
+            {
+                "id": "cs_123",
+                "metadata": {"pending_signup_id": str(pending_id)},
+                "amount_total": 25000,
+            },
+        )
+
+        assert added[0].name == "Escritório Confirmado"
+        assert added[1].email == "confirmado@example.com"
+        assert pending.completed_at is not None
+        assert pending.password_hash is None
+        assert pending.checkout_token_hash is None
+        session.commit.assert_awaited_once()
+
     async def test_cria_4_agentes_padrao_para_o_tenant_novo(self, session) -> None:
         """C2: signup precisa provisionar os 4 agentes padrão (Secretária
         ponto de entrada + 3 especialistas) na MESMA transação — senão o

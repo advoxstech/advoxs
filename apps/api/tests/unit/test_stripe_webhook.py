@@ -39,7 +39,7 @@ def test_assinatura_invalida_retorna_400(client, monkeypatch) -> None:
 def test_checkout_completed_processa_evento(client, monkeypatch) -> None:
     event = {
         "type": "checkout.session.completed",
-        "data": {"object": {"id": "cs_123", "metadata": {}}},
+        "data": {"object": {"id": "cs_123", "metadata": {}, "payment_status": "paid"}},
     }
     monkeypatch.setattr(
         stripe_webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event
@@ -53,6 +53,25 @@ def test_checkout_completed_processa_evento(client, monkeypatch) -> None:
 
     assert response.status_code == 200
     process.assert_awaited_once()
+
+
+def test_checkout_nao_pago_aguarda_evento_assincrono(client, monkeypatch) -> None:
+    event = {
+        "type": "checkout.session.completed",
+        "data": {"object": {"id": "cs_123", "metadata": {}, "payment_status": "unpaid"}},
+    }
+    monkeypatch.setattr(
+        stripe_webhook_module.stripe.Webhook, "construct_event", lambda *a, **k: event
+    )
+    process = AsyncMock()
+    monkeypatch.setattr(stripe_webhook_module, "process_checkout_completed", process)
+
+    response = client.post(
+        "/api/v1/webhooks/stripe", content=b"{}", headers={"Stripe-Signature": "sig-valida"}
+    )
+
+    assert response.status_code == 200
+    process.assert_not_awaited()
 
 
 def test_evento_diferente_e_ignorado(client, monkeypatch) -> None:
