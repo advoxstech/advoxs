@@ -28,6 +28,7 @@ export interface Conversation {
   urgent_since?: string | null;
   urgent_reason?: string | null;
   urgent_source?: "agent" | "keyword" | "manual" | null;
+  urgent_agent_name?: string | null;
 }
 
 export interface UrgencyKeyword {

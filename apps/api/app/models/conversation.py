@@ -69,6 +69,9 @@ class Conversation(Base):
     urgent_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     urgent_reason: Mapped[str | None] = mapped_column(Text)
     urgent_source: Mapped[str | None] = mapped_column(String)
+    urgent_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

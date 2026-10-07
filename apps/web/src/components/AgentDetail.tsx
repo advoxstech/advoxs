@@ -8,6 +8,7 @@ import { backendFetch } from "@/lib/client-api";
 import type { Agent, Conversation } from "@/lib/types";
 import { AgentVersions } from "./AgentVersions";
 import { TestConversationThread } from "./TestConversationThread";
+import { UrgencyKeywordsPanel } from "./UrgencyKeywordsPanel";
 
 type Workspace = {
   published: Agent;
@@ -247,7 +248,7 @@ export function AgentDetail({ agentId }: { agentId: string }) {
           aria-label="Seções do agente"
           className="mt-4 flex flex-wrap gap-4"
         >
-          {["Configuração", "Testar", "Versões"].map((item) => (
+          {["Configuração", "Testar", "Versões", "Urgências"].map((item) => (
             <button
               key={item}
               type="button"
@@ -485,6 +486,9 @@ export function AgentDetail({ agentId }: { agentId: string }) {
             />
           )}
         </div>
+      )}
+      {tab === "Urgências" && (
+        <UrgencyKeywordsPanel agentId={agentId} agentName={agent.name} />
       )}
     </main>
   );

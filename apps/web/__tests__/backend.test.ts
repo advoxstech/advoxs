@@ -16,7 +16,6 @@ describe("isAllowedPath", () => {
 
   it("permite rotas de knowledge-base", () => {
     expect(isAllowedPath(["knowledge-base", "files"])).toBe(true);
-    expect(isAllowedPath(["urgency-keywords", "restore-defaults"])).toBe(true);
   });
 
   it("permite rotas de whatsapp", () => {
@@ -39,5 +38,6 @@ describe("isAllowedPath", () => {
   it("permite rotas de agentes", () => {
     expect(isAllowedPath(["agents"])).toBe(true);
     expect(isAllowedPath(["agents", "abc123", "knowledge-base-files"])).toBe(true);
+    expect(isAllowedPath(["agents", "abc123", "urgency-keywords"])).toBe(true);
   });
 });

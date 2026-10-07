@@ -201,9 +201,9 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._stripe_session())
 
-        # tenant + user + transaction + os 4 agentes padrão + as palavras-chave
-        # de urgência padrão + a assinatura padrão (plano Legado).
-        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
+        # tenant + user + transaction + os 4 agentes padrão + uma cópia das
+        # palavras de urgência para cada agente + a assinatura padrão.
+        assert len(added) == 8 + 4 * len(DEFAULT_URGENCY_KEYWORDS)
         tenant, user, transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         assert tenant.credit_balance == 2750
@@ -307,7 +307,7 @@ class TestProcessCheckoutCompleted:
 
         await process_checkout_completed(session, self._real_stripe_session())
 
-        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
+        assert len(added) == 8 + 4 * len(DEFAULT_URGENCY_KEYWORDS)
         tenant, _user, _transaction = added[:3]
         assert tenant.name == "Escritório Teste"
         session.commit.assert_awaited_once()
@@ -550,7 +550,7 @@ class TestProcessCheckoutCompletedRecompra:
         }
         await process_checkout_completed(session, {"id": "cs_999", "metadata": metadata})
 
-        assert len(added) == 8 + len(DEFAULT_URGENCY_KEYWORDS)
+        assert len(added) == 8 + 4 * len(DEFAULT_URGENCY_KEYWORDS)
         session.commit.assert_awaited_once()
 
 

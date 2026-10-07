@@ -8,17 +8,19 @@ from app.models.base import Base
 
 
 class UrgencyKeyword(Base):
-    """Palavra ou frase que marca a conversa como urgente quando aparece numa
-    mensagem do contato (tenant-scoped, editável pelo escritório)."""
+    """Palavra ou frase que marca uma conversa para um agente específico."""
 
     __tablename__ = "urgency_keywords"
-    __table_args__ = (UniqueConstraint("tenant_id", "normalized"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "agent_id", "normalized"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, server_default=text("gen_random_uuid()")
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     keyword: Mapped[str] = mapped_column(String, nullable=False)
     normalized: Mapped[str] = mapped_column(String, nullable=False)

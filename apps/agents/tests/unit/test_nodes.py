@@ -514,7 +514,7 @@ async def test_sinalizar_urgencia_vinculada_e_regra_no_prompt(monkeypatch, curre
 
 
 @pytest.mark.asyncio
-async def test_prompt_inclui_palavras_chave_do_escritorio(monkeypatch) -> None:
+async def test_prompt_ignora_palavras_da_deteccao_direta(monkeypatch) -> None:
     from agents.nodes import agent_node
 
     model = mock_model(ai_response("oi"))
@@ -523,9 +523,7 @@ async def test_prompt_inclui_palavras_chave_do_escritorio(monkeypatch) -> None:
     await agent_node(base_state(urgency_keywords=["despejo", "audiência amanhã"]))
 
     prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
-    assert "considera urgentes mensagens que mencionem: despejo, audiência amanhã." in (
-        prompt_arg.content
-    )
+    assert "despejo, audiência amanhã" not in prompt_arg.content
 
 
 @pytest.mark.asyncio

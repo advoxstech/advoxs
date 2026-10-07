@@ -194,9 +194,10 @@ mensagem de erro genérica, sem chamar o LLM.
 ```
 
 `urgency`: motivo da última chamada a `sinalizar_urgencia` nesta execução
-(ou `null`). O chamador grava em `conversations.urgent_*`. O request aceita
-`urgency_keywords` (lista opcional de palavras-chave de urgência do
-escritório), citadas na regra de urgência do prompt.
+(ou `null`). O chamador grava em `conversations.urgent_*`. O campo legado
+`urgency_keywords` ainda é aceito durante o rollout, mas é ignorado: a
+detecção direta por palavras acontece no API/worker e usa a lista própria do
+agente responsável pela conversa.
 
 Todas as respostas geradas são devolvidas ao chamador (`worker`) para
 persistência em `messages`. `tokens_used` é a soma de tokens (input+output)
@@ -444,8 +445,8 @@ que a flag venha `True` por engano no estado.
 **Regra de urgência (`_URGENCY_RULE`):** colocada no **início** do prompt de
 todo agente (no fim, o modelo a ignorava ao transferir). Lista as situações
 urgentes e manda chamar `sinalizar_urgencia` antes de responder ou transferir,
-depois avisar o cliente que a equipe foi notificada. Inclui as
-`urgency_keywords` do escritório quando houver.
+depois avisar o cliente que a equipe foi notificada. Essa análise contextual
+é independente das palavras usadas pela detecção direta.
 
 **Injeção da regra de continuidade (`_CONTINUITY_RULE`):** diferente das
 injeções acima (condicionais), esta é concatenada **incondicionalmente** a

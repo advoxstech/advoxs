@@ -1,11 +1,13 @@
 import logging
+import re
+import unicodedata
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
 from arq.worker import Retry
-from sqlalchemy import delete, func, insert, or_, select, tuple_, update
+from sqlalchemy import case, delete, func, insert, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +38,66 @@ logger = logging.getLogger(__name__)
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
 PROCESSING_LEASE = timedelta(minutes=15)
+
+
+def _normalize_urgency_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    without_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(without_accents.split())
+
+
+async def _flag_keyword_after_transfer(
+    session: AsyncSession,
+    tenant_id: str,
+    conversation_id: str,
+    message_content: str,
+    previous_agent_id: str | None,
+    current_agent_id: str | None,
+) -> None:
+    """Reavalia a mensagem quando a própria execução transferiu o atendimento."""
+    if not current_agent_id or current_agent_id == previous_agent_id or not message_content:
+        return
+
+    rows = (
+        await session.execute(
+            select(tables.urgency_keywords.c.keyword, tables.urgency_keywords.c.normalized)
+            .where(
+                tables.urgency_keywords.c.tenant_id == uuid.UUID(tenant_id),
+                tables.urgency_keywords.c.agent_id == uuid.UUID(current_agent_id),
+            )
+            .order_by(tables.urgency_keywords.c.created_at)
+        )
+    ).all()
+    normalized_message = _normalize_urgency_text(message_content)
+    matched = next(
+        (
+            row
+            for row in rows
+            if re.search(r"(?<!\w)" + re.escape(row.normalized) + r"(?!\w)", normalized_message)
+        ),
+        None,
+    )
+    if matched is None:
+        return
+
+    conversations = tables.conversations
+    was_not_urgent = conversations.c.urgent_since.is_(None)
+    await session.execute(
+        update(conversations)
+        .where(conversations.c.id == uuid.UUID(conversation_id))
+        .values(
+            urgent_since=func.coalesce(conversations.c.urgent_since, func.now()),
+            urgent_reason=case(
+                (was_not_urgent, f'Palavra-chave: "{matched.keyword}"'),
+                else_=conversations.c.urgent_reason,
+            ),
+            urgent_source=case((was_not_urgent, "keyword"), else_=conversations.c.urgent_source),
+            urgent_agent_id=case(
+                (was_not_urgent, uuid.UUID(current_agent_id)),
+                else_=conversations.c.urgent_agent_id,
+            ),
+        )
+    )
 
 
 async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
@@ -645,7 +707,6 @@ async def _process_inbound_message(
             contact_phone_number=inbound.contact_phone_number,
             message=message_content,
             agents=inbound.agents,
-            urgency_keywords=inbound.urgency_keywords,
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -776,6 +837,15 @@ async def _process_inbound_message(
             .values(automation_status="processing" if outbound_job_ids else "idle")
         )
 
+        await _flag_keyword_after_transfer(
+            session,
+            tenant_id,
+            conversation_id,
+            inbound.message_content,
+            inbound.current_agent_id,
+            current_agent_id,
+        )
+
         if result.get("urgency"):
             # Mesma regra de app/services/urgency.py::mark_urgent no api: mantém
             # o horário da primeira sinalização aberta; motivo do agente prevalece.
@@ -787,6 +857,7 @@ async def _process_inbound_message(
                     urgent_since=func.coalesce(conversations.c.urgent_since, func.now()),
                     urgent_reason=str(result["urgency"])[:300],
                     urgent_source="agent",
+                    urgent_agent_id=None,
                 )
             )
 
@@ -906,6 +977,7 @@ async def _load_context(
             select(
                 tables.conversations.c.state,
                 tables.conversations.c.contact_phone_number,
+                tables.conversations.c.current_agent_id,
                 tables.conversations.c.human_last_seen_at,
                 tables.conversations.c.billing_gate_step,
                 tables.conversations.c.billing_gate_retries,
@@ -972,16 +1044,12 @@ async def _load_context(
     ).one_or_none()
 
     agents = await _load_agents(session, tenant_id)
-    urgency_keywords = [
-        row.keyword
-        for row in (
-            await session.execute(
-                select(tables.urgency_keywords.c.keyword)
-                .where(tables.urgency_keywords.c.tenant_id == uuid.UUID(tenant_id))
-                .order_by(tables.urgency_keywords.c.created_at)
-            )
-        ).all()
-    ]
+    current_agent_id = (
+        str(conversation.current_agent_id) if conversation.current_agent_id is not None else None
+    )
+    if current_agent_id is None:
+        entry_point = next((agent for agent in agents if agent["is_entry_point"]), None)
+        current_agent_id = entry_point["id"] if entry_point is not None else None
 
     end_customer_billing_enabled = bool(billing_settings and billing_settings.enabled)
     end_customer_balance = Decimal(0)
@@ -1053,6 +1121,7 @@ async def _load_context(
         end_customer_balance=end_customer_balance,
         end_customer_packages=end_customer_packages,
         agents=agents,
+        current_agent_id=current_agent_id,
         human_last_seen_at=conversation.human_last_seen_at,
         billing_gate_step=conversation.billing_gate_step,
         billing_gate_retries=conversation.billing_gate_retries,
@@ -1065,7 +1134,6 @@ async def _load_context(
         end_customer_subscription_id=(str(active_subscription) if active_subscription else None),
         media_url=message_row.media_url,
         media_type=message_row.media_type,
-        urgency_keywords=urgency_keywords,
     )
 
 

@@ -1,4 +1,4 @@
-"""Sinalização de conversas urgentes: palavras-chave por escritório + flag do agente."""
+"""Sinalização de conversas urgentes: palavras por agente + análise contextual."""
 
 import re
 import unicodedata
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversation, UrgencyKeyword
+from app.models import Agent, Conversation, UrgencyKeyword
 
 # Lista viva pra tenants novos; a migration 0041 tem uma cópia congelada.
 DEFAULT_URGENCY_KEYWORDS = [
@@ -36,7 +36,7 @@ DEFAULT_URGENCY_KEYWORDS = [
     "mandado",
 ]
 
-MAX_KEYWORDS_PER_TENANT = 100
+MAX_KEYWORDS_PER_AGENT = 100
 MAX_REASON_LENGTH = 300
 
 
@@ -58,7 +58,13 @@ def match_keyword(text: str, keywords: list[UrgencyKeyword]) -> UrgencyKeyword |
     return None
 
 
-def mark_urgent(conversation: Conversation, reason: str, source: str) -> None:
+def mark_urgent(
+    conversation: Conversation,
+    reason: str,
+    source: str,
+    *,
+    agent_id: uuid.UUID | None = None,
+) -> None:
     """Idempotente: mantém o horário da primeira sinalização ainda aberta.
 
     O motivo só é sobrescrito quando vem do agente (mais descritivo que uma
@@ -69,54 +75,95 @@ def mark_urgent(conversation: Conversation, reason: str, source: str) -> None:
         conversation.urgent_since = datetime.now(UTC)
         conversation.urgent_reason = reason
         conversation.urgent_source = source
+        conversation.urgent_agent_id = agent_id if source == "keyword" else None
     elif source == "agent":
         conversation.urgent_reason = reason
         conversation.urgent_source = source
+        conversation.urgent_agent_id = None
 
 
 def clear_urgent(conversation: Conversation) -> None:
     conversation.urgent_since = None
     conversation.urgent_reason = None
     conversation.urgent_source = None
+    conversation.urgent_agent_id = None
 
 
-async def list_keywords(session: AsyncSession, tenant_id: uuid.UUID) -> list[UrgencyKeyword]:
+async def list_keywords(
+    session: AsyncSession, tenant_id: uuid.UUID, agent_id: uuid.UUID
+) -> list[UrgencyKeyword]:
     return list(
         await session.scalars(
             select(UrgencyKeyword)
-            .where(UrgencyKeyword.tenant_id == tenant_id)
+            .where(
+                UrgencyKeyword.tenant_id == tenant_id,
+                UrgencyKeyword.agent_id == agent_id,
+            )
             .order_by(UrgencyKeyword.created_at, UrgencyKeyword.keyword)
         )
     )
 
 
 async def flag_contact_message(
-    session: AsyncSession, conversation: Conversation, content: str | None
+    session: AsyncSession,
+    conversation: Conversation,
+    content: str | None,
+    *,
+    agent_id: uuid.UUID | None = None,
 ) -> None:
-    """Checa a mensagem do contato contra as palavras-chave do escritório."""
+    """Checa a mensagem contra a lista do agente responsável no recebimento."""
     if not content:
         return
-    keywords = await list_keywords(session, conversation.tenant_id)
+    selected_agent_id = agent_id or getattr(conversation, "current_agent_id", None)
+    if selected_agent_id is None:
+        selected_agent_id = await session.scalar(
+            select(Agent.id).where(
+                Agent.tenant_id == conversation.tenant_id,
+                Agent.is_entry_point.is_(True),
+            )
+        )
+    if selected_agent_id is None:
+        return
+    keywords = await list_keywords(session, conversation.tenant_id, selected_agent_id)
     keyword = match_keyword(content, keywords)
     if keyword is not None:
-        mark_urgent(conversation, f'Palavra-chave: "{keyword.keyword}"', "keyword")
+        mark_urgent(
+            conversation,
+            f'Palavra-chave: "{keyword.keyword}"',
+            "keyword",
+            agent_id=selected_agent_id,
+        )
 
 
-def build_default_urgency_keywords(tenant_id: uuid.UUID) -> list[UrgencyKeyword]:
+def build_default_urgency_keywords(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID
+) -> list[UrgencyKeyword]:
     return [
-        UrgencyKeyword(tenant_id=tenant_id, keyword=keyword, normalized=normalize(keyword))
+        UrgencyKeyword(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            keyword=keyword,
+            normalized=normalize(keyword),
+        )
         for keyword in DEFAULT_URGENCY_KEYWORDS
     ]
 
 
-async def restore_default_keywords(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+async def restore_default_keywords(
+    session: AsyncSession, tenant_id: uuid.UUID, agent_id: uuid.UUID
+) -> None:
     await session.execute(
         insert(UrgencyKeyword)
         .values(
             [
-                {"tenant_id": tenant_id, "keyword": keyword, "normalized": normalize(keyword)}
+                {
+                    "tenant_id": tenant_id,
+                    "agent_id": agent_id,
+                    "keyword": keyword,
+                    "normalized": normalize(keyword),
+                }
                 for keyword in DEFAULT_URGENCY_KEYWORDS
             ]
         )
-        .on_conflict_do_nothing(index_elements=["tenant_id", "normalized"])
+        .on_conflict_do_nothing(index_elements=["tenant_id", "agent_id", "normalized"])
     )

@@ -71,6 +71,8 @@ class IncomingMessage(BaseModel):
     zapi_client_token: str = ""
     send_to_whatsapp: bool = True
     agents: list[dict] = Field(default_factory=list)
+    # Aceito durante o rollout para compatibilidade com clientes antigos.
+    # Palavras configuráveis agora são avaliadas diretamente pelo API/worker.
     urgency_keywords: list[str] = Field(default_factory=list)
     test_start_agent_id: str | None = None
 
@@ -187,7 +189,6 @@ async def receive(body: IncomingMessage):
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
             agents=body.agents,
-            urgency_keywords=body.urgency_keywords,
             **(
                 {"test_start_agent_id": body.test_start_agent_id}
                 if body.test_start_agent_id

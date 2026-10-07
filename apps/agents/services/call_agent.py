@@ -53,7 +53,6 @@ async def run_agent(
     extra_data: dict = {},
     agents: list[dict] | None = None,
     test_start_agent_id: str | None = None,
-    urgency_keywords: list[str] | None = None,
 ) -> tuple[list[str], dict, str | None, str | None, list[dict]]:
     started_at = time.perf_counter()
     config = {
@@ -96,7 +95,6 @@ async def run_agent(
                 "conversation_id": conversation_id,
                 "num_before_messages": num_before_messages,
                 "agents": agents,
-                "urgency_keywords": urgency_keywords or [],
                 "source_candidates": {},
                 "source_searches": {},
                 **initial_state,

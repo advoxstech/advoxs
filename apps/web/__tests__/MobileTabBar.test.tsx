@@ -30,10 +30,7 @@ describe("MobileTabBar", () => {
 
     const sheet = screen.getByRole("dialog", { name: "Mais opções" });
     expect(within(sheet).getByText("Perfil").closest("a")).toHaveAttribute("aria-current", "page");
-    expect(within(sheet).getByText("Urgência").closest("a")).toHaveAttribute(
-      "href",
-      "/configuracoes/urgencia",
-    );
+    expect(within(sheet).queryByText("Urgência")).toBeNull();
     expect(within(sheet).getByRole("button", { name: "Sair" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });

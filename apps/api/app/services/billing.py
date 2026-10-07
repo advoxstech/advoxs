@@ -279,10 +279,11 @@ async def _process_signup(
 
     # Mesma transação do tenant/user/transação — sem isso, o tenant novo
     # nasce sem nenhum agente (C2 do review final da Etapa 1).
-    for agent in build_default_agents(tenant.id):
+    default_agents = build_default_agents(tenant.id)
+    for agent in default_agents:
         session.add(agent)
-    for keyword in build_default_urgency_keywords(tenant.id):
-        session.add(keyword)
+        for keyword in build_default_urgency_keywords(tenant.id, agent.id):
+            session.add(keyword)
 
     # Mesma transação do tenant/user/transação — sem isso, o tenant novo
     # nasce sem assinatura, e POST /api/v1/agents e /knowledge-base/files

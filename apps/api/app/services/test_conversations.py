@@ -22,7 +22,7 @@ from app.services.pricing import (
     get_current_pricing_config,
 )
 from app.services.test_attachments import process_test_attachment
-from app.services.urgency import flag_contact_message, list_keywords, mark_urgent
+from app.services.urgency import flag_contact_message, mark_urgent
 
 
 async def send_test_message(
@@ -64,7 +64,12 @@ async def send_test_message(
     )
     session.add(contact_message)
     conversation.last_message_at = now
-    await flag_contact_message(session, conversation, content)
+    await flag_contact_message(
+        session,
+        conversation,
+        content,
+        **({"agent_id": snapshot.agent_id} if snapshot is not None else {}),
+    )
     # Commit ANTES da chamada ao agents: se ele falhar, a mensagem do usuário
     # sobrevive no histórico (mesma filosofia do fluxo real via webhook).
     await session.commit()
@@ -92,7 +97,6 @@ async def send_test_message(
         contact_phone_number=conversation.contact_phone_number,
         message=message_for_agent,
         agents=agents,
-        urgency_keywords=[k.keyword for k in await list_keywords(session, tenant_id)],
         **({"test_start_agent_id": str(snapshot.agent_id)} if snapshot is not None else {}),
     )
     if result is None:
@@ -107,10 +111,18 @@ async def send_test_message(
     current_agent_id = result.get("current_agent_id")
     documents: list[dict] = result.get("documents", [])
     if current_agent_id:
+        previous_agent_id = getattr(conversation, "current_agent_id", None)
         # Pra exibir "{nome do agente} respondendo" no painel — mesma coluna
         # usada pelas conversas reais (worker), atualizada aqui pro caminho
         # síncrono das conversas de teste.
         conversation.current_agent_id = uuid.UUID(current_agent_id)
+        if previous_agent_id != conversation.current_agent_id:
+            await flag_contact_message(
+                session,
+                conversation,
+                content,
+                agent_id=conversation.current_agent_id,
+            )
     if result.get("urgency"):
         mark_urgent(conversation, result["urgency"], "agent")
     config = await get_current_pricing_config(session)

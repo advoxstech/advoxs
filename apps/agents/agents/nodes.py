@@ -71,15 +71,8 @@ _URGENCY_RULE = (
 )
 
 
-def _urgency_rule(keywords: list[str]) -> str:
-    rule = _URGENCY_RULE
-    if keywords:
-        rule += (
-            " O escritório também considera urgentes mensagens que mencionem: "
-            + ", ".join(keywords[:100])
-            + "."
-        )
-    return rule + "\n\n---\n\n"
+def _urgency_rule() -> str:
+    return _URGENCY_RULE + "\n\n---\n\n"
 
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
@@ -152,7 +145,7 @@ async def agent_node(state: dict) -> Command:
 
     # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
     prompt = (
-        _urgency_rule(state.get("urgency_keywords") or [])
+        _urgency_rule()
         + current["instructions"]
         + _CONTINUITY_RULE
         + _KNOWLEDGE_BASE_RULE
