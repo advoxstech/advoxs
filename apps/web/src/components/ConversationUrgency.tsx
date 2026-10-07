@@ -8,7 +8,7 @@ import type { Conversation } from "@/lib/types";
 
 const SOURCE_LABEL: Record<NonNullable<Conversation["urgent_source"]>, string> = {
   agent: "Sinalizada pela IA",
-  keyword: "Palavra-chave do escritório",
+  keyword: "Palavra-chave do agente",
   manual: "Marcada pela equipe",
 };
 
@@ -65,6 +65,9 @@ export function UrgencyBanner({
           <span className="text-muted">
             {" · "}
             {conversation.urgent_source ? SOURCE_LABEL[conversation.urgent_source] : null}
+            {conversation.urgent_source === "keyword" && conversation.urgent_agent_name
+              ? ` · ${conversation.urgent_agent_name}`
+              : null}
             {" · desde "}
             {formatFullDateTime(conversation.urgent_since)}
           </span>

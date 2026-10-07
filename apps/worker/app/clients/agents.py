@@ -10,7 +10,6 @@ async def send_message_to_agents(
     contact_phone_number: str,
     message: str,
     agents: list[dict] | None = None,
-    urgency_keywords: list[str] | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
 
@@ -45,7 +44,6 @@ async def send_message_to_agents(
         "attachments": [],
         "send_to_whatsapp": False,
         "agents": agents or [],
-        "urgency_keywords": urgency_keywords or [],
     }
 
     response = await http.post("/messages", json=payload, headers=headers)

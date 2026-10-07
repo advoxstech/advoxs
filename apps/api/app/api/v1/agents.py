@@ -36,6 +36,7 @@ from app.schemas.knowledge_base import KnowledgeBaseFileOut
 from app.services import agent_versions as versions
 from app.services.agents_engine import load_agents_for_engine
 from app.services.subscriptions import get_active_subscription
+from app.services.urgency import build_default_urgency_keywords
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -170,6 +171,7 @@ async def create_draft_test(
         tenant_id=ctx.tenant_id,
         contact_phone_number=f"rascunho-{uuid.uuid4().hex}",
         is_test=True,
+        current_agent_id=agent_id,
     )
     session.add(conversation)
     await session.flush()
@@ -228,6 +230,8 @@ async def create_agent(
     )
     session.add(agent)
     await session.flush()
+    for keyword in build_default_urgency_keywords(ctx.tenant_id, agent.id):
+        session.add(keyword)
     # The insert trigger creates v1 for every provisioning path.
     await session.execute(
         update(AgentVersion)

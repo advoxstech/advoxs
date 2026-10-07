@@ -14,7 +14,6 @@ const ALLOWED_PREFIXES = [
   "end-customer-billing",
   "onboarding",
   "agents",
-  "urgency-keywords",
 ];
 
 /** Só rotas do painel passam pelo proxy — nunca auth ou webhooks. */

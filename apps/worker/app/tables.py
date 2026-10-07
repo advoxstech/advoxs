@@ -61,6 +61,7 @@ conversations = Table(
     Column("urgent_since", DateTime(timezone=True)),
     Column("urgent_reason", Text),
     Column("urgent_source", String),
+    Column("urgent_agent_id", Uuid),
 )
 
 urgency_keywords = Table(
@@ -68,7 +69,9 @@ urgency_keywords = Table(
     metadata,
     Column("id", Uuid, primary_key=True),
     Column("tenant_id", Uuid),
+    Column("agent_id", Uuid),
     Column("keyword", String),
+    Column("normalized", String),
     Column("created_at", DateTime(timezone=True)),
 )
 

@@ -42,6 +42,9 @@ function mockLoad(overrides?: { attached?: unknown[] }) {
     if (!init && path === "agents/a1/knowledge-base-files") {
       return { ok: true, json: async () => overrides?.attached ?? [] };
     }
+    if (!init && path === "agents/a1/urgency-keywords") {
+      return { ok: true, json: async () => [] };
+    }
     return { ok: true, json: async () => null };
   });
 }
@@ -79,6 +82,19 @@ describe("AgentDetail", () => {
     expect(
       screen.getByDisplayValue("Você é a secretária."),
     ).toBeInTheDocument();
+  });
+
+  it("abre a configuração de urgências dentro do agente", async () => {
+    mockLoad();
+    render(<AgentDetail agentId="a1" />);
+
+    await screen.findByDisplayValue("Secretária");
+    fireEvent.click(screen.getByRole("button", { name: "Urgências" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Detecção direta de urgência" }),
+    ).toBeInTheDocument();
+    expect(mockedFetch).toHaveBeenCalledWith("agents/a1/urgency-keywords");
   });
 
   it("mostra 'agente não encontrado' quando o id não existe na lista", async () => {

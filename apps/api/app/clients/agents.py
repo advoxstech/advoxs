@@ -33,7 +33,6 @@ async def send_playground_message(
     message: str,
     agents: list[dict] | None = None,
     test_start_agent_id: str | None = None,
-    urgency_keywords: list[str] | None = None,
 ) -> dict | None:
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
@@ -59,7 +58,6 @@ async def send_playground_message(
         "access_token": "",
         "send_to_whatsapp": False,
         "agents": agents or [],
-        "urgency_keywords": urgency_keywords or [],
     }
     if test_start_agent_id is not None:
         payload["test_start_agent_id"] = test_start_agent_id

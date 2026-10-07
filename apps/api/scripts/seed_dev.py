@@ -50,9 +50,11 @@ async def seed(args: argparse.Namespace) -> None:
                     password_hash=hash_password(args.password),
                 )
             )
-            for agent in build_default_agents(tenant.id):
+            agents = build_default_agents(tenant.id)
+            for agent in agents:
                 session.add(agent)
-            session.add_all(build_default_urgency_keywords(tenant.id))
+            for agent in agents:
+                session.add_all(build_default_urgency_keywords(tenant.id, agent.id))
             session.add(await build_default_subscription(session, tenant.id))
             print(f"Tenant {tenant.id} + usuário {args.email} criados (com os 4 agentes padrão).")
 

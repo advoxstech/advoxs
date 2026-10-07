@@ -14,7 +14,6 @@ export type TenantNavItem =
   | "base"
   | "agentes"
   | "config"
-  | "urgencia"
   | "cobranca"
   | "creditos"
   | "perfil";
@@ -63,17 +62,6 @@ export const ITEMS: { key: TenantNavItem; href: string; label: string; icon: Rea
       <>
         <rect x="2" y="5" width="20" height="14" rx="2" />
         <path d="M2 10h20" />
-      </>
-    ),
-  },
-  {
-    key: "urgencia",
-    href: "/configuracoes/urgencia",
-    label: "Urgência",
-    icon: (
-      <>
-        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-        <path d="M12 9v4M12 17h.01" />
       </>
     ),
   },

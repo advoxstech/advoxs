@@ -88,7 +88,16 @@ async def list_conversations(
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
     agent_names = await _agent_names_by_id(
-        session, ctx.tenant_id, [c.current_agent_id for c in conversations]
+        session,
+        ctx.tenant_id,
+        [
+            agent_id
+            for conversation in conversations
+            for agent_id in (
+                conversation.current_agent_id,
+                getattr(conversation, "urgent_agent_id", None),
+            )
+        ],
     )
     return [
         _to_conversation_out(
@@ -208,7 +217,11 @@ async def update_state(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
-    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
+    agent_names = await _agent_names_by_id(
+        session,
+        ctx.tenant_id,
+        [conversation.current_agent_id, getattr(conversation, "urgent_agent_id", None)],
+    )
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
@@ -247,7 +260,9 @@ async def update_billing_exemption(
             session, ctx.tenant_id, [conversation.contact_phone_number]
         )
         agent_names = await _agent_names_by_id(
-            session, ctx.tenant_id, [conversation.current_agent_id]
+            session,
+            ctx.tenant_id,
+            [conversation.current_agent_id, getattr(conversation, "urgent_agent_id", None)],
         )
         return _to_conversation_out(
             conversation,
@@ -308,7 +323,11 @@ async def update_billing_exemption(
     cycles = await _end_customer_cycles_by_phone(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
-    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
+    agent_names = await _agent_names_by_id(
+        session,
+        ctx.tenant_id,
+        [conversation.current_agent_id, getattr(conversation, "urgent_agent_id", None)],
+    )
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
@@ -336,7 +355,11 @@ async def update_urgency(
     phone = conversation.contact_phone_number
     balances = await _end_customer_balances_by_phone(session, ctx.tenant_id, [phone])
     cycles = await _end_customer_cycles_by_phone(session, ctx.tenant_id, [phone])
-    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
+    agent_names = await _agent_names_by_id(
+        session,
+        ctx.tenant_id,
+        [conversation.current_agent_id, getattr(conversation, "urgent_agent_id", None)],
+    )
     latest = await _latest_message_previews(session, ctx.tenant_id, [conversation.id])
     return _to_conversation_out(
         conversation,
@@ -513,7 +536,11 @@ async def generate_summary(
         session, ctx.tenant_id, [conversation.contact_phone_number]
     )
     billing_enabled = await _is_end_customer_billing_enabled(session, ctx.tenant_id)
-    agent_names = await _agent_names_by_id(session, ctx.tenant_id, [conversation.current_agent_id])
+    agent_names = await _agent_names_by_id(
+        session,
+        ctx.tenant_id,
+        [conversation.current_agent_id, getattr(conversation, "urgent_agent_id", None)],
+    )
     return _to_conversation_out(
         conversation,
         balances.get(conversation.contact_phone_number),
@@ -816,6 +843,9 @@ def _to_conversation_out(
     out.end_customer_billing_enabled = end_customer_billing_enabled
     if agent_names and conversation.current_agent_id is not None:
         out.current_agent_name = agent_names.get(conversation.current_agent_id)
+    urgent_agent_id = getattr(conversation, "urgent_agent_id", None)
+    if agent_names and urgent_agent_id is not None:
+        out.urgent_agent_name = agent_names.get(urgent_agent_id)
     if latest_message is not None:
         out.last_message_preview, out.last_message_media_type, out.last_message_sender_type = (
             latest_message

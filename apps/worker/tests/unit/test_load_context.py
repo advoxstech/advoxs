@@ -45,7 +45,6 @@ def _session_with(
             _result(value=billing_settings),
             _result(rows=agents_rows),
             _result(rows=agent_kb_links),
-            _result(rows=[SimpleNamespace(keyword="despejo")]),
             _result(scalar=balance),
             _result(rows=packages),
             _result(scalar=active_subscription),
@@ -63,6 +62,7 @@ def _conversation(**overrides):
         billing_gate_retries=0,
         billing_gate_checkout_url=None,
         end_customer_billing_exempt=False,
+        current_agent_id=None,
     )
     for key, value in overrides.items():
         setattr(row, key, value)
@@ -99,7 +99,7 @@ async def test_billing_desabilitado_retorna_saldo_zero_e_sem_pacotes() -> None:
     assert context.end_customer_billing_enabled is False
     assert context.end_customer_balance == 0
     assert context.end_customer_packages == []
-    assert context.urgency_keywords == ["despejo"]
+    assert context.current_agent_id is None
 
 
 async def test_billing_habilitado_le_saldo_e_pacotes() -> None:
@@ -210,7 +210,7 @@ async def test_sem_agentes_retorna_lista_vazia() -> None:
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
     assert context.agents == []
-    assert session.execute.await_count == 8
+    assert session.execute.await_count == 7
 
 
 async def test_carrega_campos_do_billing_gate_da_conversa() -> None:

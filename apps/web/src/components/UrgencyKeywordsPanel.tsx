@@ -14,7 +14,13 @@ function errorDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export function UrgencyKeywordsPanel() {
+export function UrgencyKeywordsPanel({
+  agentId,
+  agentName,
+}: {
+  agentId: string;
+  agentName: string;
+}) {
   const [keywords, setKeywords] = useState<UrgencyKeyword[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState("");
@@ -22,19 +28,29 @@ export function UrgencyKeywordsPanel() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    setKeywords([]);
+    setFeedback(null);
+
     async function load() {
       try {
-        const response = await backendFetch("urgency-keywords");
+        const response = await backendFetch(`agents/${agentId}/urgency-keywords`);
+        if (cancelled) return;
         if (response.ok) setKeywords(await response.json());
         else setFeedback("Não foi possível carregar as palavras-chave.");
       } catch {
-        setFeedback("Falha de conexão ao carregar as palavras-chave.");
+        if (!cancelled) setFeedback("Falha de conexão ao carregar as palavras-chave.");
       } finally {
-        setLoaded(true);
+        if (!cancelled) setLoaded(true);
       }
     }
     void load();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,7 +59,7 @@ export function UrgencyKeywordsPanel() {
     setBusy(true);
     setFeedback(null);
     try {
-      const response = await backendFetch("urgency-keywords", {
+      const response = await backendFetch(`agents/${agentId}/urgency-keywords`, {
         method: "POST",
         body: JSON.stringify({ keyword }),
       });
@@ -66,7 +82,10 @@ export function UrgencyKeywordsPanel() {
     setBusy(true);
     setFeedback(null);
     try {
-      const response = await backendFetch(`urgency-keywords/${keyword.id}`, { method: "DELETE" });
+      const response = await backendFetch(
+        `agents/${agentId}/urgency-keywords/${keyword.id}`,
+        { method: "DELETE" },
+      );
       if (!response.ok && response.status !== 404) {
         setFeedback("Não foi possível remover a palavra-chave.");
         return;
@@ -84,14 +103,15 @@ export function UrgencyKeywordsPanel() {
     setBusy(true);
     setFeedback(null);
     try {
-      const response = await backendFetch("urgency-keywords/restore-defaults", {
+      const response = await backendFetch(`agents/${agentId}/urgency-keywords/restore-defaults`, {
         method: "POST",
       });
+      const body = await response.json().catch(() => null);
       if (!response.ok) {
-        setFeedback("Não foi possível restaurar a lista padrão.");
+        setFeedback(errorDetail(body, "Não foi possível restaurar a lista padrão."));
         return;
       }
-      setKeywords(await response.json());
+      setKeywords(body as UrgencyKeyword[]);
     } catch {
       setFeedback("Falha de conexão. Tente novamente.");
     } finally {
@@ -100,24 +120,30 @@ export function UrgencyKeywordsPanel() {
   }
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
-      <header className="border-b border-line px-8 py-5">
-        <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Urgência</h1>
-        <p className="text-sm text-muted">
-          Conversas urgentes ficam destacadas em vermelho em Conversas. A IA sinaliza pelo
-          contexto da conversa, e qualquer mensagem do cliente que contenha uma das palavras abaixo
-          também é sinalizada, mesmo com a IA pausada ou em atendimento humano.
-        </p>
-      </header>
-
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ground">
       {feedback && (
-        <p role="alert" className="border-b border-line bg-danger/5 px-8 py-3 text-sm text-danger">
+        <p role="alert" className="border-b border-line bg-danger/5 px-4 py-3 text-sm text-danger md:px-8">
           {feedback}
         </p>
       )}
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
         <div className="flex max-w-2xl flex-col gap-5">
+          <div>
+            <h2 className="font-display text-xl font-semibold text-ink">
+              Detecção direta de urgência
+            </h2>
+            <p className="mt-2 text-sm text-muted">
+              Mensagens que contenham estas palavras ou frases serão marcadas imediatamente como
+              urgentes quando {agentName} estiver responsável pela conversa. A mudança é aplicada
+              imediatamente e não depende da publicação de uma versão.
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              A análise contextual de situações críticas feita pela IA continua funcionando
+              separadamente, mesmo que esta lista esteja vazia.
+            </p>
+          </div>
+
           <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
             <label htmlFor="urgency-keyword" className="sr-only">
               Nova palavra ou frase
@@ -142,6 +168,10 @@ export function UrgencyKeywordsPanel() {
           <p className="text-xs text-muted">
             Maiúsculas e acentos são ignorados. A palavra precisa aparecer inteira: &quot;preso&quot;
             não sinaliza &quot;presos&quot; — adicione as variações que quiser.
+          </p>
+
+          <p className="text-xs text-muted" aria-live="polite">
+            {keywords.length} de 100 palavras configuradas para este agente.
           </p>
 
           {!loaded ? (
@@ -187,6 +217,6 @@ export function UrgencyKeywordsPanel() {
           </div>
         </div>
       </div>
-    </main>
+    </section>
   );
 }

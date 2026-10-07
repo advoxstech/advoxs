@@ -632,7 +632,7 @@ def test_sources_return_internally_but_never_in_whatsapp_payload(client, monkeyp
     assert whatsapp.send_text_message.await_args.args[-1] == "Resposta ao cliente"
 
 
-def test_repassa_palavras_chave_e_devolve_urgencia(client, monkeypatch):
+def test_ignora_palavras_diretas_e_devolve_urgencia_contextual(client, monkeypatch):
     debounce = AsyncMock(return_value={"combined_message": "olá", "other_exec_is_running": False})
     run_agent = AsyncMock(
         return_value=(
@@ -657,4 +657,4 @@ def test_repassa_palavras_chave_e_devolve_urgencia(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["urgency"] == "audiência amanhã"
-    assert run_agent.await_args.kwargs["urgency_keywords"] == ["despejo"]
+    assert "urgency_keywords" not in run_agent.await_args.kwargs

@@ -9,6 +9,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.main import app
+from app.models import Agent
+from app.services.urgency import DEFAULT_URGENCY_KEYWORDS
 
 TENANT_ID = uuid.uuid4()
 AGENT_ID = uuid.uuid4()
@@ -117,8 +119,9 @@ class TestCreate:
         assert response.status_code == 201
         assert response.json()["name"] == "Vendas"
         assert response.json()["is_entry_point"] is False
-        session.add.assert_called_once()
-        added = session.add.call_args.args[0]
+        assert session.add.call_count == 1 + len(DEFAULT_URGENCY_KEYWORDS)
+        assert isinstance(session.add.call_args_list[0].args[0], Agent)
+        added = session.add.call_args_list[0].args[0]
         assert added.tenant_id == TENANT_ID
         session.commit.assert_awaited()
 
@@ -136,7 +139,7 @@ class TestCreate:
 
         assert response.status_code == 201
         assert response.json()["is_entry_point"] is False
-        added = session.add.call_args.args[0]
+        added = session.add.call_args_list[0].args[0]
         assert added.is_entry_point is False
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert not any("UPDATE agents" in s for s in statements)

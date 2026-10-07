@@ -137,7 +137,7 @@ describe("ConversationsPanel — filtro Urgentes", () => {
 });
 
 describe("TenantShell — contador de urgentes", () => {
-  it("mostra o contador vindo de urgent-count e o link de configuração", async () => {
+  it("mostra o contador vindo de urgent-count sem configuração global", async () => {
     backendFetchMock.mockImplementation(async (path: string) =>
       path === "conversations/urgent-count" ? jsonResponse({ count: 3 }) : jsonResponse({}, 404),
     );
@@ -147,10 +147,7 @@ describe("TenantShell — contador de urgentes", () => {
     // Rail (desktop) e barra inferior (celular) mostram o mesmo contador.
     const badges = await screen.findAllByLabelText("3 conversa(s) urgente(s)");
     expect(badges[0]).toHaveTextContent("3");
-    expect(screen.getByText("Urgência").closest("a")).toHaveAttribute(
-      "href",
-      "/configuracoes/urgencia",
-    );
+    expect(screen.queryByText("Urgência")).toBeNull();
   });
 
   it("não mostra contador quando não há urgentes", async () => {
@@ -172,16 +169,17 @@ describe("UrgencyKeywordsPanel", () => {
 
   it("lista, adiciona e remove palavras-chave", async () => {
     backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === "urgency-keywords" && !init) return jsonResponse([despejo]);
-      if (path === "urgency-keywords" && init?.method === "POST") {
+      if (path === "agents/a1/urgency-keywords" && !init) return jsonResponse([despejo]);
+      if (path === "agents/a1/urgency-keywords" && init?.method === "POST") {
         return jsonResponse({ id: "k2", keyword: "liminar", created_at: "x" }, 201);
       }
-      if (path === "urgency-keywords/k1") return jsonResponse(null, 204);
+      if (path === "agents/a1/urgency-keywords/k1") return jsonResponse(null, 204);
       return jsonResponse({}, 404);
     });
 
-    render(<UrgencyKeywordsPanel />);
+    render(<UrgencyKeywordsPanel agentId="a1" agentName="Consumidor" />);
     expect(await screen.findByText("despejo")).toBeInTheDocument();
+    expect(screen.getByText(/quando Consumidor estiver responsável/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Ex: audiência amanhã"), {
       target: { value: "liminar" },
@@ -201,7 +199,7 @@ describe("UrgencyKeywordsPanel", () => {
       return jsonResponse([despejo]);
     });
 
-    render(<UrgencyKeywordsPanel />);
+    render(<UrgencyKeywordsPanel agentId="a1" agentName="Consumidor" />);
     await screen.findByText("despejo");
 
     fireEvent.change(screen.getByPlaceholderText("Ex: audiência amanhã"), {

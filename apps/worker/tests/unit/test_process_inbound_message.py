@@ -13,7 +13,11 @@ from app.clients.whatsapp import WhatsAppSendError
 from app.config import settings
 from app.crypto import decrypt_access_token
 from app.tasks import messages as messages_task
-from app.tasks.messages import InboundContext, process_inbound_message
+from app.tasks.messages import (
+    InboundContext,
+    _flag_keyword_after_transfer,
+    process_inbound_message,
+)
 
 TENANT_ID = str(uuid.uuid4())
 CONVERSATION_ID = str(uuid.uuid4())
@@ -25,6 +29,46 @@ PRICING_CONFIG = SimpleNamespace(
     input_weight=Decimal("0.3"),
     output_weight=Decimal("1.0"),
 )
+
+
+async def test_transferencia_reavalia_palavra_do_agente_de_destino() -> None:
+    destination_agent_id = str(uuid.uuid4())
+    rows = MagicMock()
+    rows.all.return_value = [SimpleNamespace(keyword="recall", normalized="recall")]
+    session = AsyncMock()
+    session.execute.side_effect = [rows, MagicMock()]
+
+    await _flag_keyword_after_transfer(
+        session,
+        TENANT_ID,
+        CONVERSATION_ID,
+        "O produto entrou em RECALL hoje",
+        str(uuid.uuid4()),
+        destination_agent_id,
+    )
+
+    assert session.execute.await_count == 2
+    update_statement = str(
+        session.execute.await_args_list[1].args[0].compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "urgent_agent_id" in update_statement
+    assert 'Palavra-chave: "recall"' in update_statement
+
+
+async def test_sem_transferencia_nao_reconsulta_palavras() -> None:
+    agent_id = str(uuid.uuid4())
+    session = AsyncMock()
+
+    await _flag_keyword_after_transfer(
+        session,
+        TENANT_ID,
+        CONVERSATION_ID,
+        "recall",
+        agent_id,
+        agent_id,
+    )
+
+    session.execute.assert_not_awaited()
 
 
 def _ctx() -> dict:
@@ -755,6 +799,7 @@ async def test_assinante_ativo_persiste_custo_real_sem_debito(patched) -> None:
 
 async def test_persiste_current_agent_id_quando_presente(patched) -> None:
     agent_id = str(uuid.uuid4())
+    patched["load"].return_value.current_agent_id = agent_id
     patched["send"].return_value = {
         "responses": ["oi"],
         "tokens_used": 100,
@@ -813,7 +858,6 @@ async def test_assinante_ativo_nao_debita_tenant_nem_cliente_final(patched) -> N
 
 async def test_urgencia_do_agente_marca_a_conversa(patched) -> None:
     inbound = _inbound()
-    inbound.urgency_keywords = ["despejo"]
     patched["load"].return_value = inbound
     patched["send"].return_value = {
         "responses": ["resposta"],
@@ -826,7 +870,7 @@ async def test_urgencia_do_agente_marca_a_conversa(patched) -> None:
 
     await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
 
-    assert patched["send"].await_args.kwargs["urgency_keywords"] == ["despejo"]
+    assert "urgency_keywords" not in patched["send"].await_args.kwargs
     statements = [
         str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
         for call in ctx[
