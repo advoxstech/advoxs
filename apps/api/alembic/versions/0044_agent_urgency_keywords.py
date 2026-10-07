@@ -16,6 +16,13 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column("urgency_keywords", sa.Column("agent_id", sa.Uuid(), nullable=True))
+    # A constraint global antiga precisa sair antes da replicação: a mesma
+    # palavra passará a existir uma vez para cada agente do tenant.
+    op.drop_constraint(
+        "uq_urgency_keywords_tenant_id",
+        "urgency_keywords",
+        type_="unique",
+    )
 
     # Replica a configuração vigente para todos os agentes. Assim o deploy não
     # muda quais mensagens são detectadas até o escritório personalizar as listas.
@@ -38,11 +45,6 @@ def upgrade() -> None:
         ["agent_id"],
         ["id"],
         ondelete="CASCADE",
-    )
-    op.drop_constraint(
-        "uq_urgency_keywords_tenant_id",
-        "urgency_keywords",
-        type_="unique",
     )
     op.create_unique_constraint(
         "uq_urgency_keywords_tenant_agent_normalized",
