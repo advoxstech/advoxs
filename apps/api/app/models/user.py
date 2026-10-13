@@ -8,7 +8,7 @@ from app.models.base import Base
 
 
 class User(Base):
-    """Usuário de um escritório (tenant-scoped)."""
+    """Identidade global. tenant_id/role são legado de criação, não autorização."""
 
     __tablename__ = "users"
 

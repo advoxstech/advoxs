@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { TeamSession, type TeamIdentity } from "./TeamSession";
-import { backendFetch } from "@/lib/client-api";
+import Link from "next/link";
+import { backendFetch, setOfficeContext } from "@/lib/client-api";
 
 import { useUrgentCount } from "@/hooks/useUrgentCount";
 
@@ -30,17 +31,25 @@ export function TenantShell({
   ].includes(pathname);
   useEffect(() => {
     let live = true;
+    const onSwitch = (event: StorageEvent) => {
+      if (event.key === "advoxs-office-change") window.location.assign("/escritorios");
+    };
+    window.addEventListener("storage", onSwitch);
     backendFetch("team/me")
       .then(async (r) => {
         if (!r.ok) throw new Error();
         const value = await r.json();
-        if (live) setIdentity(value);
+        if (live) {
+          setOfficeContext(value.tenant_id);
+          setIdentity(value);
+        }
       })
       .catch(() => {
         if (live) setError(true);
       });
     return () => {
       live = false;
+      window.removeEventListener("storage", onSwitch);
     };
   }, [pathname]);
   useEffect(() => {
@@ -63,6 +72,10 @@ export function TenantShell({
       <div className="flex h-[100dvh] flex-col overflow-hidden md:flex-row">
         <TenantNav active={active} urgentCount={urgentCount} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3 bg-surface">
+            <span className="truncate text-sm font-semibold">{identity.tenant_name}</span>
+            <Link href="/escritorios" className="shrink-0 text-sm underline">Trocar escritório</Link>
+          </div>
           {children}
         </div>
         <MobileTabBar active={active} urgentCount={urgentCount} />

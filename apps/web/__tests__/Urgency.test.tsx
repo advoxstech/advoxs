@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/client-api", () => ({
-  backendFetch: vi.fn(),
+  backendFetch: vi.fn(), setOfficeContext: vi.fn(),
 }));
 
 const backendFetchMock = vi.mocked(backendFetch);

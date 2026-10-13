@@ -11,6 +11,7 @@ from app.api.v1.end_customer_billing import router as end_customer_billing_route
 from app.api.v1.google_drive import router as google_drive_router
 from app.api.v1.internal.end_customer_billing import router as internal_end_customer_billing_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
+from app.api.v1.offices import router as offices_router
 from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.platform_admin.auth import router as platform_admin_auth_router
 from app.api.v1.platform_admin.dashboard import router as platform_admin_dashboard_router
@@ -35,6 +36,7 @@ api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(agents_router, dependencies=[Depends(require_admin)])
 api_router.include_router(auth_router)
+api_router.include_router(offices_router)
 api_router.include_router(team_router)
 api_router.include_router(team_public_router)
 api_router.include_router(billing_router, dependencies=[Depends(require_admin)])

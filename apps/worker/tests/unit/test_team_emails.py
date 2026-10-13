@@ -61,7 +61,7 @@ async def test_urgency_email_contains_link_but_no_client_content():
         episode_id=uuid.uuid4(),
     )
     _, _, body = await mail.render_email(session, job)
-    assert f"/conversas?conversa={job['conversation_id']}" in body
+    assert f"/escritorios?escritorio={job['tenant_id']}&conversa={job['conversation_id']}" in body
     assert "A IA continua atendendo" in body
     session.execute.side_effect = [result({"name": "Office", "status": "active"}), result(None)]
     assert await mail.render_email(session, job) is None

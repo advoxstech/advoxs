@@ -33,6 +33,7 @@ from app.models import (
     EndCustomerCreditTransaction,
     InboundMessageJob,
     Message,
+    OfficeMembership,
     OutboundMessageJob,
     Tenant,
     TenantBillingSettings,
@@ -103,8 +104,13 @@ async def transfer(
     if conversation.state != "human":
         raise HTTPException(409, "Assuma o atendimento antes de transferir.")
     user = await session.scalar(
-        select(User).where(
-            User.id == body.user_id, User.tenant_id == ctx.tenant_id, User.active.is_(True)
+        select(User)
+        .join(OfficeMembership, OfficeMembership.user_id == User.id)
+        .where(
+            User.id == body.user_id,
+            OfficeMembership.tenant_id == ctx.tenant_id,
+            OfficeMembership.active.is_(True),
+            User.active.is_(True),
         )
     )
     if user is None:

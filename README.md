@@ -8,7 +8,7 @@ atende contatos pelo WhatsApp com alternância entre IA e atendimento humano.
 
 | Situação | Escopo |
 |---|---|
-| **Implementado** | Cadastro e login, equipe com perfis administrador/advogado, convites e alertas de urgência por agente, dashboard, conversas reais e de teste, agentes editáveis por tenant, base de conhecimento, takeover humano, Meta Cloud API e Z-API, créditos, cobrança do cliente final, perfil, onboarding e painel administrativo. |
+| **Implementado** | Cadastro e login, equipe com perfis administrador/advogado por escritório e acesso a múltiplos escritórios, convites e alertas de urgência por agente, dashboard, conversas reais e de teste, agentes editáveis por tenant, base de conhecimento, takeover humano, Meta Cloud API e Z-API, créditos, cobrança do cliente final, perfil, onboarding e painel administrativo. |
 | **Parcial** | Planos da própria plataforma, relatórios financeiros consolidados, recuperação automática de algumas falhas externas e cobertura de integração. |
 | **Planejado** | Templates proativos de WhatsApp e as melhorias ainda abertas no backlog de 21/09/2026. |
 

@@ -17,6 +17,8 @@ from app.models.end_customer_billing import (
 from app.models.inbound_message_job import InboundMessageJob
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
+from app.models.office_membership import OfficeMembership
+from app.models.office_session import OfficeSession
 from app.models.outbound_message_job import OutboundMessageJob
 from app.models.pending_signup import PendingSignup
 from app.models.platform_admin import PlatformAdmin
@@ -58,6 +60,8 @@ __all__ = [
     "TenantSubscription",
     "UrgencyKeyword",
     "User",
+    "OfficeMembership",
+    "OfficeSession",
     "UsageRecord",
     "WhatsAppNumber",
     "ZApiProvisioningRequest",

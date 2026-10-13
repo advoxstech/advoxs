@@ -23,6 +23,8 @@ async def test_token_valido_injeta_contexto() -> None:
         "UserStub",
         (),
         {
+            "id": uuid.UUID(USER_ID),
+            "status": "active",
             "session_version": 0,
             "tenant_id": uuid.UUID(TENANT_ID),
             "role": "admin",
@@ -62,7 +64,7 @@ async def test_refresh_token_nao_autentica() -> None:
 async def test_versao_antiga_da_sessao_retorna_401() -> None:
     token = create_access_token(USER_ID, TENANT_ID, "admin", session_version=1)
     session = AsyncMock()
-    session.get.return_value = type("UserStub", (), {"session_version": 2})()
+    session.get.return_value = type("UserStub", (), {"session_version": 2, "active": True})()
 
     with pytest.raises(HTTPException) as exc:
         await get_current_tenant(_credentials(token), session)

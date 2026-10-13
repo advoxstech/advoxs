@@ -35,6 +35,7 @@ async function handle(
       method: request.method,
       headers: {
         ...(hasBody && contentType ? { "content-type": contentType } : {}),
+        ...(request.headers.get("x-office-id") ? { "x-office-id": request.headers.get("x-office-id")! } : {}),
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body,
@@ -49,6 +50,14 @@ async function handle(
       return NextResponse.json({ detail: "Sessão expirada" }, { status: 401 });
     }
     response = await forward(newAccessToken);
+  }
+
+  if (response.status === 409) {
+    const detail = await response.clone().json().catch(() => ({}));
+    if (detail.detail === "office_context_changed") {
+      // Refresh cookies but never replay an office-bound action after a switch.
+      await refreshSession(store);
+    }
   }
 
   if (path.join("/") === "profile/password" && response.status === 204) {
@@ -100,4 +109,4 @@ async function refreshSession(
   return tokens.access_token;
 }
 
-export { handle as GET, handle as POST, handle as PATCH, handle as DELETE };
+export { handle as GET, handle as POST, handle as PATCH, handle as DELETE, handle as PUT };

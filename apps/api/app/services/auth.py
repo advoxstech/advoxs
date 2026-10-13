@@ -11,7 +11,7 @@ import jwt
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -22,7 +22,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import Tenant, User
+from app.models import OfficeMembership, OfficeSession, Tenant, User
 from app.services.signup_tokens import consume_login_token
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ async def login(
     ip_key = _login_key(LOGIN_IP_PREFIX, client_ip)
     await _enforce_login_limit(redis, account_key, ip_key)
 
-    user = await session.scalar(select(User).where(User.email == email))
+    user = await session.scalar(select(User).where(func.lower(User.email) == email.strip().lower()))
     if user is None:
         verify_password(password, _DUMMY_HASH)
         await _record_login_failure(redis, account_key, ip_key)
@@ -66,14 +66,12 @@ async def login(
         await _record_login_failure(redis, account_key, ip_key)
         raise _CREDENCIAIS_INVALIDAS
 
-    await _validar_tenant_ativo(user, session)
+    if not user.active:
+        raise _CREDENCIAIS_INVALIDAS
 
     await _clear_account_failures(redis, account_key)
-    logger.info("Login | user=%s tenant=%s", user.id, user.tenant_id)
-    return (
-        create_access_token(str(user.id), str(user.tenant_id), user.role, user.session_version),
-        create_refresh_token(str(user.id), user.session_version),
-    )
+    logger.info("Login | user=%s", user.id)
+    return await start_office_session(user, session)
 
 
 async def signup_token_login(token: str, session: AsyncSession, redis: Redis) -> tuple[str, str]:
@@ -97,13 +95,11 @@ async def signup_token_login(token: str, session: AsyncSession, redis: Redis) ->
     if user is None:
         raise _TOKEN_INVALIDO
 
-    await _validar_tenant_ativo(user, session)
+    if not user.active:
+        raise _CREDENCIAIS_INVALIDAS
 
-    logger.info("Auto-login pós-cadastro | user=%s tenant=%s", user.id, user.tenant_id)
-    return (
-        create_access_token(str(user.id), str(user.tenant_id), user.role, user.session_version),
-        create_refresh_token(str(user.id), user.session_version),
-    )
+    logger.info("Auto-login pós-cadastro | user=%s", user.id)
+    return await start_office_session(user, session)
 
 
 async def refresh(refresh_token: str, session: AsyncSession, redis: Redis) -> tuple[str, str]:
@@ -119,7 +115,8 @@ async def refresh(refresh_token: str, session: AsyncSession, redis: Redis) -> tu
         raise _CREDENCIAIS_INVALIDAS
     if payload.get("session_version", 0) != user.session_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão revogada")
-    await _validar_tenant_ativo(user, session)
+    if not user.active:
+        raise _CREDENCIAIS_INVALIDAS
 
     result_key = f"{ROTATION_RESULT_PREFIX}{payload['jti']}"
     if not await _claim_refresh(redis, payload):
@@ -130,10 +127,16 @@ async def refresh(refresh_token: str, session: AsyncSession, redis: Redis) -> tu
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revogado"
         )
 
-    tokens = (
-        create_access_token(str(user.id), str(user.tenant_id), user.role, user.session_version),
-        create_refresh_token(str(user.id), user.session_version),
-    )
+    if payload.get("sid"):
+        try:
+            office_session = await session.get(OfficeSession, uuid.UUID(payload["sid"]))
+        except ValueError:
+            raise _TOKEN_INVALIDO
+        if office_session is None or office_session.user_id != user.id:
+            raise _TOKEN_INVALIDO
+        tokens = await office_tokens(user, office_session, session)
+    else:
+        tokens = await start_office_session(user, session)
     try:
         await redis.set(result_key, json.dumps(tokens), ex=ROTATION_GRACE_SECONDS)
     except RedisError:
@@ -224,9 +227,52 @@ async def _clear_account_failures(redis: Redis, account_key: str) -> None:
         logger.warning("Não foi possível limpar o limitador da conta autenticada")
 
 
-async def _validar_tenant_ativo(user: User, session: AsyncSession) -> None:
-    if getattr(user, "active", True) is False:
-        raise _CREDENCIAIS_INVALIDAS
-    tenant = await session.get(Tenant, user.tenant_id)
-    if tenant is None or tenant.status != "active":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Escritório suspenso")
+async def available_offices(user_id, session):
+    rows = await session.execute(
+        select(OfficeMembership, Tenant.name)
+        .join(Tenant, Tenant.id == OfficeMembership.tenant_id)
+        .where(
+            OfficeMembership.user_id == user_id,
+            OfficeMembership.active.is_(True),
+            Tenant.status == "active",
+        )
+        .order_by(Tenant.name, Tenant.id)
+    )
+    return [dict(id=str(m.tenant_id), name=name, role=m.role) for m, name in rows]
+
+
+async def start_office_session(user, session):
+    offices = await available_offices(user.id, session)
+    office_session = OfficeSession(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        tenant_id=uuid.UUID(offices[0]["id"]) if len(offices) == 1 else None,
+    )
+    session.add(office_session)
+    await session.flush()
+    await session.commit()
+    return await office_tokens(user, office_session, session)
+
+
+async def office_tokens(user, office_session, session):
+    role = ""
+    tenant_id = office_session.tenant_id
+    if tenant_id:
+        membership = await session.get(OfficeMembership, (tenant_id, user.id))
+        tenant = await session.get(Tenant, tenant_id)
+        if membership and membership.active and tenant and tenant.status == "active":
+            role = membership.role
+        else:
+            # Identity remains valid; the user can select another active office.
+            tenant_id = None
+    return (
+        create_access_token(
+            str(user.id),
+            str(tenant_id or ""),
+            role,
+            user.session_version,
+            sid=str(office_session.id),
+            context_version=office_session.version,
+        ),
+        create_refresh_token(str(user.id), user.session_version, sid=str(office_session.id)),
+    )

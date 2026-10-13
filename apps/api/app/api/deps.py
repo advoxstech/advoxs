@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import event, text
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session, get_system_session
 from app.core.platform_security import decode_platform_token
 from app.core.security import decode_token
-from app.models import User
+from app.models import OfficeMembership, OfficeSession, Tenant, User
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -31,38 +31,55 @@ class TenantContext(BaseModel):
     name: str = "Equipe"
 
 
-async def get_current_tenant(
+async def get_current_identity(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: AsyncSession = Depends(get_system_session),
-) -> TenantContext:
-    """Valida o JWT e sua versão revogável antes de montar o contexto."""
+):
     if credentials is None:
         raise _NAO_AUTENTICADO
     try:
         payload = decode_token(credentials.credentials)
-    except jwt.PyJWTError:
+        user_id = uuid.UUID(payload["sub"])
+    except (jwt.PyJWTError, ValueError, KeyError):
         raise _NAO_AUTENTICADO
     if payload.get("type") != "access":
         raise _NAO_AUTENTICADO
-
-    try:
-        user_id = uuid.UUID(payload["sub"])
-    except (ValueError, KeyError):
-        raise _NAO_AUTENTICADO
     user = await session.get(User, user_id)
-    if (
-        user is None
-        or getattr(user, "active", True) is False
-        or payload.get("session_version", 0) != user.session_version
-    ):
+    if user is None or not user.active or payload.get("session_version", 0) != user.session_version:
         raise _NAO_AUTENTICADO
+    if payload.get("sid"):
+        try:
+            office_session = await session.get(OfficeSession, uuid.UUID(payload["sid"]))
+        except ValueError:
+            raise _NAO_AUTENTICADO
+        if office_session is None or office_session.user_id != user.id:
+            raise _NAO_AUTENTICADO
+    return user, payload
 
-    return TenantContext(
-        user_id=user_id,
-        tenant_id=user.tenant_id,
-        role=user.role,
-        name=user.name,
-    )
+
+async def get_current_tenant(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    session: AsyncSession = Depends(get_system_session),
+    expected_office: str | None = Header(default=None, alias="X-Office-ID"),
+) -> TenantContext:
+    user, payload = await get_current_identity(credentials, session)
+    if payload.get("sid"):
+        office_session = await session.get(OfficeSession, uuid.UUID(payload["sid"]))
+        if payload.get("context_version", 0) != office_session.version or payload.get(
+            "tenant_id"
+        ) != str(office_session.tenant_id or ""):
+            raise HTTPException(409, "office_context_changed")
+    try:
+        tenant_id = uuid.UUID(payload["tenant_id"])
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(409, "office_selection_required")
+    if isinstance(expected_office, str) and expected_office != str(tenant_id):
+        raise HTTPException(409, "office_context_changed")
+    membership = await session.get(OfficeMembership, (tenant_id, user.id))
+    tenant = await session.get(Tenant, tenant_id)
+    if not membership or not membership.active or not tenant or tenant.status != "active":
+        raise HTTPException(409, "office_selection_required")
+    return TenantContext(user_id=user.id, tenant_id=tenant_id, role=membership.role, name=user.name)
 
 
 def _tenant_id_setter(tenant_id: str):

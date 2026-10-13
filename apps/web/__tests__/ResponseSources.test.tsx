@@ -56,7 +56,7 @@ it("keeps the snapshot readable when the original was removed", async () => {
   fireEvent.click(screen.getByText("Fontes da resposta · 1 documento"));
   fireEvent.click(screen.getByRole("button", { name: "Baixar documento original" }));
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("O trecho utilizado foi preservado"));
-  expect(fetchMock).toHaveBeenCalledWith("/api/backend/knowledge-base/files/doc-1/content", { cache: "no-store" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/backend/knowledge-base/files/doc-1/content", expect.objectContaining({ cache: "no-store" }));
   expect(screen.getByText(source.excerpt)).toBeInTheDocument();
 });
 

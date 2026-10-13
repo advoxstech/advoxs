@@ -7,15 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import get_current_tenant, get_tenant_session
+from app.api.deps import _bearer, get_current_identity, get_current_tenant, get_tenant_session
 from app.core.crypto import encrypt_access_token
 from app.core.db import get_system_session
 from app.core.security import hash_password
-from app.models import Agent, Tenant, User
+from app.models import Agent, OfficeMembership, Tenant, User
 from app.services.team_access import require_admin
 
 router = APIRouter(prefix="/team", tags=["team"])
@@ -46,12 +47,12 @@ class Bindings(BaseModel):
 
 class Accept(BaseModel):
     token: str = Field(min_length=32, max_length=200)
-    password: str = Field(min_length=8, max_length=72)
+    password: str | None = Field(default=None, min_length=8, max_length=72)
 
     @field_validator("password")
     @classmethod
     def password_bytes(cls, value):
-        if len(value.encode("utf-8")) > 72:
+        if value is not None and len(value.encode("utf-8")) > 72:
             raise ValueError("Senha excede o limite de 72 bytes.")
         return value
 
@@ -79,7 +80,15 @@ async def lock_office(session, tenant_id):
 @router.get("/me")
 async def me(ctx=Depends(get_current_tenant), session=Depends(get_tenant_session)):
     user = await session.get(User, ctx.user_id)
-    return dict(id=user.id, name=user.name, email=user.email, role=user.role)
+    tenant = await session.get(Tenant, ctx.tenant_id)
+    return dict(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=ctx.role,
+        tenant_id=ctx.tenant_id,
+        tenant_name=tenant.name,
+    )
 
 
 @router.get("/agents")
@@ -98,10 +107,15 @@ async def my_agents(ctx=Depends(get_current_tenant), session=Depends(get_tenant_
 async def members(ctx=Depends(require_admin), session=Depends(get_tenant_session)):
     rows = (
         await session.execute(
-            select(User).where(User.tenant_id == ctx.tenant_id).order_by(User.name)
+            select(User, OfficeMembership)
+            .join(OfficeMembership, OfficeMembership.user_id == User.id)
+            .where(OfficeMembership.tenant_id == ctx.tenant_id)
+            .order_by(User.name)
         )
-    ).scalars()
-    return [dict(id=u.id, name=u.name, email=u.email, role=u.role, active=u.active) for u in rows]
+    ).all()
+    return [
+        dict(id=u.id, name=u.name, email=u.email, role=m.role, active=m.active) for u, m in rows
+    ]
 
 
 @router.get("/invitations")
@@ -150,7 +164,11 @@ async def invite(body: Invite, ctx=Depends(require_admin), session=Depends(get_t
             {"id": pending["id"]},
         )
     # Existing accounts are never silently reassigned (including at acceptance).
-    existing = await session.scalar(select(User.id).where(func.lower(User.email) == email))
+    existing = await session.scalar(
+        select(User.id)
+        .join(OfficeMembership, OfficeMembership.user_id == User.id)
+        .where(func.lower(User.email) == email, OfficeMembership.tenant_id == ctx.tenant_id)
+    )
     if existing:
         raise HTTPException(409, "Este membro já possui uma conta neste escritório.")
     token = secrets.token_urlsafe(32)
@@ -191,7 +209,11 @@ async def cancel(
 
 
 @public_router.post("/accept")
-async def accept(body: Accept, session=Depends(get_system_session)):
+async def accept(
+    body: Accept,
+    session=Depends(get_system_session),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+):
     invitation = (
         (
             await session.execute(
@@ -219,20 +241,41 @@ async def accept(body: Accept, session=Depends(get_system_session)):
         {"email": invitation["email"]},
     )
     existing = await session.scalar(
-        select(User.id).where(func.lower(User.email) == invitation["email"])
+        select(User).where(func.lower(User.email) == invitation["email"])
     )
     if existing:
-        raise HTTPException(409, "E-mail já possui conta. Peça orientação ao administrador.")
-    session.add(
-        User(
-            tenant_id=invitation["tenant_id"],
-            email=invitation["email"],
-            name=invitation["name"],
-            role=invitation["role"],
-            active=True,
-            password_hash=hash_password(body.password),
+        # Existing passwords are never reset by an invitation. Authentication and
+        # possession of the invitation must both match the invited identity.
+        if not isinstance(credentials, HTTPAuthorizationCredentials):
+            raise HTTPException(401, "Entre com a conta que recebeu o convite.")
+        authenticated, _ = await get_current_identity(credentials, session)
+        if authenticated.id != existing.id:
+            raise HTTPException(403, "Entre com o e-mail que recebeu o convite.")
+        membership = await session.get(OfficeMembership, (invitation["tenant_id"], existing.id))
+        if membership:
+            raise HTTPException(409, "Vínculo já existente. Solicite reativação ao administrador.")
+        session.add(
+            OfficeMembership(
+                tenant_id=invitation["tenant_id"],
+                user_id=existing.id,
+                role=invitation["role"],
+                active=True,
+            )
         )
-    )
+    else:
+        if not body.password:
+            raise HTTPException(400, "Defina uma senha para criar sua conta.")
+        # The insertion trigger creates the first membership in this transaction.
+        session.add(
+            User(
+                tenant_id=invitation["tenant_id"],
+                email=invitation["email"],
+                name=invitation["name"],
+                role=invitation["role"],
+                active=True,
+                password_hash=hash_password(body.password),
+            )
+        )
     await session.execute(
         text("UPDATE team_invitations SET accepted_at=now() WHERE id=:id"), {"id": invitation["id"]}
     )
@@ -252,21 +295,31 @@ async def update_member(
     session=Depends(get_tenant_session),
 ):
     await lock_office(session, ctx.tenant_id)
-    user = await session.scalar(
-        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id).with_for_update()
+    membership = await session.scalar(
+        select(OfficeMembership)
+        .where(OfficeMembership.user_id == user_id, OfficeMembership.tenant_id == ctx.tenant_id)
+        .with_for_update()
     )
-    if user is None:
+    if membership is None:
         raise HTTPException(404, "Membro não encontrado.")
-    if user.role == "admin" and user.active and (not body.active or body.role != "admin"):
+    user = await session.get(User, user_id)
+    if (
+        membership.role == "admin"
+        and membership.active
+        and (not body.active or body.role != "admin")
+    ):
         count = await session.scalar(
-            select(func.count(User.id)).where(
-                User.tenant_id == ctx.tenant_id, User.active.is_(True), User.role == "admin"
+            select(func.count())
+            .select_from(OfficeMembership)
+            .where(
+                OfficeMembership.tenant_id == ctx.tenant_id,
+                OfficeMembership.active.is_(True),
+                OfficeMembership.role == "admin",
             )
         )
         if count <= 1:
             raise HTTPException(409, "O escritório precisa de pelo menos um administrador ativo.")
-    user.role, user.active = body.role, body.active
-    user.session_version += 1
+    membership.role, membership.active = body.role, body.active
     if not body.active:
         await session.execute(
             text("""INSERT INTO attendance_events
@@ -317,11 +370,14 @@ async def bind(
     users = set(
         (
             await session.scalars(
-                select(User.id).where(
-                    User.tenant_id == ctx.tenant_id,
+                select(User.id)
+                .join(OfficeMembership, OfficeMembership.user_id == User.id)
+                .where(
+                    OfficeMembership.tenant_id == ctx.tenant_id,
                     User.id.in_(ids),
                     User.active.is_(True),
-                    User.role == "lawyer",
+                    OfficeMembership.active.is_(True),
+                    OfficeMembership.role == "lawyer",
                 )
             )
         ).all()
@@ -371,3 +427,29 @@ async def retry(
     )
     await session.commit()
     return {"status": "queued"}
+
+
+class InvitationLookup(BaseModel):
+    token: str = Field(min_length=32, max_length=200)
+
+
+@public_router.post("/inspect")
+async def inspect_invitation(body: InvitationLookup, session=Depends(get_system_session)):
+    row = (
+        (
+            await session.execute(
+                text("""SELECT i.email,t.name,i.role FROM team_invitations i
+        JOIN tenants t ON t.id=i.tenant_id WHERE i.token_hash=:hash AND i.accepted_at IS NULL
+        AND i.cancelled_at IS NULL AND i.expires_at>now() AND t.status='active'"""),
+                {"hash": digest(body.token)},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        raise HTTPException(400, "Convite inválido ou expirado.")
+    existing = await session.scalar(select(User.id).where(func.lower(User.email) == row["email"]))
+    return dict(
+        office_name=row["name"], email=row["email"], role=row["role"], existing=bool(existing)
+    )
