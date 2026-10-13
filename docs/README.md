@@ -2,6 +2,9 @@
 
 ## Fontes atuais
 
+- [Equipe e alertas de urgência](equipe-e-alertas-de-urgencia.md): perfis,
+  convites, responsáveis por agente, atendimento humano e configuração de e-mails.
+
 - [Configuração de produção](configuracao-producao.md): segredos obrigatórios,
   integrações habilitadas e verificação anterior ao deploy.
 

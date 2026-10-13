@@ -13,6 +13,7 @@ from app.tasks.inbound_outbox import recover_inbound_message_jobs
 from app.tasks.knowledge_base import ingest_knowledge_base_file, recover_drive_imports
 from app.tasks.messages import process_inbound_message
 from app.tasks.outbound_outbox import deliver_outbound_message, recover_outbound_message_jobs
+from app.tasks.team_emails import deliver_team_emails
 
 
 async def startup(ctx: dict) -> None:
@@ -39,6 +40,7 @@ async def shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     functions = [
+        deliver_team_emails,
         func(ingest_knowledge_base_file, keep_result=0),
         process_conversation_cleanup,
         process_inbound_message,
@@ -48,6 +50,7 @@ class WorkerSettings:
         recover_conversation_cleanup_jobs,
     ]
     cron_jobs = [
+        cron(deliver_team_emails, second={10, 40}),
         cron(recover_drive_imports, second=30),
         cron(recover_inbound_message_jobs, second=0),
         cron(recover_outbound_message_jobs, second=0),

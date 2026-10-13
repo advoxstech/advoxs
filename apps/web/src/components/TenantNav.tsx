@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTeamSession } from "./TeamSession";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
@@ -9,6 +10,9 @@ import { AdvoxsIcon } from "@/components/AdvoxsLogo";
 import { backendFetch } from "@/lib/client-api";
 
 export type TenantNavItem =
+  | "equipe"
+  | "meus-agentes"
+  | "minha-conta"
   | "inicio"
   | "conversas"
   | "base"
@@ -18,14 +22,29 @@ export type TenantNavItem =
   | "creditos"
   | "perfil";
 
-export const ITEMS: { key: TenantNavItem; href: string; label: string; icon: ReactNode }[] = [
+export const ITEMS: {
+  key: TenantNavItem;
+  href: string;
+  label: string;
+  icon: ReactNode;
+}[] = [
+  {
+    key: "meus-agentes",
+    href: "/meus-agentes",
+    label: "Meus agentes",
+    icon: <path d="M4 4h16v16H4z" />,
+  },
+  {
+    key: "minha-conta",
+    href: "/minha-conta",
+    label: "Minha conta",
+    icon: <circle cx="12" cy="12" r="8" />,
+  },
   {
     key: "inicio",
     href: "/inicio",
     label: "Início",
-    icon: (
-      <path d="M3 9.5 12 3l9 6.5M5 9v11h14V9" />
-    ),
+    icon: <path d="M3 9.5 12 3l9 6.5M5 9v11h14V9" />,
   },
   {
     key: "conversas",
@@ -53,6 +72,12 @@ export const ITEMS: { key: TenantNavItem; href: string; label: string; icon: Rea
         <path d="M12 8V4M9 13h.01M15 13h.01" />
       </>
     ),
+  },
+  {
+    key: "equipe",
+    href: "/equipe",
+    label: "Equipe",
+    icon: <path d="M4 20v-4h16v4M8 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0" />,
   },
   {
     key: "config",
@@ -143,6 +168,12 @@ export function TenantNav({
   active: TenantNavItem | null;
   urgentCount?: number;
 }) {
+  const identity = useTeamSession();
+  const visibleItems = ITEMS.filter((i) =>
+    identity?.role === "lawyer"
+      ? ["conversas", "meus-agentes", "minha-conta"].includes(i.key)
+      : !["meus-agentes", "minha-conta"].includes(i.key),
+  );
   const [hasLogo, setHasLogo] = useState(false);
   const [pinned, setPinned] = useState(false);
 
@@ -165,7 +196,9 @@ export function TenantNav({
 
   return (
     // O espaço reservado fica fixo; o menu expande por cima do conteúdo, sem empurrá-lo.
-    <div className={`relative hidden shrink-0 md:block ${pinned ? "w-[232px]" : "w-[72px]"}`}>
+    <div
+      className={`relative hidden shrink-0 md:block ${pinned ? "w-[232px]" : "w-[72px]"}`}
+    >
       <nav
         aria-label="Navegação principal"
         className={`group absolute inset-y-0 left-0 z-30 flex flex-col overflow-hidden bg-nav-bg py-5 ${
@@ -188,7 +221,7 @@ export function TenantNav({
         </div>
 
         <div className="mt-6 flex flex-1 flex-col gap-0.5 px-3">
-          {ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const isActive = item.key === active;
             return (
               <Link
@@ -203,7 +236,9 @@ export function TenantNav({
               >
                 <span className="relative">
                   <NavIcon>{item.icon}</NavIcon>
-                  {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
+                  {item.key === "conversas" && (
+                    <UrgentBadge count={urgentCount} />
+                  )}
                 </span>
                 <span className={reveal}>{item.label}</span>
               </Link>
@@ -221,7 +256,9 @@ export function TenantNav({
             <NavIcon>
               <path d={pinned ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
             </NavIcon>
-            <span className={reveal}>{pinned ? "Recolher menu" : "Fixar menu aberto"}</span>
+            <span className={reveal}>
+              {pinned ? "Recolher menu" : "Fixar menu aberto"}
+            </span>
           </button>
           <form action={logout}>
             <button

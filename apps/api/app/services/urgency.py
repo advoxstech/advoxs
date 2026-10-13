@@ -75,11 +75,11 @@ def mark_urgent(
         conversation.urgent_since = datetime.now(UTC)
         conversation.urgent_reason = reason
         conversation.urgent_source = source
-        conversation.urgent_agent_id = agent_id if source == "keyword" else None
+        conversation.urgent_agent_id = agent_id or getattr(conversation, "current_agent_id", None)
     elif source == "agent":
         conversation.urgent_reason = reason
         conversation.urgent_source = source
-        conversation.urgent_agent_id = None
+        conversation.urgent_agent_id = agent_id or getattr(conversation, "current_agent_id", None)
 
 
 def clear_urgent(conversation: Conversation) -> None:

@@ -19,7 +19,17 @@ def _credentials(token: str) -> HTTPAuthorizationCredentials:
 async def test_token_valido_injeta_contexto() -> None:
     token = create_access_token(USER_ID, TENANT_ID, "admin")
     session = AsyncMock()
-    session.get.return_value = type("UserStub", (), {"session_version": 0})()
+    session.get.return_value = type(
+        "UserStub",
+        (),
+        {
+            "session_version": 0,
+            "tenant_id": uuid.UUID(TENANT_ID),
+            "role": "admin",
+            "name": "Ana",
+            "active": True,
+        },
+    )()
 
     ctx = await get_current_tenant(_credentials(token), session)
 

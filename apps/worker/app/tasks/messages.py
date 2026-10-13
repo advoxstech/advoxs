@@ -857,7 +857,7 @@ async def _process_inbound_message(
                     urgent_since=func.coalesce(conversations.c.urgent_since, func.now()),
                     urgent_reason=str(result["urgency"])[:300],
                     urgent_source="agent",
-                    urgent_agent_id=None,
+                    urgent_agent_id=uuid.UUID(current_agent_id) if current_agent_id else None,
                 )
             )
 

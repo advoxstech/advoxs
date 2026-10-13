@@ -2,11 +2,18 @@
 
 import { ResponseSources } from "@/components/ResponseSources";
 
+import { useTeamSession } from "./TeamSession";
+import { AttendancePanel } from "./AttendancePanel";
 import { useState } from "react";
 
 import { usePaginatedMessages } from "@/hooks/usePaginatedMessages";
 import { backendFetch } from "@/lib/client-api";
-import { formatCredits, formatFullDateTime, formatMessageTime, formatPhone } from "@/lib/format";
+import {
+  formatCredits,
+  formatFullDateTime,
+  formatMessageTime,
+  formatPhone,
+} from "@/lib/format";
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
@@ -14,7 +21,10 @@ import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
 import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 function formatUpdateTime(date: Date): string {
-  return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 interface ConversationThreadProps {
@@ -53,6 +63,13 @@ export function ConversationThread({
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  const identity = useTeamSession();
+  const isAdmin = identity?.role !== "lawyer";
+  const isOwner = conversation.assigned_user_id === identity?.id;
+  const canSend =
+    conversation.state === "human" &&
+    (isOwner || (!identity && conversation.assigned_user_id === undefined));
+  const canReturn = isAdmin || isOwner;
   const isManual = conversation.state === "human";
   const urgency = useUrgencyUpdate(conversation, onConversationUpdate);
 
@@ -74,10 +91,13 @@ export function ConversationThread({
     setExemptionError(null);
     setExemptionSuccess(null);
     try {
-      const response = await backendFetch(`conversations/${conversation.id}/billing-exemption`, {
-        method: "PATCH",
-        body: JSON.stringify({ exempt: goingExempt }),
-      });
+      const response = await backendFetch(
+        `conversations/${conversation.id}/billing-exemption`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ exempt: goingExempt }),
+        },
+      );
       if (!response.ok) throw new Error("billing update failed");
       onConversationUpdate(await response.json());
       setExemptionSuccess(
@@ -86,11 +106,15 @@ export function ConversationThread({
           : "A cobrança deste cliente foi retomada.",
       );
     } catch {
-      setExemptionError("Não foi possível alterar a cobrança deste cliente. Tente novamente.");
+      setExemptionError(
+        "Não foi possível alterar a cobrança deste cliente. Tente novamente.",
+      );
     }
   };
 
-  const [summaryExpanded, setSummaryExpanded] = useState(() => Boolean(conversation.summary));
+  const [summaryExpanded, setSummaryExpanded] = useState(() =>
+    Boolean(conversation.summary),
+  );
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
@@ -98,15 +122,20 @@ export function ConversationThread({
     setSummarizing(true);
     setSummaryError(null);
     try {
-      const response = await backendFetch(`conversations/${conversation.id}/summary`, {
-        method: "POST",
-      });
+      const response = await backendFetch(
+        `conversations/${conversation.id}/summary`,
+        {
+          method: "POST",
+        },
+      );
       if (response.ok) {
         const updated: Conversation = await response.json();
         onConversationUpdate(updated);
         setSummaryExpanded(true);
       } else if (response.status === 402) {
-        setSummaryError("Saldo de créditos esgotado — não é possível gerar o resumo.");
+        setSummaryError(
+          "Saldo de créditos esgotado — não é possível gerar o resumo.",
+        );
       } else {
         setSummaryError("Não foi possível gerar o resumo. Tente novamente.");
       }
@@ -118,17 +147,27 @@ export function ConversationThread({
   };
 
   const toggleState = async () => {
+    const returningToAi =
+      isManual && (!!conversation.assigned_user_id || !identity);
     setError(null);
     setActionSuccess(null);
     try {
       const response = await backendFetch(`conversations/${conversation.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ state: isManual ? "agent" : "human" }),
+        body: JSON.stringify({
+          state: returningToAi ? "agent" : "human",
+        }),
       });
-      if (!response.ok) throw new Error("conversation update failed");
+      if (!response.ok) {
+        const body = await response.json();
+        setError(body.detail || "Não foi possível alterar o atendimento.");
+        return;
+      }
       onConversationUpdate(await response.json());
       setActionSuccess(
-        isManual ? "O atendimento foi devolvido para a IA." : "Você assumiu o atendimento.",
+        returningToAi
+          ? "O atendimento foi devolvido para a IA."
+          : "Você assumiu o atendimento.",
       );
     } catch {
       setError("Não foi possível alterar o atendimento. Tente novamente.");
@@ -165,10 +204,13 @@ export function ConversationThread({
     setError(null);
     setActionSuccess(null);
     try {
-      const response = await backendFetch(`conversations/${conversation.id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      });
+      const response = await backendFetch(
+        `conversations/${conversation.id}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        },
+      );
       if (response.ok) {
         const message: Message = await response.json();
         appendMessages(message);
@@ -191,8 +233,13 @@ export function ConversationThread({
   const moreActions: ActionMenuItem[] = [
     ...(conversation.urgent_since
       ? []
-      : [{ label: "Marcar como urgente", onSelect: () => void urgency.update(true) }]),
-    ...(conversation.end_customer_billing_enabled
+      : [
+          {
+            label: "Marcar como urgente",
+            onSelect: () => void urgency.update(true),
+          },
+        ]),
+    ...(isAdmin && conversation.end_customer_billing_enabled
       ? [
           {
             label: conversation.end_customer_billing_exempt
@@ -202,7 +249,15 @@ export function ConversationThread({
           },
         ]
       : []),
-    { label: "Excluir conversa", onSelect: () => void handleDelete(), tone: "danger" as const },
+    ...(isAdmin
+      ? [
+          {
+            label: "Excluir conversa",
+            onSelect: () => void handleDelete(),
+            tone: "danger" as const,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -222,7 +277,8 @@ export function ConversationThread({
             {formatPhone(conversation.contact_phone_number)}
           </h2>
           <ConversationStatusIndicator conversation={conversation} />
-          {conversation.end_customer_billing_enabled && conversation.end_customer_billing_exempt ? (
+          {conversation.end_customer_billing_enabled &&
+          conversation.end_customer_billing_exempt ? (
             <span className="rounded-sm bg-accent-soft px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.12em] text-accent">
               Cobrança isenta
             </span>
@@ -231,31 +287,50 @@ export function ConversationThread({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            disabled={isManual && !!conversation.assigned_user_id && !canReturn}
             onClick={() => void toggleState()}
             className={`rounded-sm px-3.5 py-2 text-action text-white transition-colors ${
-              isManual ? "bg-accent hover:bg-accent/90" : "bg-brass-ink hover:bg-brass-ink/90"
+              isManual
+                ? "bg-accent hover:bg-accent/90"
+                : "bg-brass-ink hover:bg-brass-ink/90"
             }`}
           >
-            {isManual ? "Devolver para IA" : "Assumir atendimento"}
+            {isManual && (conversation.assigned_user_id || !identity)
+              ? "Devolver para IA"
+              : "Assumir atendimento"}
           </button>
           <ActionMenu items={moreActions} />
         </div>
       </header>
-      <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
+      {identity && (
+        <AttendancePanel
+          conversation={conversation}
+          onUpdate={onConversationUpdate}
+        />
+      )}
+      <UrgencyBanner
+        conversation={conversation}
+        onUpdate={onConversationUpdate}
+      />
       {urgency.error ? (
-        <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
+        <p
+          role="alert"
+          className="border-b border-line bg-surface px-6 py-2 text-xs text-danger"
+        >
           {urgency.error}
         </p>
       ) : null}
       {conversation.end_customer_billing_enabled &&
-      (conversation.end_customer_balance != null || conversation.end_customer_cycle_total != null) ? (
+      (conversation.end_customer_balance != null ||
+        conversation.end_customer_cycle_total != null) ? (
         <aside className="border-b border-line bg-surface px-4 py-2 text-xs md:px-6">
           <span className="font-medium text-ink">Cobrança deste cliente</span>
           <span className="ml-3 text-muted">
             {conversation.end_customer_balance != null
               ? `Saldo disponível: ${formatCredits(conversation.end_customer_balance)} créditos`
               : ""}
-            {conversation.end_customer_balance != null && conversation.end_customer_cycle_total != null
+            {conversation.end_customer_balance != null &&
+            conversation.end_customer_cycle_total != null
               ? " · "
               : ""}
             {conversation.end_customer_cycle_total != null
@@ -265,7 +340,10 @@ export function ConversationThread({
         </aside>
       ) : null}
       {exemptionError ? (
-        <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">
+        <p
+          role="alert"
+          className="border-b border-line bg-surface px-6 py-2 text-xs text-danger"
+        >
           {exemptionError}
         </p>
       ) : null}
@@ -286,7 +364,9 @@ export function ConversationThread({
         >
           <span>
             Não foi possível atualizar.
-            {lastUpdatedAt ? ` Exibindo dados de ${formatUpdateTime(lastUpdatedAt)}.` : ""}
+            {lastUpdatedAt
+              ? ` Exibindo dados de ${formatUpdateTime(lastUpdatedAt)}.`
+              : ""}
           </span>
           <button
             type="button"
@@ -299,7 +379,11 @@ export function ConversationThread({
         </div>
       ) : null}
       {actionSuccess ? (
-        <p role="status" aria-live="polite" className="border-b border-line bg-surface px-6 py-2 text-xs text-accent">
+        <p
+          role="status"
+          aria-live="polite"
+          className="border-b border-line bg-surface px-6 py-2 text-xs text-accent"
+        >
           {actionSuccess}
         </p>
       ) : null}
@@ -317,10 +401,13 @@ export function ConversationThread({
           <div className="mt-2">
             {conversation.summary ? (
               <>
-                <p className="text-sm leading-relaxed text-ink">{conversation.summary}</p>
+                <p className="text-sm leading-relaxed text-ink">
+                  {conversation.summary}
+                </p>
                 {conversation.summary_generated_at ? (
                   <p className="mt-1 text-xs text-muted">
-                    Gerado em {formatFullDateTime(conversation.summary_generated_at)}
+                    Gerado em{" "}
+                    {formatFullDateTime(conversation.summary_generated_at)}
                   </p>
                 ) : null}
               </>
@@ -343,7 +430,9 @@ export function ConversationThread({
             <button
               type="button"
               onClick={() => void generateSummary()}
-              disabled={summarizing || (messagesLoaded && messages.length === 0)}
+              disabled={
+                summarizing || (messagesLoaded && messages.length === 0)
+              }
               className="mt-2 rounded-sm border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
             >
               {summarizing
@@ -362,7 +451,9 @@ export function ConversationThread({
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-5 md:px-6"
       >
         {!messagesLoaded ? (
-          <li className="py-4 text-center text-sm text-muted">Carregando mensagens…</li>
+          <li className="py-4 text-center text-sm text-muted">
+            Carregando mensagens…
+          </li>
         ) : null}
         {hasOlder && messagesLoaded && messages.length > 0 ? (
           <li className="flex justify-center pb-2">
@@ -387,7 +478,8 @@ export function ConversationThread({
           onClick={scrollToLatest}
           className="mx-auto mb-3 rounded-full bg-ink px-4 py-2 text-xs font-medium text-ground shadow-lg"
         >
-          {newMessageCount} {newMessageCount === 1 ? "mensagem nova" : "mensagens novas"}
+          {newMessageCount}{" "}
+          {newMessageCount === 1 ? "mensagem nova" : "mensagens novas"}
         </button>
       ) : null}
 
@@ -402,21 +494,27 @@ export function ConversationThread({
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={!isManual || sending}
-            placeholder={isManual ? "Escreva sua resposta…" : "Assuma o atendimento para responder"}
+            disabled={!canSend || sending}
+            placeholder={
+              canSend
+                ? "Escreva sua resposta…"
+                : "Assuma o atendimento para responder"
+            }
             aria-label="Resposta"
             className="flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={!isManual || sending || !draft.trim()}
+            disabled={!canSend || sending || !draft.trim()}
             className="rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
           >
             {sending ? "Enviando…" : "Enviar"}
           </button>
         </form>
         {!isManual ? (
-          <p className="mt-2 text-xs text-muted">Assuma o atendimento para responder manualmente.</p>
+          <p className="mt-2 text-xs text-muted">
+            Assuma o atendimento para responder manualmente.
+          </p>
         ) : null}
       </footer>
     </div>
@@ -428,7 +526,10 @@ function MessageBubble({ message }: { message: Message }) {
   const fromHuman = message.sender_type === "human";
 
   return (
-    <li data-message-id={message.id} className={`flex flex-col ${fromContact ? "items-start" : "items-end"}`}>
+    <li
+      data-message-id={message.id}
+      className={`flex flex-col ${fromContact ? "items-start" : "items-end"}`}
+    >
       <div
         className={`max-w-[72%] rounded-md px-3.5 py-2.5 text-sm leading-relaxed ${
           fromContact
@@ -454,10 +555,22 @@ function MessageBubble({ message }: { message: Message }) {
             rel="noopener noreferrer"
             className="break-words underline decoration-dotted underline-offset-2 hover:text-accent"
           >
+            {message.sender_user_name && (
+              <span className="block text-xs text-muted">
+                {message.sender_user_name}
+              </span>
+            )}
             {message.content}
           </a>
         ) : (
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words">
+            {message.sender_user_name && (
+              <span className="block text-xs text-muted">
+                {message.sender_user_name}
+              </span>
+            )}
+            {message.content}
+          </p>
         )}
         <ResponseSources message={message} />
       </div>

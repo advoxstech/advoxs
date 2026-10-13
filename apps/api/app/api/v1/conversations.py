@@ -8,8 +8,9 @@ from typing import Literal
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -35,6 +36,7 @@ from app.models import (
     OutboundMessageJob,
     Tenant,
     TenantBillingSettings,
+    User,
     WhatsAppNumber,
 )
 from app.schemas.conversations import (
@@ -49,11 +51,69 @@ from app.schemas.conversations import (
 )
 from app.services.conversations_usage import build_conversations_usage
 from app.services.pricing import calcular_creditos, get_current_pricing_config
+from app.services.team_access import audit, conversation_scope, require_admin
 from app.services.urgency import clear_urgent, mark_urgent
 from app.services.whatsapp_outbound import send_text_to_contact
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 logger = logging.getLogger(__name__)
+
+
+class TransferRequest(BaseModel):
+    user_id: uuid.UUID
+
+
+@router.get("/{conversation_id}/detail")
+async def conversation_detail(
+    conversation_id: uuid.UUID, ctx=Depends(get_current_tenant), session=Depends(get_tenant_session)
+):
+    conversation = await _get_conversation(conversation_id, ctx, session)
+    names = await _agent_names_by_id(
+        session, ctx.tenant_id, [conversation.current_agent_id, conversation.urgent_agent_id]
+    )
+    return _to_conversation_out(conversation, None, agent_names=names)
+
+
+@router.get("/{conversation_id}/attendance")
+async def attendance(
+    conversation_id: uuid.UUID, ctx=Depends(get_current_tenant), session=Depends(get_tenant_session)
+):
+    await _get_conversation(conversation_id, ctx, session)
+    return [
+        dict(r)
+        for r in (
+            await session.execute(
+                text("""SELECT actor_name,action,target_name,created_at
+      FROM attendance_events WHERE tenant_id=:tid AND conversation_id=:cid
+      ORDER BY created_at DESC LIMIT 100"""),
+                dict(tid=ctx.tenant_id, cid=conversation_id),
+            )
+        ).mappings()
+    ]
+
+
+@router.post("/{conversation_id}/transfer")
+async def transfer(
+    conversation_id: uuid.UUID,
+    body: TransferRequest,
+    ctx=Depends(require_admin),
+    session=Depends(get_tenant_session),
+):
+    conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
+    if conversation.state != "human":
+        raise HTTPException(409, "Assuma o atendimento antes de transferir.")
+    user = await session.scalar(
+        select(User).where(
+            User.id == body.user_id, User.tenant_id == ctx.tenant_id, User.active.is_(True)
+        )
+    )
+    if user is None:
+        raise HTTPException(400, "Selecione um membro ativo deste escritório.")
+    conversation.assigned_user_id = user.id
+    conversation.assigned_user_name = user.name
+    await audit(session, ctx, conversation.id, "transferred", user.name)
+    await session.commit()
+    return _to_conversation_out(conversation, None)
 
 
 @router.get("")
@@ -62,6 +122,7 @@ async def list_conversations(
     offset: int = Query(default=0, ge=0),
     origin: Literal["real", "test"] = Query(default="real"),
     urgent: bool = Query(default=False),
+    mine: bool = Query(default=False),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[ConversationOut]:
@@ -70,6 +131,11 @@ async def list_conversations(
         Conversation.is_test == (origin == "test"),
         Conversation.deletion_requested_at.is_(None),
     ]
+    filters.append(conversation_scope(ctx))
+    if ctx.role != "admin" and origin == "test":
+        raise HTTPException(403, "Testes são exclusivos do administrador.")
+    if mine is True:
+        filters.append(Conversation.assigned_user_id == ctx.user_id)
     if urgent:
         filters.append(Conversation.urgent_since.is_not(None))
     result = await session.execute(
@@ -123,12 +189,13 @@ async def get_urgent_count(
             Conversation.is_test.is_(False),
             Conversation.deletion_requested_at.is_(None),
             Conversation.urgent_since.is_not(None),
+            conversation_scope(ctx),
         )
     )
     return UrgentCountOut(count=count or 0)
 
 
-@router.get("/usage")
+@router.get("/usage", dependencies=[Depends(require_admin)])
 async def get_conversations_usage(
     from_: date = Query(..., alias="from"),
     to: date = Query(...),
@@ -175,6 +242,23 @@ async def update_state(
 ) -> ConversationOut:
     """Altera explicitamente entre atendimento humano e atendimento pela IA."""
     conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
+    owner = getattr(conversation, "assigned_user_id", None)
+    if body.state == "human":
+        if owner is not None and owner != ctx.user_id:
+            raise HTTPException(
+                409, "Outro profissional já assumiu. Solicite uma transferência ao administrador."
+            )
+        if owner != ctx.user_id:
+            conversation.assigned_user_name = await audit(session, ctx, conversation.id, "assumed")
+        conversation.assigned_user_id = ctx.user_id
+    else:
+        if ctx.role != "admin" and owner != ctx.user_id:
+            raise HTTPException(
+                403, "Somente o responsável ou administrador pode devolver para IA."
+            )
+        await audit(session, ctx, conversation.id, "returned_to_ai")
+        conversation.assigned_user_id = None
+        conversation.assigned_user_name = None
     conversation.state = body.state
     conversation.automation_status = "idle"
     conversation.billing_gate_step = None
@@ -231,7 +315,7 @@ async def update_state(
     )
 
 
-@router.patch("/{conversation_id}/billing-exemption")
+@router.patch("/{conversation_id}/billing-exemption", dependencies=[Depends(require_admin)])
 async def update_billing_exemption(
     conversation_id: uuid.UUID,
     body: BillingExemptionUpdate,
@@ -350,6 +434,9 @@ async def update_urgency(
         mark_urgent(conversation, "Marcada manualmente pela equipe", "manual")
     else:
         clear_urgent(conversation)
+    await audit(
+        session, ctx, conversation.id, "urgency_marked" if body.urgent else "urgency_resolved"
+    )
     await session.commit()
     await session.refresh(conversation)
     phone = conversation.contact_phone_number
@@ -403,6 +490,8 @@ async def send_message(
             detail="Conversa em modo agente — assuma a conversa antes de responder",
         )
 
+    if getattr(conversation, "assigned_user_id", None) != ctx.user_id:
+        raise HTTPException(409, "Assuma o atendimento antes de responder.")
     number = await session.scalar(
         select(WhatsAppNumber).where(
             WhatsAppNumber.tenant_id == ctx.tenant_id,
@@ -430,6 +519,8 @@ async def send_message(
         conversation_id=conversation.id,
         tenant_id=ctx.tenant_id,
         sender_type="human",
+        sender_user_id=ctx.user_id,
+        sender_user_name=ctx.name,
         content=body.content,
         delivery_status="sent",
     )
@@ -550,7 +641,11 @@ async def generate_summary(
     )
 
 
-@router.delete("/{conversation_id}", status_code=status.HTTP_202_ACCEPTED)
+@router.delete(
+    "/{conversation_id}",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
 async def delete_conversation(
     conversation_id: uuid.UUID,
     ctx: TenantContext = Depends(get_current_tenant),
@@ -862,6 +957,7 @@ async def _get_conversation(
 ) -> Conversation:
     statement = select(Conversation).where(
         Conversation.id == conversation_id,
+        conversation_scope(ctx),
         Conversation.tenant_id == ctx.tenant_id,
         Conversation.deletion_requested_at.is_(None),
     )

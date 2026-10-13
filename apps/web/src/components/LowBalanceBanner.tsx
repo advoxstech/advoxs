@@ -1,14 +1,17 @@
 "use client";
 
+import { useTeamSession } from "./TeamSession";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { backendFetch } from "@/lib/client-api";
 
 export function LowBalanceBanner() {
+  const identity = useTeamSession();
   const [lowBalance, setLowBalance] = useState(false);
 
   useEffect(() => {
+    if (identity?.role === "lawyer") return;
     async function loadBalance() {
       try {
         const response = await backendFetch("billing/balance");
@@ -21,16 +24,20 @@ export function LowBalanceBanner() {
       }
     }
     void loadBalance();
-  }, []);
+  }, [identity?.role]);
 
   if (!lowBalance) return null;
 
   return (
     <div className="flex items-center justify-between gap-4 border-b border-danger bg-danger/10 px-6 py-2.5 text-sm text-danger">
       <span>
-        Seu saldo de créditos está esgotado — o atendimento automático está pausado.
+        Seu saldo de créditos está esgotado — o atendimento automático está
+        pausado.
       </span>
-      <Link href="/creditos" className="font-medium underline hover:no-underline">
+      <Link
+        href="/creditos"
+        className="font-medium underline hover:no-underline"
+      >
         Comprar créditos
       </Link>
     </div>

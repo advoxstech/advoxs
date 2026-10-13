@@ -1,4 +1,5 @@
 "use client";
+import { AgentLawyers } from "./TeamPanel";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -488,7 +489,12 @@ export function AgentDetail({ agentId }: { agentId: string }) {
         </div>
       )}
       {tab === "Urgências" && (
-        <UrgencyKeywordsPanel agentId={agentId} agentName={agent.name} />
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4">
+            <AgentLawyers agentId={agentId} />
+          </div>
+          <UrgencyKeywordsPanel agentId={agentId} agentName={agent.name} />
+        </div>
       )}
     </main>
   );

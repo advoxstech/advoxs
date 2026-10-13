@@ -7,12 +7,22 @@ import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = { error: null };
 
-export function LoginForm({ notice }: { notice?: string }) {
+export function LoginForm({
+  notice,
+  next,
+}: {
+  notice?: string;
+  next?: string;
+}) {
   const [state, formAction, pending] = useActionState(login, initialState);
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <form action={formAction} className="flex w-full max-w-[424px] flex-col gap-7">
+    <form
+      action={formAction}
+      className="flex w-full max-w-[424px] flex-col gap-7"
+    >
+      <input type="hidden" name="next" value={next ?? ""} />
       <header className="flex flex-col gap-2.5">
         <span className="font-mono text-micro uppercase tracking-[0.2em] text-muted">
           Painel do escritório
@@ -22,7 +32,10 @@ export function LoginForm({ notice }: { notice?: string }) {
         </h1>
         <p className="text-[15px] leading-relaxed text-muted">
           Ainda não tem acesso?{" "}
-          <Link href="/" className="font-semibold text-auth-accent-ink hover:underline">
+          <Link
+            href="/"
+            className="font-semibold text-auth-accent-ink hover:underline"
+          >
             Criar conta
           </Link>
         </p>
@@ -45,7 +58,10 @@ export function LoginForm({ notice }: { notice?: string }) {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-[13px] font-semibold text-ink">
+          <label
+            htmlFor="password"
+            className="text-[13px] font-semibold text-ink"
+          >
             Senha
           </label>
           <div className="relative flex">
@@ -70,13 +86,19 @@ export function LoginForm({ notice }: { notice?: string }) {
       </div>
 
       {notice ? (
-        <p role="status" className="border-l-2 border-auth-accent pl-3 text-sm text-ink">
+        <p
+          role="status"
+          className="border-l-2 border-auth-accent pl-3 text-sm text-ink"
+        >
           {notice}
         </p>
       ) : null}
 
       {state.error ? (
-        <p role="alert" className="border-l-2 border-danger pl-3 text-sm text-danger">
+        <p
+          role="alert"
+          className="border-l-2 border-danger pl-3 text-sm text-danger"
+        >
           {state.error}
         </p>
       ) : null}

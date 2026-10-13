@@ -45,6 +45,8 @@ class Message(Base):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     sender_type: Mapped[str] = mapped_column(String, nullable=False)
+    sender_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+    sender_user_name: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     delivery_status: Mapped[str | None] = mapped_column(String)
     response_sources: Mapped[dict | None] = mapped_column(JSONB)

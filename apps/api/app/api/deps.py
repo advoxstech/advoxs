@@ -28,6 +28,7 @@ class TenantContext(BaseModel):
     user_id: uuid.UUID
     tenant_id: uuid.UUID
     role: str
+    name: str = "Equipe"
 
 
 async def get_current_tenant(
@@ -49,13 +50,18 @@ async def get_current_tenant(
     except (ValueError, KeyError):
         raise _NAO_AUTENTICADO
     user = await session.get(User, user_id)
-    if user is None or payload.get("session_version", 0) != user.session_version:
+    if (
+        user is None
+        or getattr(user, "active", True) is False
+        or payload.get("session_version", 0) != user.session_version
+    ):
         raise _NAO_AUTENTICADO
 
     return TenantContext(
         user_id=user_id,
-        tenant_id=payload["tenant_id"],
-        role=payload["role"],
+        tenant_id=user.tenant_id,
+        role=user.role,
+        name=user.name,
     )
 
 

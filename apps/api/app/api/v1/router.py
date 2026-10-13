@@ -19,6 +19,8 @@ from app.api.v1.platform_admin.tenants import router as platform_admin_tenants_r
 from app.api.v1.platform_admin.whatsapp import router as platform_admin_whatsapp_router
 from app.api.v1.profile import router as profile_router
 from app.api.v1.signup import router as signup_router
+from app.api.v1.team import public_router as team_public_router
+from app.api.v1.team import router as team_router
 from app.api.v1.test_conversations import router as test_conversations_router
 from app.api.v1.urgency_keywords import router as urgency_keywords_router
 from app.api.v1.webhooks.stripe import router as stripe_webhook_router
@@ -27,20 +29,23 @@ from app.api.v1.webhooks.stripe_tenant import router as stripe_tenant_webhook_ro
 from app.api.v1.webhooks.whatsapp import router as whatsapp_webhook_router
 from app.api.v1.webhooks.zapi import router as zapi_webhook_router
 from app.api.v1.whatsapp import router as whatsapp_router
+from app.services.team_access import require_admin
 
 api_router = APIRouter(prefix="/api/v1")
 
-api_router.include_router(agents_router)
+api_router.include_router(agents_router, dependencies=[Depends(require_admin)])
 api_router.include_router(auth_router)
-api_router.include_router(billing_router)
+api_router.include_router(team_router)
+api_router.include_router(team_public_router)
+api_router.include_router(billing_router, dependencies=[Depends(require_admin)])
 api_router.include_router(conversations_router)
 api_router.include_router(credit_packages_router)
-api_router.include_router(dashboard_router)
-api_router.include_router(end_customer_billing_router)
+api_router.include_router(dashboard_router, dependencies=[Depends(require_admin)])
+api_router.include_router(end_customer_billing_router, dependencies=[Depends(require_admin)])
 api_router.include_router(internal_end_customer_billing_router)
 api_router.include_router(knowledge_base_router)
-api_router.include_router(google_drive_router)
-api_router.include_router(onboarding_router)
+api_router.include_router(google_drive_router, dependencies=[Depends(require_admin)])
+api_router.include_router(onboarding_router, dependencies=[Depends(require_admin)])
 api_router.include_router(platform_admin_auth_router)
 api_router.include_router(platform_admin_dashboard_router)
 api_router.include_router(platform_admin_playground_router)
@@ -48,8 +53,8 @@ api_router.include_router(platform_admin_tenants_router)
 api_router.include_router(platform_admin_whatsapp_router)
 api_router.include_router(profile_router)
 api_router.include_router(signup_router, dependencies=[Depends(require_stripe)])
-api_router.include_router(test_conversations_router)
-api_router.include_router(urgency_keywords_router)
+api_router.include_router(test_conversations_router, dependencies=[Depends(require_admin)])
+api_router.include_router(urgency_keywords_router, dependencies=[Depends(require_admin)])
 api_router.include_router(stripe_webhook_router, dependencies=[Depends(require_stripe)])
 api_router.include_router(
     stripe_connect_webhook_router, dependencies=[Depends(require_stripe_connect)]
@@ -57,7 +62,7 @@ api_router.include_router(
 api_router.include_router(stripe_tenant_webhook_router)
 api_router.include_router(whatsapp_webhook_router, dependencies=[Depends(require_meta)])
 api_router.include_router(zapi_webhook_router)
-api_router.include_router(whatsapp_router)
+api_router.include_router(whatsapp_router, dependencies=[Depends(require_admin)])
 
 
 @api_router.get("/health")

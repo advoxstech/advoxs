@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -8,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.api.deps import TenantContext, get_current_tenant
 from app.api.internal_deps import verify_internal_service_key
 from app.api.v1.webhooks import whatsapp as whatsapp_webhook_module
 from app.api.v1.webhooks.whatsapp import _verify_signature, _verify_tenant_signature
@@ -30,8 +32,14 @@ from app.main import app
 )
 def test_disabled_integration_rejects_before_processing(monkeypatch, flag, path, method):
     monkeypatch.setattr(settings, flag, False)
-    with TestClient(app) as client:
-        response = getattr(client, method)(path)
+    app.dependency_overrides[get_current_tenant] = lambda: TenantContext(
+        user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="admin"
+    )
+    try:
+        with TestClient(app) as client:
+            response = getattr(client, method)(path)
+    finally:
+        app.dependency_overrides.clear()
     assert response.status_code == 503
     assert "desabilitada" in response.json()["detail"]
 

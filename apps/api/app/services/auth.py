@@ -225,6 +225,8 @@ async def _clear_account_failures(redis: Redis, account_key: str) -> None:
 
 
 async def _validar_tenant_ativo(user: User, session: AsyncSession) -> None:
+    if getattr(user, "active", True) is False:
+        raise _CREDENCIAIS_INVALIDAS
     tenant = await session.get(Tenant, user.tenant_id)
     if tenant is None or tenant.status != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Escritório suspenso")

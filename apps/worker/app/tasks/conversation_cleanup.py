@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from arq.worker import Retry
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 
 from app import tables
 from app.config import settings
@@ -160,6 +160,12 @@ async def _finalize_cleanup(ctx: dict, tenant_id: str, job_id: str, cleanup) -> 
                 delete(tables.messages).where(tables.messages.c.id.in_(message_ids))
             )
 
+        for table in ("attendance_events", "team_emails"):
+            await session.execute(
+                text(f"DELETE FROM {table} WHERE conversation_id=:cid AND tenant_id=:tid"),
+                {"cid": conversation_id, "tid": uuid.UUID(tenant_id)},
+            )
+
         remaining = await session.scalar(
             select(func.count())
             .select_from(tables.messages)
@@ -194,6 +200,12 @@ async def _finalize_cleanup(ctx: dict, tenant_id: str, job_id: str, cleanup) -> 
                     billing_gate_retries=0,
                     billing_gate_checkout_url=None,
                     current_agent_id=None,
+                    assigned_user_id=None,
+                    assigned_user_name=None,
+                    urgent_since=None,
+                    urgent_reason=None,
+                    urgent_agent_id=None,
+                    urgent_source=None,
                 )
             )
             await session.commit()

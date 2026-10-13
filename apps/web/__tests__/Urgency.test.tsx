@@ -10,6 +10,11 @@ import { UrgencyKeywordsPanel } from "@/components/UrgencyKeywordsPanel";
 import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/inicio",
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
 vi.mock("@/lib/client-api", () => ({
   backendFetch: vi.fn(),
 }));
@@ -17,7 +22,11 @@ vi.mock("@/lib/client-api", () => ({
 const backendFetchMock = vi.mocked(backendFetch);
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as Response;
 }
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -51,7 +60,10 @@ describe("ConversationList — urgência", () => {
   it("mostra o selo Urgente só nas conversas urgentes", () => {
     render(
       <ConversationList
-        conversations={[conversation({ id: "u", ...URGENT }), conversation({ id: "n" })]}
+        conversations={[
+          conversation({ id: "u", ...URGENT }),
+          conversation({ id: "n" }),
+        ]}
         loaded
         selectedId={null}
         onSelect={() => {}}
@@ -64,15 +76,23 @@ describe("ConversationList — urgência", () => {
 
 describe("UrgencyBanner / marcar como urgente", () => {
   it("mostra o motivo e marca como resolvida", async () => {
-    const resolved = conversation({ urgent_since: null, urgent_reason: null, urgent_source: null });
+    const resolved = conversation({
+      urgent_since: null,
+      urgent_reason: null,
+      urgent_source: null,
+    });
     backendFetchMock.mockResolvedValue(jsonResponse(resolved));
     const onUpdate = vi.fn();
 
-    render(<UrgencyBanner conversation={conversation(URGENT)} onUpdate={onUpdate} />);
+    render(
+      <UrgencyBanner conversation={conversation(URGENT)} onUpdate={onUpdate} />,
+    );
 
     expect(screen.getByText(/audiência amanhã às 9h/)).toBeInTheDocument();
     expect(screen.getByText(/Sinalizada pela IA/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Marcar como resolvida" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Marcar como resolvida" }),
+    );
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalledWith(resolved));
     expect(backendFetchMock).toHaveBeenCalledWith("conversations/c1/urgency", {
@@ -82,13 +102,17 @@ describe("UrgencyBanner / marcar como urgente", () => {
   });
 
   it("não renderiza faixa quando a conversa não é urgente", () => {
-    const { container } = render(<UrgencyBanner conversation={conversation()} />);
+    const { container } = render(
+      <UrgencyBanner conversation={conversation()} />,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 
   it("marca manualmente como urgente", async () => {
     backendFetchMock.mockImplementation(async (path: string) =>
-      path.endsWith("/urgency") ? jsonResponse(conversation(URGENT)) : jsonResponse([]),
+      path.endsWith("/urgency")
+        ? jsonResponse(conversation(URGENT))
+        : jsonResponse([]),
     );
     const onUpdate = vi.fn();
 
@@ -101,7 +125,9 @@ describe("UrgencyBanner / marcar como urgente", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Mais ações" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Marcar como urgente" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Marcar como urgente" }),
+    );
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());
     expect(backendFetchMock).toHaveBeenCalledWith("conversations/c1/urgency", {
@@ -139,7 +165,16 @@ describe("ConversationsPanel — filtro Urgentes", () => {
 describe("TenantShell — contador de urgentes", () => {
   it("mostra o contador vindo de urgent-count sem configuração global", async () => {
     backendFetchMock.mockImplementation(async (path: string) =>
-      path === "conversations/urgent-count" ? jsonResponse({ count: 3 }) : jsonResponse({}, 404),
+      path === "team/me"
+        ? jsonResponse({
+            id: "u1",
+            name: "Admin",
+            email: "a@example.com",
+            role: "admin",
+          })
+        : path === "conversations/urgent-count"
+          ? jsonResponse({ count: 3 })
+          : jsonResponse({}, 404),
     );
 
     render(<TenantShell active="inicio">conteúdo</TenantShell>);
@@ -152,34 +187,58 @@ describe("TenantShell — contador de urgentes", () => {
 
   it("não mostra contador quando não há urgentes", async () => {
     backendFetchMock.mockImplementation(async (path: string) =>
-      path === "conversations/urgent-count" ? jsonResponse({ count: 0 }) : jsonResponse({}, 404),
+      path === "team/me"
+        ? jsonResponse({
+            id: "u1",
+            name: "Admin",
+            email: "a@example.com",
+            role: "admin",
+          })
+        : path === "conversations/urgent-count"
+          ? jsonResponse({ count: 0 })
+          : jsonResponse({}, 404),
     );
 
     render(<TenantShell active="inicio">conteúdo</TenantShell>);
 
     await waitFor(() =>
-      expect(backendFetchMock).toHaveBeenCalledWith("conversations/urgent-count"),
+      expect(backendFetchMock).toHaveBeenCalledWith(
+        "conversations/urgent-count",
+      ),
     );
     expect(screen.queryByLabelText(/conversa\(s\) urgente\(s\)/)).toBeNull();
   });
 });
 
 describe("UrgencyKeywordsPanel", () => {
-  const despejo = { id: "k1", keyword: "despejo", created_at: "2026-10-02T12:00:00Z" };
+  const despejo = {
+    id: "k1",
+    keyword: "despejo",
+    created_at: "2026-10-02T12:00:00Z",
+  };
 
   it("lista, adiciona e remove palavras-chave", async () => {
-    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === "agents/a1/urgency-keywords" && !init) return jsonResponse([despejo]);
-      if (path === "agents/a1/urgency-keywords" && init?.method === "POST") {
-        return jsonResponse({ id: "k2", keyword: "liminar", created_at: "x" }, 201);
-      }
-      if (path === "agents/a1/urgency-keywords/k1") return jsonResponse(null, 204);
-      return jsonResponse({}, 404);
-    });
+    backendFetchMock.mockImplementation(
+      async (path: string, init?: RequestInit) => {
+        if (path === "agents/a1/urgency-keywords" && !init)
+          return jsonResponse([despejo]);
+        if (path === "agents/a1/urgency-keywords" && init?.method === "POST") {
+          return jsonResponse(
+            { id: "k2", keyword: "liminar", created_at: "x" },
+            201,
+          );
+        }
+        if (path === "agents/a1/urgency-keywords/k1")
+          return jsonResponse(null, 204);
+        return jsonResponse({}, 404);
+      },
+    );
 
     render(<UrgencyKeywordsPanel agentId="a1" agentName="Consumidor" />);
     expect(await screen.findByText("despejo")).toBeInTheDocument();
-    expect(screen.getByText(/quando Consumidor estiver responsável/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/quando Consumidor estiver responsável/),
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Ex: audiência amanhã"), {
       target: { value: "liminar" },
@@ -192,12 +251,17 @@ describe("UrgencyKeywordsPanel", () => {
   });
 
   it("mostra o erro do servidor ao adicionar duplicada", async () => {
-    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        return jsonResponse({ detail: "Essa palavra-chave já está na lista." }, 409);
-      }
-      return jsonResponse([despejo]);
-    });
+    backendFetchMock.mockImplementation(
+      async (path: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return jsonResponse(
+            { detail: "Essa palavra-chave já está na lista." },
+            409,
+          );
+        }
+        return jsonResponse([despejo]);
+      },
+    );
 
     render(<UrgencyKeywordsPanel agentId="a1" agentName="Consumidor" />);
     await screen.findByText("despejo");

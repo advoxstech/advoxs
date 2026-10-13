@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # api (endpoint interno de checkout do cliente final — mesma chave
     # configurada em apps/api/app/core/config.py::INTERNAL_SERVICE_KEY).
     api_url: str = "http://api:8000"
+    web_app_url: str = "http://localhost:3000"
     internal_service_key: str = ""
 
     # Conversão de consumo: 1 crédito = N tokens (arredondamento sempre pra
