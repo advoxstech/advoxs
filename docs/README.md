@@ -32,3 +32,5 @@ estado atual.
 Em caso de divergência, confira primeiro o código e as fontes atuais listadas
 acima. Ao concluir uma mudança, atualize a documentação vigente; não reescreva
 um registro histórico para fazê-lo parecer contemporâneo.
+
+- [Múltiplos escritórios por conta](multiplos-escritorios.md): vínculos, troca de contexto, migração e publicação.

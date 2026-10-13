@@ -1,18 +1,18 @@
 # Equipe do escritório e alertas de urgência
 
-Implementação: branch `codex/equipe-alertas-urgencia`, migration `0045` (após `0044`).
+Implementação: branch `codex/equipe-alertas-urgencia`, migration `0045` (após `0044`). O acesso a vários escritórios está na migration `0046`.
 
 ## Regras
 
 - Há somente dois perfis: administrador e advogado. Todos os advogados têm a mesma hierarquia.
 - O administrador convida membros, gerencia acessos e vincula vários advogados a cada agente.
 - O advogado entra no mesmo login, com seu próprio e-mail e senha. O convite cria um usuário no escritório existente, sem novo escritório ou assinatura.
-- Uma conta pertence a um escritório. Um e-mail já cadastrado não é transferido automaticamente por convite.
+- Uma conta pode participar de vários escritórios por vínculos independentes. Convites para e-mails existentes exigem login com a conta convidada; não alteram sua senha nem outros acessos. Ver [múltiplos escritórios](multiplos-escritorios.md).
 - Advogados acessam conversas reais dos agentes vinculados e conversas atribuídas diretamente a eles. Não acessam testes, configurações, finanças, gestão da base ou equipe. Documentos citados ficam disponíveis apenas em conversas autorizadas.
 - Somente o clique em **Assumir atendimento** pausa a IA. Urgência, abertura do painel e envio do e-mail não pausam.
 - A primeira solicitação que obtém o bloqueio da conversa assume. A segunda recebe conflito e deve atualizar o painel. Somente o responsável envia respostas manuais; o administrador pode transferir o atendimento.
 - O responsável ou administrador pode devolver o atendimento à IA. Resolver a urgência é uma ação independente.
-- A desativação revoga as sessões, retira a atribuição humana e mantém a IA pausada. O administrador precisa assumir, transferir ou devolver à IA. O último administrador ativo não pode ser desativado ou rebaixado.
+- A desativação revoga o acesso apenas ao escritório correspondente e retira a atribuição humana e mantém a IA pausada. O administrador precisa assumir, transferir ou devolver à IA. O último administrador ativo não pode ser desativado ou rebaixado.
 
 ## Como usar
 

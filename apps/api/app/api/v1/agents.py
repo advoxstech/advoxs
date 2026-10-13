@@ -113,7 +113,7 @@ async def list_versions(
     await _get_agent(agent_id, ctx, session)
     query = (
         select(AgentVersion, User.name)
-        .outerjoin(User, (User.id == AgentVersion.author_id) & (User.tenant_id == ctx.tenant_id))
+        .outerjoin(User, User.id == AgentVersion.author_id)
         .where(AgentVersion.agent_id == agent_id, AgentVersion.tenant_id == ctx.tenant_id)
     )
     if before is not None:

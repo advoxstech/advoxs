@@ -46,6 +46,6 @@ export async function login(
   setAuthCookies(await cookies(), tokens);
   const destination = String(formData.get("next") ?? "");
   const safeNext =
-    /^\/conversas(?:\?|$)/.test(destination) && !destination.includes("\\");
+    /^\/(?:conversas|escritorios|convite)(?:\?|$)/.test(destination) && !destination.includes("\\");
   redirect(safeNext ? destination : "/inicio");
 }

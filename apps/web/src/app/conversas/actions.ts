@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { clearAuthCookies, REFRESH_TOKEN_COOKIE } from "@/lib/auth";
 import { API_URL } from "@/lib/backend";
 
-export async function logout(): Promise<void> {
+export async function logout(formData?: FormData): Promise<void> {
   const store = await cookies();
   const refreshToken = store.get(REFRESH_TOKEN_COOKIE)?.value;
 
@@ -25,5 +25,7 @@ export async function logout(): Promise<void> {
   }
 
   clearAuthCookies(store);
-  redirect("/login");
+  const next = formData?.get("next");
+  redirect(next === "/convite" || next === "/escritorios"
+    ? `/login?next=${encodeURIComponent(next)}` : "/login");
 }

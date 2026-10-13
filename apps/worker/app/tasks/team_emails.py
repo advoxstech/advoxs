@@ -66,7 +66,8 @@ async def render_email(session, job):
             "Advoxs — convite para a equipe",
             (
                 f"Você foi convidado para a equipe de {tenant['name']}.\n\n"
-                f"Defina sua senha: {base}/convite#token={token}\n\n"
+                f"Aceite o convite: {base}/convite#token={token}\n\n"
+                "Se já tem conta, entre com sua senha atual. Caso contrário, crie uma senha.\n\n"
                 "O convite vale por 48 horas. Não há cobrança para aceitar. "
                 "Se não reconhecer o convite, ignore esta mensagem."
             ),
@@ -76,17 +77,21 @@ async def render_email(session, job):
         (
             await session.execute(
                 text("""SELECT u.email,a.name AS agent_name,c.urgent_since
-      FROM conversations c JOIN users u ON u.id=:uid AND u.tenant_id=c.tenant_id
+      FROM conversations c JOIN users u ON u.id=:uid
+      JOIN office_memberships membership ON membership.user_id=u.id
+        AND membership.tenant_id=c.tenant_id
       LEFT JOIN agents a ON a.id=COALESCE(c.current_agent_id,c.urgent_agent_id,
         (SELECT id FROM agents WHERE tenant_id=c.tenant_id AND is_entry_point LIMIT 1))
       WHERE c.id=:cid AND c.tenant_id=:tid AND c.urgency_episode_id=:episode
         AND c.urgent_since IS NOT NULL AND NOT c.is_test AND c.deletion_requested_at IS NULL
-        AND u.active AND (
+        AND u.active AND membership.active AND (
           EXISTS(SELECT 1 FROM agent_lawyers al WHERE al.tenant_id=c.tenant_id
-            AND al.agent_id=a.id AND al.user_id=u.id AND u.role='lawyer')
-          OR (u.role='admin' AND NOT EXISTS(SELECT 1 FROM agent_lawyers al
-            JOIN users v ON v.id=al.user_id WHERE al.tenant_id=c.tenant_id
-            AND al.agent_id=a.id AND v.active AND v.role='lawyer')))
+            AND al.agent_id=a.id AND al.user_id=u.id AND membership.role='lawyer')
+          OR (membership.role='admin' AND NOT EXISTS(SELECT 1 FROM agent_lawyers al
+            JOIN users v ON v.id=al.user_id
+            JOIN office_memberships vm ON vm.user_id=v.id AND vm.tenant_id=al.tenant_id
+            WHERE al.tenant_id=c.tenant_id
+            AND al.agent_id=a.id AND v.active AND vm.active AND vm.role='lawyer')))
       """),
                 dict(
                     uid=job["user_id"],
@@ -107,7 +112,8 @@ async def render_email(session, job):
         (
             f"Escritório: {tenant['name']}\nAgente: {row['agent_name'] or 'Atendimento'}\n"
             f"Sinalizado em: {row['urgent_since'].isoformat()}\n\n"
-            f"Abrir atendimento: {base}/conversas?conversa={job['conversation_id']}\n\n"
+            f"Abrir atendimento: {base}/escritorios?escritorio={job['tenant_id']}"
+            f"&conversa={job['conversation_id']}\n\n"
             "A IA continua atendendo até alguém clicar em Assumir atendimento. "
             "Consulte os detalhes no painel."
         ),

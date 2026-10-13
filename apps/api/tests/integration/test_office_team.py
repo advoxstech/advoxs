@@ -20,7 +20,7 @@ from app.api.v1 import conversations as routes
 from app.api.v1 import team
 from app.core.config import settings
 from app.core.crypto import decrypt_access_token
-from app.models import Base, Conversation, User
+from app.models import Base, Conversation, OfficeMembership, User
 from app.schemas.conversations import ConversationStateUpdate
 from app.services.team_access import conversation_scope
 
@@ -49,6 +49,8 @@ async def db():
         async with engine.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("DROP TABLE office_sessions"))
+            await conn.execute(text("DROP TABLE office_memberships"))
             # Reconstruct pre-0045 columns, then exercise the real migration.
             await conn.execute(text("DROP TABLE IF EXISTS attendance_events"))
             for table, columns in {
@@ -59,6 +61,10 @@ async def db():
                 for column in columns:
                     await conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
             await conn.run_sync(migrate)
+            for statement in (
+                (path.parent / "0046_multiple_offices.sql").read_text().split("\n-- statement\n")
+            ):
+                await conn.execute(text(statement))
             await conn.execute(text(f'CREATE ROLE "{role}"'))
             await conn.execute(text(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"'))
             await conn.execute(
@@ -137,9 +143,6 @@ async def test_urgency_dedup_fallback_test_exclusion_and_rls(db):
         await conn.execute(text("UPDATE conversations SET urgent_since=NULL WHERE id=:c"), ids)
         await conn.execute(text("UPDATE conversations SET urgent_since=now() WHERE id=:c"), ids)
         assert await conn.scalar(text("SELECT count(*) FROM team_emails")) == 4
-    async with engine.begin() as conn:
-        await conn.run_sync(lambda c: migrate(c, "downgrade"))
-        await conn.run_sync(migrate)
 
 
 async def test_scope_concurrent_takeover_and_revocation(db, monkeypatch):
@@ -187,7 +190,9 @@ async def test_scope_concurrent_takeover_and_revocation(db, monkeypatch):
         conv = await session.get(Conversation, ids["c"])
         assert conv.state == "human" and conv.assigned_user_id is None
         user = await session.get(User, ids[winners[0]])
-        assert not user.active and user.session_version == 1
+        membership = await session.get(OfficeMembership, (ids["t"], user.id))
+        assert not membership.active
+        assert user.active and user.session_version == 0
         with pytest.raises(HTTPException) as error:
             await team.update_member(
                 ids["admin"], team.MemberUpdate(role="admin", active=False), ctx("admin"), session

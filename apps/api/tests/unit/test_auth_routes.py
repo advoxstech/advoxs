@@ -9,7 +9,7 @@ from app.core.db import get_system_session
 from app.core.redis import get_redis
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password
 from app.main import app
-from app.models import Tenant, User
+from app.models import OfficeMembership, Tenant, User
 from app.services import auth as auth_service_module
 from app.services.auth import BLACKLIST_PREFIX
 
@@ -20,6 +20,7 @@ PASSWORD = "senha-secreta"
 
 def _user():
     user = MagicMock(spec=User)
+    user.active = True
     user.id = USER_ID
     user.tenant_id = TENANT_ID
     user.role = "admin"
@@ -37,7 +38,9 @@ def _tenant(status: str = "active"):
 
 @pytest.fixture
 def session():
-    return AsyncMock()
+    value = AsyncMock()
+    value.add = MagicMock()
+    return value
 
 
 @pytest.fixture
@@ -67,7 +70,10 @@ def client(session, redis):
 class TestLogin:
     def test_login_valido_retorna_par_de_tokens(self, client, session) -> None:
         session.scalar.return_value = _user()
-        session.get.return_value = _tenant()
+        member = MagicMock(spec=OfficeMembership, role="admin", active=True)
+        member.tenant_id = TENANT_ID
+        session.execute.return_value = [(member, "Office")]
+        session.get.side_effect = [member, _tenant()]
 
         response = client.post(
             "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}
@@ -108,7 +114,7 @@ class TestLogin:
 
         assert response.status_code == 401
 
-    def test_tenant_suspenso_retorna_403(self, client, session) -> None:
+    def test_tenant_suspenso_permite_login_sem_acesso_ao_escritorio(self, client, session) -> None:
         session.scalar.return_value = _user()
         session.get.return_value = _tenant(status="suspended")
 
@@ -116,7 +122,8 @@ class TestLogin:
             "/api/v1/auth/login", json={"email": "a@b.com", "password": PASSWORD}
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 200
+        assert decode_token(response.json()["access_token"])["tenant_id"] == ""
 
 
 class TestRefresh:
@@ -217,9 +224,6 @@ class TestSignupLogin:
         session.get.return_value = user
         consume = AsyncMock(return_value=str(user.id))
         monkeypatch.setattr(auth_service_module, "consume_login_token", consume)
-        monkeypatch.setattr(
-            auth_service_module, "_validar_tenant_ativo", AsyncMock(return_value=None)
-        )
 
         response = client.post("/api/v1/auth/signup-login", json={"token": "tok-valido"})
 

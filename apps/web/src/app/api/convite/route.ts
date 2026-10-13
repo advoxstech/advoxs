@@ -1,23 +1,20 @@
+import { isSameOrigin } from "@/lib/request-origin";
 import { NextResponse } from "next/server";
-import { API_URL } from "@/lib/backend";
+import { identityFetch } from "@/lib/server-session";
 
 export async function POST(request: Request) {
+  if ( !isSameOrigin(request))
+    return NextResponse.json({ detail: "Origem inválida." }, { status: 403 });
   try {
     const body = await request.json();
-    const response = await fetch(`${API_URL}/api/v1/team-invitations/accept`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: body.token, password: body.password }),
-      cache: "no-store",
+    const action = body.action === "inspect" ? "inspect" : "accept";
+    const response = await identityFetch(`team-invitations/${action}`, {
+      method: "POST", body: JSON.stringify({ token: body.token, password: body.password }),
     });
     return NextResponse.json(await response.json(), {
-      status: response.status,
-      headers: { "Cache-Control": "no-store" },
+      status: response.status, headers: { "Cache-Control": "no-store" },
     });
   } catch {
-    return NextResponse.json(
-      { detail: "Não foi possível conectar. Tente novamente." },
-      { status: 502 },
-    );
+    return NextResponse.json({ detail: "Não foi possível conectar. Tente novamente." }, { status: 502 });
   }
 }

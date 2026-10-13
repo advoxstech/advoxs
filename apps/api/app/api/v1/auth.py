@@ -1,9 +1,14 @@
+import uuid
+
 from fastapi import APIRouter, Depends, Request, status
 from redis.asyncio import Redis
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_system_session
 from app.core.redis import get_redis
+from app.core.security import decode_token
+from app.models import OfficeSession
 from app.schemas.auth import LoginRequest, RefreshRequest, SignupLoginRequest, TokenPair
 from app.services import auth as auth_service
 
@@ -49,5 +54,15 @@ async def refresh(
 async def logout(
     body: RefreshRequest,
     redis: Redis = Depends(get_redis),
+    session: AsyncSession = Depends(get_system_session),
 ) -> None:
     await auth_service.logout(body.refresh_token, redis)
+    payload = decode_token(body.refresh_token)
+    if payload.get("sid"):
+        await session.execute(
+            delete(OfficeSession).where(
+                OfficeSession.id == uuid.UUID(payload["sid"]),
+                OfficeSession.user_id == uuid.UUID(payload["sub"]),
+            )
+        )
+        await session.commit()

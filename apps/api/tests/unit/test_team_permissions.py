@@ -41,7 +41,13 @@ def test_lawyer_cannot_access_admin_endpoints(path):
 async def test_disabled_user_rejected_and_database_role_overrides_old_token():
     user_id, tenant_id = uuid.uuid4(), uuid.uuid4()
     user = SimpleNamespace(
-        id=user_id, tenant_id=tenant_id, name="Ana", role="lawyer", active=False, session_version=0
+        id=user_id,
+        tenant_id=tenant_id,
+        name="Ana",
+        role="lawyer",
+        active=False,
+        session_version=0,
+        status="active",
     )
     session = AsyncMock()
     session.get.return_value = user

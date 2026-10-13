@@ -37,6 +37,12 @@ async def database():
             migration = Path(__file__).parents[3] / "api/alembic/versions/0045_office_team.sql"
             for statement in migration.read_text().split("\n-- statement\n"):
                 await conn.execute(text(statement))
+            for statement in (
+                (migration.parent / "0046_multiple_offices.sql")
+                .read_text()
+                .split("\n-- statement\n")
+            ):
+                await conn.execute(text(statement))
             await conn.execute(
                 text("INSERT INTO tenants VALUES (gen_random_uuid(),'Office','active')")
             )

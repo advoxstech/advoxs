@@ -1,4 +1,5 @@
 "use client";
+import { backendFetch } from "@/lib/client-api";
 
 import { useState } from "react";
 
@@ -21,8 +22,8 @@ function OriginalDocument({ source }: { source: ResponseSource }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `/api/backend/knowledge-base/files/${encodeURIComponent(source.document_id)}/content`,
+      const response = await backendFetch(
+        `knowledge-base/files/${encodeURIComponent(source.document_id)}/content`,
         { cache: "no-store" },
       );
       if (!response.ok) {

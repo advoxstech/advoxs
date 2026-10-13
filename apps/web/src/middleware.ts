@@ -40,7 +40,9 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname === "/login" && hasSession) {
-    return NextResponse.redirect(new URL("/inicio", request.url));
+    const next = request.nextUrl.searchParams.get("next") ?? "";
+    const safe = /^\/(?:convite|escritorios|conversas)(?:\?|$)/.test(next) && !next.includes("\\");
+    return NextResponse.redirect(new URL(safe ? next : "/inicio", request.url));
   }
 
   if (pathname !== "/login" && !hasSession) {
@@ -66,6 +68,7 @@ export const config = {
     "/creditos/:path*",
     "/perfil/:path*",
     "/equipe/:path*",
+    "/escritorios/:path*",
     "/meus-agentes/:path*",
     "/minha-conta/:path*",
     "/admin/:path*",

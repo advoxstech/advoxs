@@ -13,6 +13,8 @@ vi.mock("@/lib/client-api", () => ({ backendFetch: vi.fn() }));
 const request = vi.mocked(backendFetch);
 const identity: TeamIdentity = {
   id: "l1",
+  tenant_id: "office-1",
+  tenant_name: "Office",
   name: "Ana",
   email: "ana@example.com",
   role: "lawyer",
@@ -23,6 +25,7 @@ const json = (body: unknown, status = 200) =>
 beforeEach(() => {
   vi.restoreAllMocks();
   request.mockReset();
+  sessionStorage.clear();
 });
 
 describe("Equipe", () => {
@@ -122,19 +125,21 @@ describe("Equipe", () => {
     window.history.replaceState(null, "", "/convite#token=secret-token");
     const fetcher = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(json({ status: "accepted" }));
+      .mockImplementation(async (_url, init) => JSON.parse(String(init?.body)).action === "inspect"
+        ? json({ office_name: "Office", existing: false, email: "new@example.com", role: "lawyer" })
+        : json({ status: "accepted" }));
     render(
       <StrictMode>
         <InvitePage />
       </StrictMode>,
     );
-    expect(fetcher).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.every(([, init]) => JSON.parse(String(init?.body)).action === "inspect")).toBe(true);
     expect(window.location.hash).toBe("");
-    fireEvent.change(screen.getByLabelText("Nova senha"), {
+    fireEvent.change(await screen.findByLabelText("Nova senha"), {
       target: { value: "secure-password" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Aceitar convite" }));
-    await screen.findByText(/Conta criada/);
+    await screen.findByText(/Convite aceito/);
     expect(fetcher).toHaveBeenCalledWith(
       "/api/convite",
       expect.objectContaining({
