@@ -51,6 +51,8 @@ conversations = Table(
     Column("last_message_at", DateTime(timezone=True)),
     Column("summary", Text),
     Column("summary_generated_at", DateTime(timezone=True)),
+    Column("assigned_user_id", Uuid),
+    Column("assigned_user_name", Text),
     Column("human_last_seen_at", DateTime(timezone=True)),
     Column("billing_gate_step", String),
     Column("billing_gate_retries", Integer),

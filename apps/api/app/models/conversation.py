@@ -53,6 +53,9 @@ class Conversation(Base):
     summary: Mapped[str | None] = mapped_column(Text)
     summary_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     human_last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
+    assigned_user_name: Mapped[str | None] = mapped_column(Text)
+    urgency_episode_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     billing_gate_step: Mapped[str | None] = mapped_column(String)
     billing_gate_retries: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")

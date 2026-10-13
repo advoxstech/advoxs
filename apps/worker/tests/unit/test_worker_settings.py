@@ -9,6 +9,7 @@ def test_worker_functions_registered() -> None:
         "process_inbound_message",
         "recover_inbound_message_jobs",
         "deliver_outbound_message",
+        "deliver_team_emails",
         "recover_outbound_message_jobs",
         "process_conversation_cleanup",
         "recover_conversation_cleanup_jobs",

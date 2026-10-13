@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTeamSession } from "./TeamSession";
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/conversas/actions";
@@ -19,8 +20,14 @@ export function MobileTabBar({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
-  const primary = ITEMS.filter((item) => PRIMARY.includes(item.key));
-  const secondary = ITEMS.filter((item) => !PRIMARY.includes(item.key));
+  const identity = useTeamSession();
+  const visibleItems = ITEMS.filter((i) =>
+    identity?.role === "lawyer"
+      ? ["conversas", "meus-agentes", "minha-conta"].includes(i.key)
+      : !["meus-agentes", "minha-conta"].includes(i.key),
+  );
+  const primary = visibleItems.filter((item) => PRIMARY.includes(item.key));
+  const secondary = visibleItems.filter((item) => !PRIMARY.includes(item.key));
   const activeInMore = secondary.some((item) => item.key === active);
 
   useEffect(() => {
@@ -106,7 +113,9 @@ export function MobileTabBar({
             >
               <span className="relative">
                 <NavIcon>{item.icon}</NavIcon>
-                {item.key === "conversas" && <UrgentBadge count={urgentCount} />}
+                {item.key === "conversas" && (
+                  <UrgentBadge count={urgentCount} />
+                )}
               </span>
               {item.label}
             </Link>
@@ -119,7 +128,9 @@ export function MobileTabBar({
           aria-expanded={moreOpen}
           aria-controls="mobile-more-menu"
           className={`flex min-h-14 flex-col items-center justify-center gap-1 text-micro ${
-            activeInMore || moreOpen ? "font-semibold text-nav-ink" : "text-nav-ink-muted"
+            activeInMore || moreOpen
+              ? "font-semibold text-nav-ink"
+              : "text-nav-ink-muted"
           }`}
         >
           <NavIcon>

@@ -1,8 +1,11 @@
 /** Base do FastAPI para chamadas server-side (proxy, actions, middleware). */
 export const API_URL =
-  process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  process.env.API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:8000";
 
 const ALLOWED_PREFIXES = [
+  "team",
   "conversations",
   "test-conversations",
   "knowledge-base",

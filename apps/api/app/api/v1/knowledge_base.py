@@ -24,6 +24,7 @@ from app.schemas.knowledge_base import (
     KnowledgeBaseFileOut,
 )
 from app.services.subscriptions import get_active_subscription
+from app.services.team_access import require_admin, require_document_access
 from app.services.upload_storage import (
     InvalidUploadContentError,
     UploadTooLargeError,
@@ -55,6 +56,7 @@ async def file_content(
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ):
+    await require_document_access(session, ctx, file_id)
     record = await session.scalar(
         select(KnowledgeBaseFile).where(
             KnowledgeBaseFile.id == file_id, KnowledgeBaseFile.tenant_id == ctx.tenant_id
@@ -82,7 +84,7 @@ async def file_content(
     )
 
 
-@router.post("/files", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/files", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_admin)])
 async def upload_file(
     file: UploadFile = File(...),
     agent_id: uuid.UUID | None = Form(default=None),
@@ -256,7 +258,7 @@ async def upload_file(
     )
 
 
-@router.get("/files")
+@router.get("/files", dependencies=[Depends(require_admin)])
 async def list_files(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -307,7 +309,7 @@ async def list_files(
     ]
 
 
-@router.patch("/files/{file_id}")
+@router.patch("/files/{file_id}", dependencies=[Depends(require_admin)])
 async def update_file_category(
     file_id: uuid.UUID,
     body: KnowledgeBaseFileCategoryUpdate,
@@ -348,7 +350,11 @@ async def update_file_category(
     )
 
 
-@router.delete("/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 async def delete_file(
     file_id: uuid.UUID,
     ctx: TenantContext = Depends(get_current_tenant),
@@ -424,7 +430,11 @@ async def _delete_drive_files(record, ctx, session) -> None:
     await session.commit()
 
 
-@router.post("/files/{file_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/files/{file_id}/reprocess",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
 async def reprocess_file(
     file_id: uuid.UUID,
     ctx: TenantContext = Depends(get_current_tenant),

@@ -31,7 +31,9 @@ async def database():
                     "summary_generated_at TIMESTAMPTZ, human_last_seen_at TIMESTAMPTZ, "
                     "billing_gate_step TEXT, billing_gate_retries INTEGER, "
                     "billing_gate_checkout_url TEXT, end_customer_billing_exempt BOOLEAN, "
-                    "current_agent_id UUID, deletion_requested_at TIMESTAMPTZ)"
+                    "current_agent_id UUID, deletion_requested_at TIMESTAMPTZ, "
+                    "assigned_user_id UUID, assigned_user_name TEXT, urgent_since TIMESTAMPTZ, "
+                    "urgent_reason TEXT, urgent_agent_id UUID, urgent_source TEXT)"
                 )
             )
             await conn.execute(
@@ -95,6 +97,13 @@ async def database():
                     "end_customer_subscription_id UUID, created_at TIMESTAMPTZ)"
                 )
             )
+            for table in ("attendance_events", "team_emails"):
+                await conn.execute(
+                    text(
+                        f"CREATE TABLE {table} "
+                        "(id UUID PRIMARY KEY,tenant_id UUID,conversation_id UUID)"
+                    )
+                )
         yield engine
     finally:
         async with engine.begin() as conn:
@@ -112,7 +121,11 @@ async def test_preserva_mensagem_nova_e_reabre_conversa_sem_contexto_antigo(data
     async with database.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO conversations VALUES "
+                "INSERT INTO conversations (id,tenant_id,contact_phone_number,"
+                "state,automation_status,"
+                "is_test,last_message_at,summary,summary_generated_at,human_last_seen_at,"
+                "billing_gate_step,billing_gate_retries,billing_gate_checkout_url,"
+                "end_customer_billing_exempt,current_agent_id,deletion_requested_at) VALUES "
                 "(:id, :tenant, '5511', 'agent', 'processing', false, now(), 'resumo', now(), "
                 "now(), 'gate', 2, 'url', false, NULL, now())"
             ),

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useTeamSession } from "./TeamSession";
 import { backendFetch } from "@/lib/client-api";
 import type { Conversation } from "@/lib/types";
 
@@ -12,30 +13,49 @@ import { TestConversationThread } from "./TestConversationThread";
 type Tab = "real" | "test";
 const PAGE_SIZE = 50;
 
-function mergeConversations(current: Conversation[], incoming: Conversation[]): Conversation[] {
+function mergeConversations(
+  current: Conversation[],
+  incoming: Conversation[],
+): Conversation[] {
   const incomingIds = new Set(incoming.map((conversation) => conversation.id));
-  return [...incoming, ...current.filter((conversation) => !incomingIds.has(conversation.id))];
+  return [
+    ...incoming,
+    ...current.filter((conversation) => !incomingIds.has(conversation.id)),
+  ];
 }
 
-function appendConversations(current: Conversation[], incoming: Conversation[]): Conversation[] {
+function appendConversations(
+  current: Conversation[],
+  incoming: Conversation[],
+): Conversation[] {
   const currentIds = new Set(current.map((conversation) => conversation.id));
-  return [...current, ...incoming.filter((conversation) => !currentIds.has(conversation.id))];
+  return [
+    ...current,
+    ...incoming.filter((conversation) => !currentIds.has(conversation.id)),
+  ];
 }
 
 export function ConversationsPanel({
   pollMs = 5000,
   initialOrigin = "real",
   initialUrgentOnly = false,
+  initialConversationId,
 }: {
   pollMs?: number;
   initialOrigin?: "real" | "test";
   initialUrgentOnly?: boolean;
+  initialConversationId?: string;
 }) {
-  const [tab, setTab] = useState<Tab>(initialOrigin);
+  const identity = useTeamSession();
+  const isLawyer = identity?.role === "lawyer";
+  const [mine, setMine] = useState(false);
+  const [tab, setTab] = useState<Tab>(isLawyer ? "real" : initialOrigin);
   const [urgentOnly, setUrgentOnly] = useState(initialUrgentOnly);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialConversationId ?? null,
+  );
   const [creating, setCreating] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -45,6 +65,10 @@ export function ConversationsPanel({
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const refreshSequenceRef = useRef(0);
   const conversationsRef = useRef<Conversation[]>([]);
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -55,13 +79,36 @@ export function ConversationsPanel({
     setRefreshing(true);
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}&limit=${PAGE_SIZE}&offset=0`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}&limit=${PAGE_SIZE}&offset=0`,
       );
       if (!response.ok) throw new Error("conversations request failed");
       const data: Conversation[] = await response.json();
       if (sequence !== refreshSequenceRef.current) return;
+      const selectedId = selectedIdRef.current;
+      if (
+        selectedId &&
+        !mine &&
+        !urgentOnly &&
+        !data.some((c) => c.id === selectedId)
+      ) {
+        const detail = await backendFetch(`conversations/${selectedId}/detail`);
+        if (detail.ok) {
+          const item = await detail.json();
+          if (!data.some((c) => c.id === item.id)) data.push(item);
+        } else if (detail.status === 404 || detail.status === 403) {
+          setSelectedId(null);
+          setConversations((current) =>
+            current.filter((c) => c.id !== selectedId),
+          );
+        }
+      }
+      if (sequence !== refreshSequenceRef.current) return;
       // Com o filtro ativo, uma conversa resolvida precisa sair da lista.
-      setConversations((current) => (urgentOnly ? data : mergeConversations(current, data)));
+      setConversations((current) =>
+        urgentOnly || mine || isLawyer
+          ? data
+          : mergeConversations(current, data),
+      );
       if (conversationsRef.current.length <= PAGE_SIZE) {
         setHasMore(data.length === PAGE_SIZE);
       }
@@ -75,14 +122,14 @@ export function ConversationsPanel({
         setRefreshing(false);
       }
     }
-  }, [tab, urgentOnly]);
+  }, [tab, urgentOnly, mine, isLawyer]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
       );
       if (!response.ok) throw new Error("older conversations request failed");
       const data: Conversation[] = await response.json();
@@ -98,7 +145,6 @@ export function ConversationsPanel({
   };
 
   useEffect(() => {
-    setLoaded(false);
     void loadConversations();
     if (!pollMs) {
       return;
@@ -110,7 +156,9 @@ export function ConversationsPanel({
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
 
   const handleConversationUpdate = (updated: Conversation) => {
-    setConversations((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    setConversations((prev) =>
+      prev.map((c) => (c.id === updated.id ? updated : c)),
+    );
   };
 
   const toggleUrgentOnly = () => {
@@ -140,7 +188,9 @@ export function ConversationsPanel({
     if (creating) return;
     setCreating(true);
     try {
-      const response = await backendFetch("test-conversations", { method: "POST" });
+      const response = await backendFetch("test-conversations", {
+        method: "POST",
+      });
       if (response.ok) {
         const created: Conversation = await response.json();
         setConversations((prev) => [created, ...prev]);
@@ -152,6 +202,9 @@ export function ConversationsPanel({
   };
 
   const handleDeleted = (id: string) => {
+    refreshSequenceRef.current += 1;
+    selectedIdRef.current = null;
+    setRefreshing(false);
     setConversations((prev) => prev.filter((c) => c.id !== id));
     setSelectedId(null);
     setActionNotice(
@@ -161,29 +214,52 @@ export function ConversationsPanel({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-3 border-b border-line px-5 py-2 text-sm">
+        <label>
+          <input
+            type="checkbox"
+            checked={mine}
+            onChange={(e) => {
+              setMine(e.target.checked);
+              setConversations([]);
+              setSelectedId(null);
+              setHasMore(true);
+            }}
+          />{" "}
+          Meus atendimentos
+        </label>
+      </div>
       <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
-        <h1 className="font-display text-[26px] leading-tight font-semibold">Conversas</h1>
+        <h1 className="font-display text-[26px] leading-tight font-semibold">
+          Conversas
+        </h1>
         <div className="flex gap-1">
           <button
             type="button"
             onClick={() => switchTab("real")}
             aria-pressed={tab === "real"}
             className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
-              tab === "real" ? "bg-ink text-ground" : "text-muted hover:text-ink"
+              tab === "real"
+                ? "bg-ink text-ground"
+                : "text-muted hover:text-ink"
             }`}
           >
             Conversas
           </button>
-          <button
-            type="button"
-            onClick={() => switchTab("test")}
-            aria-pressed={tab === "test"}
-            className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
-              tab === "test" ? "bg-ink text-ground" : "text-muted hover:text-ink"
-            }`}
-          >
-            Testes
-          </button>
+          {!isLawyer && (
+            <button
+              type="button"
+              onClick={() => switchTab("test")}
+              aria-pressed={tab === "test"}
+              className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
+                tab === "test"
+                  ? "bg-ink text-ground"
+                  : "text-muted hover:text-ink"
+              }`}
+            >
+              Testes
+            </button>
+          )}
         </div>
       </header>
       {actionNotice ? (
@@ -234,7 +310,9 @@ export function ConversationsPanel({
             >
               Urgentes
             </button>
-            <span className="font-mono text-xs text-muted">{conversations.length}</span>
+            <span className="font-mono text-xs text-muted">
+              {conversations.length}
+            </span>
           </div>
           {tab === "test" ? (
             <button

@@ -15,6 +15,7 @@ from app.core.queue import get_arq_pool
 from app.main import app
 
 TENANT_ID = uuid.uuid4()
+USER_ID = uuid.uuid4()
 CONVERSATION_ID = uuid.uuid4()
 
 
@@ -33,6 +34,8 @@ def _conversation(
         tenant_id=TENANT_ID,
         contact_phone_number="5511999998888",
         state=state,
+        assigned_user_id=USER_ID if state == "human" else None,
+        assigned_user_name="Equipe" if state == "human" else None,
         automation_status=automation_status,
         last_message_at=datetime.now(UTC),
         created_at=datetime.now(UTC),
@@ -90,7 +93,7 @@ def arq():
 @pytest.fixture
 def client(session, arq):
     async def override_ctx():
-        return TenantContext(user_id=uuid.uuid4(), tenant_id=TENANT_ID, role="admin")
+        return TenantContext(user_id=USER_ID, tenant_id=TENANT_ID, role="admin")
 
     async def override_session():
         yield session

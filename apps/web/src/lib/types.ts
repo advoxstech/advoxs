@@ -25,6 +25,8 @@ export interface Conversation {
   end_customer_billing_exempt: boolean;
   end_customer_billing_enabled: boolean;
   current_agent_name: string | null;
+  assigned_user_id?: string | null;
+  assigned_user_name?: string | null;
   urgent_since?: string | null;
   urgent_reason?: string | null;
   urgent_source?: "agent" | "keyword" | "manual" | null;
@@ -48,7 +50,13 @@ export interface ResponseSource {
 }
 
 export interface ResponseEvidence {
-  status: "referenced" | "no_documents" | "not_searched" | "empty" | "not_used" | "unavailable";
+  status:
+    | "referenced"
+    | "no_documents"
+    | "not_searched"
+    | "empty"
+    | "not_used"
+    | "unavailable";
   sources: ResponseSource[];
   search_failed: boolean;
 }
@@ -56,6 +64,8 @@ export interface ResponseEvidence {
 export interface Message {
   id: string;
   sender_type: SenderType;
+  sender_user_name?: string | null;
+  sender_user_id?: string | null;
   response_sources?: ResponseEvidence | null;
   content: string;
   media_url: string | null;
@@ -84,7 +94,11 @@ export interface AdminDashboard {
   low_balance_tenants: { id: string; name: string; credit_balance: number }[];
   whatsapp_connected: { connected: number; total: number };
   knowledge_base_usage: { total_files: number; total_size_bytes: number };
-  pending_zapi_requests: { tenant_id: string; tenant_name: string; requested_at: string }[];
+  pending_zapi_requests: {
+    tenant_id: string;
+    tenant_name: string;
+    requested_at: string;
+  }[];
 }
 
 export interface TenantDashboard {

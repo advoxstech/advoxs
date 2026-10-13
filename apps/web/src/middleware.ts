@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { PLATFORM_ACCESS_TOKEN_COOKIE, PLATFORM_REFRESH_TOKEN_COOKIE } from "@/lib/admin-auth";
+import {
+  PLATFORM_ACCESS_TOKEN_COOKIE,
+  PLATFORM_REFRESH_TOKEN_COOKIE,
+} from "@/lib/admin-auth";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/auth";
 
 export function middleware(request: NextRequest) {
@@ -26,7 +29,8 @@ export function middleware(request: NextRequest) {
   }
 
   const hasSession =
-    request.cookies.has(ACCESS_TOKEN_COOKIE) || request.cookies.has(REFRESH_TOKEN_COOKIE);
+    request.cookies.has(ACCESS_TOKEN_COOKIE) ||
+    request.cookies.has(REFRESH_TOKEN_COOKIE);
 
   if (pathname === "/") {
     if (hasSession) {
@@ -40,7 +44,9 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname !== "/login" && !hasSession) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
@@ -59,6 +65,9 @@ export const config = {
     "/configuracoes/:path*",
     "/creditos/:path*",
     "/perfil/:path*",
+    "/equipe/:path*",
+    "/meus-agentes/:path*",
+    "/minha-conta/:path*",
     "/admin/:path*",
   ],
 };

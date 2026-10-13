@@ -26,6 +26,8 @@ class ConversationOut(BaseModel):
     end_customer_billing_exempt: bool = False
     end_customer_billing_enabled: bool = False
     current_agent_name: str | None = None
+    assigned_user_id: uuid.UUID | None = None
+    assigned_user_name: str | None = None
     urgent_since: datetime | None = None
     urgent_reason: str | None = None
     urgent_source: Literal["agent", "keyword", "manual"] | None = None
@@ -53,6 +55,8 @@ class MessageOut(BaseModel):
 
     id: uuid.UUID
     sender_type: Literal["agent", "human", "contact", "system"]
+    sender_user_id: uuid.UUID | None = None
+    sender_user_name: str | None = None
     content: str
     media_url: str | None
     media_type: str | None

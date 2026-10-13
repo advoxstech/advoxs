@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.models import Tenant, User
 from app.schemas.profile import ChangePasswordRequest, ProfileOut, ProfileUpdateRequest
 from app.services.profile import InvalidCurrentPasswordError, change_password, update_tenant_name
+from app.services.team_access import require_admin
 from app.services.upload_storage import (
     InvalidUploadContentError,
     UnsafeUploadPathError,
@@ -43,7 +44,7 @@ async def get_profile(
     )
 
 
-@router.patch("")
+@router.patch("", dependencies=[Depends(require_admin)])
 async def update_profile(
     body: ProfileUpdateRequest,
     ctx: TenantContext = Depends(get_current_tenant),
@@ -72,7 +73,7 @@ async def change_password_route(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
-@router.post("/logo")
+@router.post("/logo", dependencies=[Depends(require_admin)])
 async def upload_logo(
     file: UploadFile = File(...),
     ctx: TenantContext = Depends(get_current_tenant),

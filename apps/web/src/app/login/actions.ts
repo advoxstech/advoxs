@@ -10,7 +10,10 @@ export interface LoginState {
   error: string | null;
 }
 
-export async function login(_prev: LoginState, formData: FormData): Promise<LoginState> {
+export async function login(
+  _prev: LoginState,
+  formData: FormData,
+): Promise<LoginState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
 
@@ -41,5 +44,8 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   setAuthCookies(await cookies(), tokens);
-  redirect("/inicio");
+  const destination = String(formData.get("next") ?? "");
+  const safeNext =
+    /^\/conversas(?:\?|$)/.test(destination) && !destination.includes("\\");
+  redirect(safeNext ? destination : "/inicio");
 }
