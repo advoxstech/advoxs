@@ -25,7 +25,9 @@ async def database():
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
             for ddl in (
                 "CREATE TABLE tenants(id UUID PRIMARY KEY,name TEXT,status TEXT)",
-                "CREATE TABLE users(id UUID PRIMARY KEY,tenant_id UUID,role TEXT,email TEXT)",
+                # Match the users schema after migration 0037, before applying 0045/0046.
+                "CREATE TABLE users(id UUID PRIMARY KEY,tenant_id UUID,role TEXT,email TEXT,"
+                "session_version INTEGER NOT NULL DEFAULT 0)",
                 "CREATE TABLE agents(id UUID PRIMARY KEY,tenant_id UUID,"
                 "name TEXT,is_entry_point BOOL)",
                 "CREATE TABLE conversations(id UUID PRIMARY KEY,tenant_id UUID,"
