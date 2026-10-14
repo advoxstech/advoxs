@@ -120,6 +120,7 @@ export interface Profile {
   tenant_name: string;
   email_contato: string;
   has_logo: boolean;
+  has_letterhead: boolean;
   user_name: string;
   user_email: string;
 }

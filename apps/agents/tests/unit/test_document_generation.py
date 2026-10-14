@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import MagicMock
 
 import httpx
@@ -65,6 +66,19 @@ async def test_generate_pdf_encadeia_as_3_chamadas():
     assert latex_kwargs["json"] == {"text": "texto da multa"}
     _, compile_kwargs = FakeAsyncClient.calls[2]
     assert compile_kwargs["content"] == b"\\documentclass..."
+
+
+async def test_generate_pdf_usa_endpoint_de_timbrado_quando_disponivel():
+    FakeAsyncClient.responses = {
+        "make_multa_llm": _ok_response(json_body={"multa": "texto"}),
+        "make_latex": _ok_response(text="latex"),
+        "compile_latex_with_letterhead": _ok_response(content=b"%PDF-1.4 timbrado"),
+    }
+    result = await generate_pdf("multa", "campo: valor", letterhead_pdf=b"%PDF-1.4 arte")
+    assert result == b"%PDF-1.4 timbrado"
+    _, kwargs = FakeAsyncClient.calls[-1]
+    assert kwargs["json"]["letterhead_base64"] == base64.b64encode(b"%PDF-1.4 arte").decode()
+    assert kwargs["json"]["latex"] == "latex"
 
 
 async def test_generate_pdf_contrato_usa_endpoint_ingles():

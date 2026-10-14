@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 
 import { logout } from "@/app/conversas/actions";
 import { backendFetch } from "@/lib/client-api";
+import { useTeamSession } from "@/components/TeamSession";
 import type { Profile } from "@/lib/types";
 
 export function ProfilePanel() {
+  const identity = useTeamSession();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [tenantName, setTenantName] = useState("");
@@ -18,6 +20,9 @@ export function ProfilePanel() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [logoVersion, setLogoVersion] = useState(0);
+  const [letterheadVersion, setLetterheadVersion] = useState(0);
+  const [letterheadError, setLetterheadError] = useState<string | null>(null);
+  const [letterheadBusy, setLetterheadBusy] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -82,6 +87,42 @@ export function ProfilePanel() {
       setLogoVersion((v) => v + 1);
     } else {
       setLogoError("Não foi possível enviar a logo. Envie um PNG ou JPG de até 2 MB.");
+    }
+  }
+
+  async function handleUploadLetterhead(file: File) {
+    setLetterheadError(null);
+    setLetterheadBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await backendFetch("profile/letterhead", {
+        method: "POST", body: formData,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Não foi possível enviar o timbrado.");
+      }
+      setProfile((current) => current && { ...current, has_letterhead: true });
+      setLetterheadVersion((version) => version + 1);
+    } catch (error) {
+      setLetterheadError(error instanceof Error ? error.message : "Falha no envio.");
+    } finally {
+      setLetterheadBusy(false);
+    }
+  }
+
+  async function handleRemoveLetterhead() {
+    setLetterheadError(null);
+    setLetterheadBusy(true);
+    try {
+      const response = await backendFetch("profile/letterhead", { method: "DELETE" });
+      if (!response.ok) throw new Error("Não foi possível remover o timbrado.");
+      setProfile((current) => current && { ...current, has_letterhead: false });
+    } catch (error) {
+      setLetterheadError(error instanceof Error ? error.message : "Falha na remoção.");
+    } finally {
+      setLetterheadBusy(false);
     }
   }
 
@@ -150,6 +191,53 @@ export function ProfilePanel() {
         <p className="text-sm text-muted">
           Usuário: {profile.user_name} (<span>{profile.user_email}</span>)
         </p>
+      </section>
+
+      <section className="flex flex-col gap-4 rounded-sm border border-line bg-surface p-6">
+        <h2 className="font-display text-xl font-semibold text-ink">Timbrado dos documentos</h2>
+        <p className="text-sm text-muted">
+          {profile.has_letterhead
+            ? "Este PDF será usado nos documentos gerados para este escritório."
+            : "Nenhum timbrado cadastrado. Os documentos serão gerados sem timbrado."}
+        </p>
+        {profile.has_letterhead && (
+          <iframe
+            key={letterheadVersion}
+            title="Prévia do timbrado"
+            src={`/api/backend/profile/letterhead?v=${letterheadVersion}`}
+            className="h-96 w-full rounded-sm border border-line"
+          />
+        )}
+        {identity?.role === "admin" && (
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="cursor-pointer rounded-sm bg-accent px-4 py-2 text-sm font-medium text-surface hover:bg-ink">
+              {profile.has_letterhead ? "Substituir PDF" : "Enviar timbrado"}
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                disabled={letterheadBusy}
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void handleUploadLetterhead(file);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            {profile.has_letterhead && (
+              <button
+                type="button"
+                disabled={letterheadBusy}
+                onClick={() => void handleRemoveLetterhead()}
+                className="rounded-sm border border-danger px-4 py-2 text-sm text-danger disabled:opacity-50"
+              >
+                Remover timbrado
+              </button>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-muted">Use um PDF A4 vertical de uma página, com até 5 MB.</p>
+        {letterheadError && <p className="text-sm text-danger">{letterheadError}</p>}
       </section>
 
       <section className="flex flex-col gap-4 rounded-sm border border-line bg-surface p-6">

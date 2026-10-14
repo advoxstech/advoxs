@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     logo_upload_dir: str = "/data/logo_uploads"
     logo_max_file_size_bytes: int = 2 * 1024 * 1024
 
+    letterhead_dir: str = "/data/letterheads"
+    letterhead_max_file_size_bytes: int = 5 * 1024 * 1024
+
     # Stripe (cadastro self-service — checkout de créditos, sem assinatura)
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

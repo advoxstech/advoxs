@@ -1,9 +1,11 @@
+import io
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 import app.api.v1.profile as profile_module
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
@@ -207,6 +209,78 @@ class TestUploadLogo:
         )
 
         assert response.status_code == 400
+
+
+class TestLetterhead:
+    @staticmethod
+    def pdf(pages: int = 1) -> bytes:
+        writer = PdfWriter()
+        for _ in range(pages):
+            writer.add_blank_page(width=595.28, height=841.89)
+        output = io.BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    def test_upload_preview_remove_are_scoped_to_office(
+        self, client, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr(profile_module.settings, "letterhead_dir", str(tmp_path))
+        pdf = self.pdf()
+        response = client.post(
+            "/api/v1/profile/letterhead",
+            files={"file": ("timbrado.pdf", pdf, "application/pdf")},
+        )
+        assert response.status_code == 200
+        assert client.get("/api/v1/profile/letterhead").content == pdf
+
+        other_office = uuid.uuid4()
+
+        async def other_context():
+            return TenantContext(user_id=USER_ID, tenant_id=other_office, role="admin")
+
+        app.dependency_overrides[get_current_tenant] = other_context
+        assert client.get("/api/v1/profile/letterhead").status_code == 404
+        assert client.delete("/api/v1/profile/letterhead").status_code == 204
+        assert (tmp_path / f"{TENANT_ID}.pdf").read_bytes() == pdf
+
+        app.dependency_overrides[get_current_tenant] = lambda: TenantContext(
+            user_id=USER_ID, tenant_id=TENANT_ID, role="admin"
+        )
+        assert client.delete("/api/v1/profile/letterhead").status_code == 204
+        assert client.get("/api/v1/profile/letterhead").status_code == 404
+
+    def test_rejects_multi_page_and_oversized_pdf(self, client, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "letterhead_dir", str(tmp_path))
+        response = client.post(
+            "/api/v1/profile/letterhead",
+            files={"file": ("pages.pdf", self.pdf(2), "application/pdf")},
+        )
+        assert response.status_code == 400
+        response = client.post(
+            "/api/v1/profile/letterhead",
+            files={"file": ("invalid.pdf", b"not a PDF", "application/pdf")},
+        )
+        assert response.status_code == 400
+        monkeypatch.setattr(profile_module.settings, "letterhead_max_file_size_bytes", 10)
+        response = client.post(
+            "/api/v1/profile/letterhead",
+            files={"file": ("big.pdf", self.pdf(), "application/pdf")},
+        )
+        assert response.status_code == 413
+
+    def test_lawyer_cannot_replace_letterhead(self, client, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(profile_module.settings, "letterhead_dir", str(tmp_path))
+
+        async def lawyer_context():
+            return TenantContext(user_id=USER_ID, tenant_id=TENANT_ID, role="lawyer")
+
+        app.dependency_overrides[get_current_tenant] = lawyer_context
+        response = client.post(
+            "/api/v1/profile/letterhead",
+            files={"file": ("timbrado.pdf", self.pdf(), "application/pdf")},
+        )
+        assert response.status_code == 403
+        assert not (tmp_path / f"{TENANT_ID}.pdf").exists()
 
 
 class TestGetLogo:
