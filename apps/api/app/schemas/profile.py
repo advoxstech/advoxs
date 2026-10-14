@@ -5,6 +5,7 @@ class ProfileOut(BaseModel):
     tenant_name: str
     email_contato: str
     has_logo: bool
+    has_letterhead: bool = False
     user_name: str
     user_email: str
 

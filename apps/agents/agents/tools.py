@@ -6,6 +6,7 @@ from clients.document_generation import DocumentGenerationError, generate_pdf
 from clients.retrieval import RetrievalUnavailableError, retrieval_escritorio, retrieval_usuario
 from core.safe_logging import safe_identifier
 from services.document_storage import build_public_url, save_pdf
+from services.letterhead import letterhead_for_conversation
 
 # Custo fixo em créditos por documento gerado (contrato/multa/etc), somado ao
 # custo normal de tokens do turno — calibrado como um valor pequeno inicial,
@@ -23,7 +24,12 @@ async def _gerar_e_entregar(
     de sucesso (ver services/call_agent.py e api/routes.py, que leem esse
     campo pra efetivamente enviar o PDF pelo WhatsApp/Z-API do tenant)."""
     try:
-        pdf_bytes = await generate_pdf(tipo, text_payload)
+        letterhead = letterhead_for_conversation(conversation_id)
+        pdf_bytes = (
+            await generate_pdf(tipo, text_payload, letterhead_pdf=letterhead)
+            if letterhead is not None
+            else await generate_pdf(tipo, text_payload)
+        )
         doc_id = save_pdf(pdf_bytes, conversation_id=conversation_id)
         link = build_public_url(doc_id)
     except DocumentGenerationError as exc:

@@ -6,6 +6,7 @@ from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.core.config import settings
 from app.models import Tenant, User
 from app.schemas.profile import ChangePasswordRequest, ProfileOut, ProfileUpdateRequest
+from app.services.letterhead import InvalidLetterheadError, validate_letterhead
 from app.services.profile import InvalidCurrentPasswordError, change_password, update_tenant_name
 from app.services.team_access import require_admin
 from app.services.upload_storage import (
@@ -28,6 +29,10 @@ ALLOWED_LOGO_EXTENSIONS = {
 }
 
 
+def _letterhead_path(tenant_id):
+    return managed_path(settings.letterhead_dir, f"{tenant_id}.pdf")
+
+
 @router.get("")
 async def get_profile(
     ctx: TenantContext = Depends(get_current_tenant),
@@ -39,6 +44,7 @@ async def get_profile(
         tenant_name=tenant.name,
         email_contato=tenant.email_contato,
         has_logo=tenant.logo_filename is not None,
+        has_letterhead=_letterhead_path(ctx.tenant_id).is_file(),
         user_name=user.name,
         user_email=user.email,
     )
@@ -56,6 +62,7 @@ async def update_profile(
         tenant_name=tenant.name,
         email_contato=tenant.email_contato,
         has_logo=tenant.logo_filename is not None,
+        has_letterhead=_letterhead_path(ctx.tenant_id).is_file(),
         user_name=user.name,
         user_email=user.email,
     )
@@ -120,6 +127,7 @@ async def upload_logo(
         tenant_name=tenant.name,
         email_contato=tenant.email_contato,
         has_logo=True,
+        has_letterhead=_letterhead_path(ctx.tenant_id).is_file(),
         user_name=user.name,
         user_email=user.email,
     )
@@ -147,3 +155,41 @@ async def get_logo(
         # (sem versionamento), então uma resposta cacheada mostraria a logo antiga.
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.post("/letterhead", dependencies=[Depends(require_admin)])
+async def upload_letterhead(
+    file: UploadFile = File(...),
+    ctx: TenantContext = Depends(get_current_tenant),
+) -> dict[str, bool]:
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Envie um PDF A4.")
+    try:
+        data = await read_upload_limited(file, settings.letterhead_max_file_size_bytes)
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail="O timbrado deve ter até 5 MB.") from exc
+    try:
+        validate_letterhead(data)
+    except InvalidLetterheadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    atomic_write(_letterhead_path(ctx.tenant_id), data)
+    return {"has_letterhead": True}
+
+
+@router.get("/letterhead")
+async def get_letterhead(
+    ctx: TenantContext = Depends(get_current_tenant),
+) -> Response:
+    path = _letterhead_path(ctx.tenant_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Sem timbrado cadastrado")
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
+    )
+
+
+@router.delete("/letterhead", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_letterhead(ctx: TenantContext = Depends(get_current_tenant)) -> None:
+    safe_delete(settings.letterhead_dir, f"{ctx.tenant_id}.pdf")

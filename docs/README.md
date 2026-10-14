@@ -2,6 +2,9 @@
 
 ## Fontes atuais
 
+- [Timbrado por escritório](timbrado-por-escritorio.md): cadastro, formato do PDF,
+  geração e ordem de publicação com o `api_core`.
+
 - [Equipe e alertas de urgência](equipe-e-alertas-de-urgencia.md): perfis,
   convites, responsáveis por agente, atendimento humano e configuração de e-mails.
 

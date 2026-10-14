@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfilePanel } from "@/components/ProfilePanel";
+import { TeamSession } from "@/components/TeamSession";
 import { backendFetch } from "@/lib/client-api";
 import type { Profile } from "@/lib/types";
 
@@ -15,6 +16,7 @@ const PROFILE: Profile = {
   tenant_name: "Escritório Teste",
   email_contato: "a@b.com",
   has_logo: false,
+  has_letterhead: false,
   user_name: "Fulano",
   user_email: "fulano@b.com",
 };
@@ -24,6 +26,34 @@ beforeEach(() => {
 });
 
 describe("ProfilePanel", () => {
+  it("permite ao administrador cadastrar e pré-visualizar o timbrado", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "profile" && !init) return { ok: true, json: async () => PROFILE };
+      if (path === "profile/letterhead" && init?.method === "POST") {
+        expect(init.body).toBeInstanceOf(FormData);
+        return { ok: true, json: async () => ({ has_letterhead: true }) };
+      }
+      throw new Error(`chamada inesperada: ${path}`);
+    });
+
+    render(
+      <TeamSession.Provider value={{
+        id: "user-1", tenant_id: "office-1", tenant_name: "Escritório Teste",
+        name: "Fulano", email: "fulano@b.com", role: "admin",
+      }}>
+        <ProfilePanel />
+      </TeamSession.Provider>,
+    );
+    const upload = await screen.findByLabelText("Enviar timbrado");
+    fireEvent.change(upload, {
+      target: { files: [new File(["%PDF-1.4"], "timbrado.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(screen.getByTitle("Prévia do timbrado")).toBeInTheDocument());
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "profile/letterhead", expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("carrega e exibe os dados do perfil", async () => {
     mockedFetch.mockResolvedValue({ ok: true, json: async () => PROFILE });
 

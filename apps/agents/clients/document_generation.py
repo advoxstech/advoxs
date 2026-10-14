@@ -4,6 +4,7 @@ LLM -> LaTeX -> PDF -> Google Drive -> Chatvolt); aqui a mesma cadeia de 3
 chamadas é feita direto, sem n8n/Drive/Chatvolt no meio. A entrega ao contato
 usa o WhatsApp real do tenant (ver agents/tools.py + services/document_storage.py)."""
 
+import base64
 import os
 from urllib.parse import urlsplit, urlunsplit
 
@@ -155,11 +156,23 @@ async def _draft_to_latex(client: httpx.AsyncClient, texto: str) -> str:
     return latex
 
 
-async def _compile_pdf(client: httpx.AsyncClient, latex: str) -> bytes:
+async def _compile_pdf(
+    client: httpx.AsyncClient, latex: str, letterhead_pdf: bytes | None = None
+) -> bytes:
     url = f"{_REQUEST_BASE_URL}/compile_latex"
     headers = {**_headers(), "Content-Type": "text/plain"}
+    request: dict = {"content": latex.encode("utf-8")}
+    if letterhead_pdf is not None:
+        url = f"{_REQUEST_BASE_URL}/compile_latex_with_letterhead"
+        headers["Content-Type"] = "application/json"
+        request = {
+            "json": {
+                "latex": latex,
+                "letterhead_base64": base64.b64encode(letterhead_pdf).decode("ascii"),
+            }
+        }
     try:
-        response = await client.post(url, headers=headers, content=latex.encode("utf-8"))
+        response = await client.post(url, headers=headers, **request)
         response.raise_for_status()
     except httpx.HTTPError as exc:
         logger.error("Falha ao compilar PDF | error_type={}", safe_error(exc))
@@ -173,7 +186,7 @@ async def _compile_pdf(client: httpx.AsyncClient, latex: str) -> bytes:
     return response.content
 
 
-async def generate_pdf(tipo: str, text_payload: str) -> bytes:
+async def generate_pdf(tipo: str, text_payload: str, letterhead_pdf: bytes | None = None) -> bytes:
     """Encadeia as 3 chamadas (draft -> LaTeX -> PDF) e devolve os bytes do PDF.
 
     `tipo` deve ser uma chave de `_DRAFT_RESPONSE_FIELD` (contrato, multa,
@@ -183,6 +196,6 @@ async def generate_pdf(tipo: str, text_payload: str) -> bytes:
     async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
         texto = await _draft_document(client, tipo, text_payload)
         latex = await _draft_to_latex(client, texto)
-        pdf_bytes = await _compile_pdf(client, latex)
+        pdf_bytes = await _compile_pdf(client, latex, letterhead_pdf)
     logger.info("Documento gerado com sucesso | tipo={} tamanho_bytes={}", tipo, len(pdf_bytes))
     return pdf_bytes
