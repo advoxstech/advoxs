@@ -11,10 +11,12 @@ export default function OfficesPage() {
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState<string | null>(null);
   const [conversation, setConversation] = useState<string | null>(null);
+  const [page, setPage] = useState<string | null>(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setTarget(params.get("escritorio"));
     setConversation(params.get("conversa"));
+    setPage(params.get("destino"));
     let live = true;
     fetch("/api/escritorios", { cache: "no-store" }).then(async (r) => {
       if (r.status === 401) { window.location.assign("/login?next=" + encodeURIComponent(window.location.pathname + window.location.search)); return; }
@@ -33,9 +35,12 @@ export default function OfficesPage() {
       if (!r.ok) throw new Error("Não foi possível abrir este escritório. Atualize a página e tente novamente.");
       try { localStorage.setItem("advoxs-office-change", `${office.id}:${Date.now()}`); }
       catch { /* Context headers still protect tabs when storage is unavailable. */ }
-      const destination = target === office.id && conversation
+      const fromAlert = target === office.id;
+      const destination = fromAlert && conversation
         ? `/conversas?conversa=${encodeURIComponent(conversation)}`
-        : office.role === "admin" ? "/inicio" : "/conversas";
+        : fromAlert && page === "creditos" && office.role === "admin"
+          ? "/creditos"
+          : office.role === "admin" ? "/inicio" : "/conversas";
       // Full navigation clears all tenant-bound state, caches and pending forms.
       window.location.assign(destination);
     } catch (e) { setError((e as Error).message); setBusy(false); }
