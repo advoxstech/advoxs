@@ -20,6 +20,23 @@ it("mostra os escritórios e o perfil específico de cada vínculo", async () =>
   expect(screen.getByRole("button", { name: /Escritório B Advogado/ })).toBeInTheDocument();
 });
 
+it.each([
+  ["Escritório A", "/creditos"],
+  ["Escritório B", "/inicio"],
+])("link do aviso de créditos: %s abre %s", async (name, expected) => {
+  const assign = vi.fn();
+  vi.stubGlobal("location", { ...window.location, search: "?escritorio=one&destino=creditos", assign });
+  vi.stubGlobal("fetch", vi.fn()
+    .mockResolvedValueOnce(json({ offices: [
+      { id: "one", name: "Escritório A", role: "admin" },
+      { id: "two", name: "Escritório B", role: "admin" },
+    ] }))
+    .mockResolvedValue(json({})));
+  render(<OfficesPage />);
+  fireEvent.click(await screen.findByRole("button", { name: new RegExp(name) }));
+  await waitFor(() => expect(assign).toHaveBeenCalledWith(expected));
+});
+
 it("informa ausência de vínculos sem mostrar dados de outros escritórios", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ offices: [] })));
   render(<OfficesPage />);

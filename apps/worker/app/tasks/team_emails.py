@@ -30,6 +30,67 @@ def send_email(recipient: str, subject: str, content: str, job_id: str):
         smtp.send_message(message)
 
 
+CREDIT_ALERT_KINDS = {"low_credits", "credits_depleted"}
+
+
+def _format_credits(value) -> str:
+    return (
+        f"{float(value):,.2f}".rstrip("0")
+        .rstrip(".")
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
+
+
+async def _render_credit_alert(session, job, tenant_name, base):
+    # Queued by the 0047 trigger. Recheck the balance and the recipient's admin
+    # access: a purchase between queueing and sending makes the alert obsolete.
+    row = (
+        (
+            await session.execute(
+                text("""SELECT u.email,t.credit_balance,low_credits_threshold(t.id) AS threshold
+      FROM tenants t JOIN office_memberships m ON m.tenant_id=t.id AND m.user_id=:uid
+      JOIN users u ON u.id=m.user_id
+      WHERE t.id=:tid AND m.role='admin' AND m.active AND u.active"""),
+                dict(uid=job["user_id"], tid=job["tenant_id"]),
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return None
+    balance = row["credit_balance"]
+    link = f"{base}/escritorios?escritorio={job['tenant_id']}&destino=creditos"
+    if job["kind"] == "credits_depleted":
+        if balance > 0:
+            return None
+        return (
+            row["email"],
+            "Advoxs — seus créditos acabaram",
+            (
+                f"Os créditos do escritório {tenant_name} acabaram.\n\n"
+                "Os agentes pararam de responder os clientes no WhatsApp. As mensagens "
+                "novas continuam chegando e ficam em Conversas, esperando alguém da equipe.\n\n"
+                f"Comprar créditos: {link}\n\n"
+                "Assim que a compra for confirmada, os agentes voltam a responder."
+            ),
+        )
+    if balance <= 0 or balance > row["threshold"]:
+        return None
+    return (
+        row["email"],
+        "Advoxs — seus créditos estão acabando",
+        (
+            f"O escritório {tenant_name} tem {_format_credits(balance)} créditos restantes.\n\n"
+            "Quando o saldo acabar, os agentes param de responder os clientes no WhatsApp "
+            "até uma nova compra.\n\n"
+            f"Comprar créditos: {link}"
+        ),
+    )
+
+
 async def render_email(session, job):
     base = settings.web_app_url.rstrip("/")
     tenant = (
@@ -72,6 +133,8 @@ async def render_email(session, job):
                 "Se não reconhecer o convite, ignore esta mensagem."
             ),
         )
+    if job["kind"] in CREDIT_ALERT_KINDS:
+        return await _render_credit_alert(session, job, tenant["name"], base)
     # Recheck current access immediately before sending; links never grant access.
     row = (
         (

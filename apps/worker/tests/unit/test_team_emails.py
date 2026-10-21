@@ -67,6 +67,55 @@ async def test_urgency_email_contains_link_but_no_client_content():
     assert await mail.render_email(session, job) is None
 
 
+def credit_job(kind):
+    return dict(tenant_id=uuid.uuid4(), kind=kind, user_id=uuid.uuid4(), episode_id=uuid.uuid4())
+
+
+@pytest.mark.parametrize(
+    "kind,balance,subject",
+    [
+        ("low_credits", 150.5, "Advoxs — seus créditos estão acabando"),
+        ("credits_depleted", 0, "Advoxs — seus créditos acabaram"),
+    ],
+)
+async def test_credit_alert_links_to_purchase_page(kind, balance, subject):
+    session = AsyncMock()
+    session.execute.side_effect = [
+        result({"name": "Office", "status": "active"}),
+        result({"email": "admin@example.com", "credit_balance": balance, "threshold": 200}),
+    ]
+    job = credit_job(kind)
+    recipient, title, body = await mail.render_email(session, job)
+    assert recipient == "admin@example.com"
+    assert title == subject
+    assert f"/escritorios?escritorio={job['tenant_id']}&destino=creditos" in body
+    if kind == "low_credits":
+        assert "150,5 créditos restantes" in body
+
+
+@pytest.mark.parametrize(
+    "kind,balance",
+    [
+        ("low_credits", 500),  # recharged above the threshold before sending
+        ("low_credits", 0),  # already depleted: the depleted e-mail covers it
+        ("credits_depleted", 40),  # recharged before sending
+    ],
+)
+async def test_credit_alert_cancelled_when_balance_changed(kind, balance):
+    session = AsyncMock()
+    session.execute.side_effect = [
+        result({"name": "Office", "status": "active"}),
+        result({"email": "admin@example.com", "credit_balance": balance, "threshold": 200}),
+    ]
+    assert await mail.render_email(session, credit_job(kind)) is None
+
+
+async def test_credit_alert_cancelled_when_recipient_is_no_longer_admin():
+    session = AsyncMock()
+    session.execute.side_effect = [result({"name": "Office", "status": "active"}), result(None)]
+    assert await mail.render_email(session, credit_job("low_credits")) is None
+
+
 @pytest.mark.parametrize(
     "exception,attempts,expected",
     [
