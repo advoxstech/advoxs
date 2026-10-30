@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { isAllowedPath } from "@/lib/backend";
 
 describe("isAllowedPath", () => {
+  it("permite cadastro e consulta de contatos e tags pelo proxy", () => {
+    expect(isAllowedPath(["contacts"])).toBe(true);
+    expect(isAllowedPath(["contacts", "contact-id"])).toBe(true);
+    expect(isAllowedPath(["contact-tags"])).toBe(true);
+    expect(isAllowedPath(["contact-tags", "tag-id"])).toBe(true);
+    expect(isAllowedPath(["contacts-admin"])).toBe(false);
+  });
+
   it("permite rotas de conversas", () => {
     expect(isAllowedPath(["conversations"])).toBe(true);
     expect(isAllowedPath(["conversations", "abc", "messages"])).toBe(true);
