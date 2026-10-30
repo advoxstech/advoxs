@@ -1,6 +1,7 @@
 import uuid
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -52,9 +53,25 @@ def crypto(monkeypatch):
     monkeypatch.setattr("app.billing_gate.decrypt_access_token", lambda v: "token-claro")
 
 
+def _session():
+    session = AsyncMock()
+    session.execute.return_value = MagicMock()
+    session.execute.return_value.one_or_none.return_value = SimpleNamespace(
+        state="billing_gate", human_only=False
+    )
+    return session
+
+
 class TestMaybeEnterGate:
+    async def test_human_only_never_enters_gate(self):
+        session = _session()
+        assert not await maybe_enter_gate(
+            session, TENANT_ID, CONVERSATION_ID, _inbound(human_only=True)
+        )
+        session.execute.assert_not_awaited()
+
     async def test_entra_no_gate_quando_habilitado_e_sem_saldo(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(conversation_state="agent", end_customer_balance=Decimal(0))
 
         entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
@@ -64,7 +81,7 @@ class TestMaybeEnterGate:
         session.commit.assert_awaited_once()
 
     async def test_nao_entra_com_saldo_positivo(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(end_customer_balance=Decimal(500))
 
         entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
@@ -76,7 +93,7 @@ class TestMaybeEnterGate:
         o gate manda mensagem de lista via send-option-list da Z-API em vez
         da Cloud API da Meta (ver TestHandleBillingGateAbertura mais abaixo
         pro envio de fato)."""
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             whatsapp_provider="zapi", conversation_state="agent", end_customer_balance=Decimal(0)
         )
@@ -91,7 +108,7 @@ class TestMaybeEnterGate:
         """Espelha test_ja_em_billing_gate_retorna_true_sem_reprocessar_entrada
         pro provider Z-API — o curto-circuito de reentrada não depende do
         provedor."""
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             whatsapp_provider="zapi",
             conversation_state="billing_gate",
@@ -104,7 +121,7 @@ class TestMaybeEnterGate:
         session.execute.assert_not_called()
 
     async def test_ja_em_billing_gate_retorna_true_sem_reprocessar_entrada(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             conversation_state="billing_gate", billing_gate_step="aguardando_pagamento"
         )
@@ -115,7 +132,7 @@ class TestMaybeEnterGate:
         session.execute.assert_not_called()
 
     async def test_gate_ativo_mas_ja_isento_sai_do_gate_e_libera_o_turno(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             conversation_state="billing_gate",
             billing_gate_step="aguardando_pagamento",
@@ -129,7 +146,7 @@ class TestMaybeEnterGate:
         session.commit.assert_awaited_once()
 
     async def test_nao_entra_quando_contato_esta_isento(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(end_customer_balance=Decimal(0), end_customer_billing_exempt=True)
 
         entered = await maybe_enter_gate(session, TENANT_ID, CONVERSATION_ID, inbound)
@@ -144,7 +161,7 @@ class TestMaybeEnterGate:
         mensagem chega na corrida entre a assinatura ser commitada e o gate
         sair) precisa se auto-recuperar quando o contato já é assinante
         ativo — sem isso, o cliente é cobrado de novo até escalar pra human."""
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             conversation_state="billing_gate",
             billing_gate_step="aguardando_pagamento",
@@ -158,7 +175,7 @@ class TestMaybeEnterGate:
         session.commit.assert_awaited_once()
 
     async def test_nao_entra_no_gate_com_assinatura_ativa(self) -> None:
-        session = AsyncMock()
+        session = _session()
         inbound = _inbound(
             end_customer_balance=Decimal(0), end_customer_has_active_subscription=True
         )
@@ -169,8 +186,22 @@ class TestMaybeEnterGate:
 
 
 class TestHandleBillingGateAbertura:
+    async def test_rule_changed_after_context_was_loaded(self, monkeypatch):
+        session = _session()
+        session.execute.return_value.one_or_none.return_value = SimpleNamespace(
+            state="human",
+            human_only=True,
+        )
+        send_text = AsyncMock()
+        send_list = AsyncMock()
+        monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
+        monkeypatch.setattr("app.billing_gate.send_interactive_list_message", send_list)
+        await handle_billing_gate(session, TENANT_ID, CONVERSATION_ID, _inbound())
+        send_text.assert_not_awaited()
+        send_list.assert_not_awaited()
+
     async def test_abre_o_gate_manda_boas_vindas_e_lista(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         send_list = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
@@ -183,13 +214,13 @@ class TestHandleBillingGateAbertura:
         send_list.assert_awaited_once()
         sections = send_list.await_args.kwargs["sections"]
         assert sections[0]["rows"][0]["title"] == "Básico"
-        session.execute.assert_awaited_once()
+        assert session.execute.await_count == 2
         update_values = session.execute.await_args.args[0]
         compiled = str(update_values.compile(compile_kwargs={"literal_binds": True}))
         assert "aguardando_selecao_pacote" in compiled
 
     async def test_primeira_compra_usa_texto_institucional(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         session.scalar = AsyncMock(return_value=None)  # nunca comprou
         send_text = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
@@ -201,7 +232,7 @@ class TestHandleBillingGateAbertura:
         assert "Escolha um pacote" in send_text.await_args_list[0].kwargs["text"]
 
     async def test_texto_configurado_pelo_tenant_tem_prioridade(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
         monkeypatch.setattr("app.billing_gate.send_interactive_list_message", AsyncMock())
@@ -214,7 +245,7 @@ class TestHandleBillingGateAbertura:
 
 class TestHandleBillingGateSelecaoPacote:
     async def test_selecao_valida_gera_link_e_avanca_step(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         checkout = AsyncMock(return_value="https://checkout.stripe.com/xyz")
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
@@ -234,7 +265,7 @@ class TestHandleBillingGateSelecaoPacote:
     async def test_selecao_nao_reconhecida_reenvia_lista_e_incrementa_retry(
         self, monkeypatch
     ) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         send_list = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
@@ -253,7 +284,7 @@ class TestHandleBillingGateSelecaoPacote:
         assert "billing_gate_retries=1" in compiled
 
     async def test_ultima_tentativa_escala_pra_human(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         monkeypatch.setattr("app.billing_gate.send_text_message", AsyncMock())
         monkeypatch.setattr("app.billing_gate.send_interactive_list_message", AsyncMock())
         inbound = _inbound(
@@ -271,7 +302,7 @@ class TestHandleBillingGateSelecaoPacote:
 
 class TestHandleBillingGateAguardandoPagamento:
     async def test_reenvia_o_link_ja_gerado_sem_chamar_checkout_de_novo(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         checkout = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_text_message", send_text)
@@ -290,7 +321,7 @@ class TestHandleBillingGateAguardandoPagamento:
     async def test_ultima_tentativa_aguardando_pagamento_escala_pra_human(
         self, monkeypatch
     ) -> None:
-        session = AsyncMock()
+        session = _session()
         monkeypatch.setattr("app.billing_gate.send_text_message", AsyncMock())
         inbound = _inbound(
             billing_gate_step="aguardando_pagamento",
@@ -398,7 +429,7 @@ class TestPackagesToSections:
 
 class TestEnvioPorProvedorZApi:
     async def test_abertura_do_gate_usa_zapi_quando_provider_e_zapi(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         send_list = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
@@ -422,7 +453,7 @@ class TestEnvioPorProvedorZApi:
         assert options[1]["title"] == "Premium"
 
     async def test_lista_zapi_achata_avulso_e_assinatura(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", AsyncMock())
         send_list = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_zapi_option_list", send_list)
@@ -458,7 +489,7 @@ class TestEnvioPorProvedorZApi:
         assert options[1]["title"] == "Ilimitado"
 
     async def test_selecao_valida_via_zapi_gera_link(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         checkout = AsyncMock(return_value="https://checkout.stripe.com/xyz")
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
@@ -479,7 +510,7 @@ class TestEnvioPorProvedorZApi:
         assert "https://checkout.stripe.com/xyz" in send_text.await_args.kwargs["text"]
 
     async def test_client_token_zapi_e_descriptografado_quando_presente(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
         monkeypatch.setattr("app.billing_gate.send_zapi_option_list", AsyncMock())
@@ -496,7 +527,7 @@ class TestEnvioPorProvedorZApi:
         assert send_text.await_args.kwargs["client_token"] == "token-claro"
 
     async def test_selecao_nao_reconhecida_via_zapi_reenvia_lista(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         send_list = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
@@ -516,7 +547,7 @@ class TestEnvioPorProvedorZApi:
         send_list.assert_awaited_once()
 
     async def test_aguardando_pagamento_via_zapi_reenvia_o_link(self, monkeypatch) -> None:
-        session = AsyncMock()
+        session = _session()
         send_text = AsyncMock()
         monkeypatch.setattr("app.billing_gate.send_zapi_text_message", send_text)
         inbound = _inbound(

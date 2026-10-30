@@ -544,6 +544,10 @@ async def _process_inbound_message(
     if inbound is None:
         return
 
+    if inbound.human_only:
+        # Registered human-only contacts never enter billing or agent generation.
+        return
+
     async with open_tenant_session(session_factory, tenant_id) as session:
         entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
     if entrou_no_gate:
@@ -977,6 +981,7 @@ async def _load_context(
             select(
                 tables.conversations.c.state,
                 tables.conversations.c.contact_phone_number,
+                tables.conversations.c.human_only,
                 tables.conversations.c.current_agent_id,
                 tables.conversations.c.human_last_seen_at,
                 tables.conversations.c.billing_gate_step,
@@ -1108,6 +1113,7 @@ async def _load_context(
 
     return InboundContext(
         conversation_state=conversation.state,
+        human_only=conversation.human_only,
         contact_phone_number=conversation.contact_phone_number,
         message_content=content,
         whatsapp_provider=number.provider,

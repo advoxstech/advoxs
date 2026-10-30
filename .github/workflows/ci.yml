@@ -103,7 +103,9 @@ jobs:
           tests/integration/test_conversation_cleanup.py
           tests/integration/test_office_team.py
           tests/integration/test_multiple_offices.py
+          tests/integration/test_contacts_postgres.py
         env:
+          CONTACTS_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/agent_versions_test
           AGENT_VERSIONS_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/agent_versions_test
 
   agents:

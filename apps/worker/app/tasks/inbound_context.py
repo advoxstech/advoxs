@@ -39,3 +39,4 @@ class InboundContext:
     # opaco da Meta ou a URL final da Z-API (ver app/tasks/attachments.py).
     media_url: str | None = None
     media_type: str | None = None
+    human_only: bool = False

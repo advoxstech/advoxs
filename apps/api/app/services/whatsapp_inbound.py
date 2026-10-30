@@ -179,6 +179,10 @@ async def _persist_inbound_message(
         session.add(conversation)
         await session.flush()
 
+    # Triggers resolve registered contacts atomically with conversation creation.
+    # Refresh defaults modified by PostgreSQL before deciding whether to process AI.
+    await session.refresh(conversation)
+
     conversation.last_message_at = datetime.now(UTC)
     if conversation.state == "agent":
         conversation.automation_status = "processing"

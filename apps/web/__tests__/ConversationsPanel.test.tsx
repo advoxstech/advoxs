@@ -120,7 +120,14 @@ describe("ConversationsPanel — abas", () => {
   });
 
   it("diferencia falha de rede de lista vazia e permite tentar novamente", async () => {
-    backendFetchMock.mockRejectedValueOnce(new Error("offline")).mockResolvedValue(jsonResponse([]));
+    let failed = false;
+    backendFetchMock.mockImplementation(async path => {
+      if (String(path).startsWith("conversations?") && !failed) {
+        failed = true;
+        throw new Error("offline");
+      }
+      return jsonResponse([]);
+    });
 
     render(<ConversationsPanel pollMs={0} />);
 

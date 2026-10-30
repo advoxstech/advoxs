@@ -20,7 +20,7 @@ from sqlalchemy.schema import CreateTable
 
 from app.api.deps import TenantContext
 from app.api.v1.agents import publish_version, restore_version, save_draft
-from app.models import Agent, AgentVersion, Conversation
+from app.models import Agent, AgentVersion, Contact, ContactTag, ContactTagLink, Conversation
 from app.schemas.agents import AgentDraftIn, AgentPublishIn, DraftRevisionIn
 
 _PATH = Path(__file__).parents[2] / "alembic/versions/0038_agent_versions.py"
@@ -65,7 +65,8 @@ async def database():
                 )
             """)
             )
-            await conn.execute(CreateTable(Conversation.__table__))
+            for model in (ContactTag, Contact, ContactTagLink, Conversation):
+                await conn.execute(CreateTable(model.__table__))
             await conn.execute(text("INSERT INTO tenants VALUES (:id)"), {"id": tenant_id})
             await conn.execute(
                 text("INSERT INTO users VALUES (:id, :tenant, 'Ana')"),

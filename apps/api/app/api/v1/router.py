@@ -4,6 +4,7 @@ from app.api.integration_deps import require_meta, require_stripe, require_strip
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.billing import router as billing_router
+from app.api.v1.contacts import router as contacts_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.credit_packages import router as credit_packages_router
 from app.api.v1.dashboard import router as dashboard_router
@@ -41,6 +42,7 @@ api_router.include_router(team_router)
 api_router.include_router(team_public_router)
 api_router.include_router(billing_router, dependencies=[Depends(require_admin)])
 api_router.include_router(conversations_router)
+api_router.include_router(contacts_router)
 api_router.include_router(credit_packages_router)
 api_router.include_router(dashboard_router, dependencies=[Depends(require_admin)])
 api_router.include_router(end_customer_billing_router, dependencies=[Depends(require_admin)])

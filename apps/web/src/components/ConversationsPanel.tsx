@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useTeamSession } from "./TeamSession";
 import { backendFetch } from "@/lib/client-api";
-import type { Conversation } from "@/lib/types";
+import type { Conversation, ContactTag } from "@/lib/types";
+import { ContactsPanel } from "./ContactsPanel";
 
 import { ConversationList } from "./ConversationList";
 import { ConversationThread } from "./ConversationThread";
@@ -48,6 +49,43 @@ export function ConversationsPanel({
 }) {
   const identity = useTeamSession();
   const isLawyer = identity?.role === "lawyer";
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [contactSeed, setContactSeed] = useState<Conversation | null>(null);
+  const [tagFilter, setTagFilter] = useState("");
+  const [tags, setTags] = useState<ContactTag[]>([]);
+  const [tagsRevision, setTagsRevision] = useState(0);
+  const [tagLoadError, setTagLoadError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void backendFetch("contact-tags")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("tags request failed");
+        const labels: ContactTag[] = await response.json();
+        if (active) {
+          setTags(labels);
+          setTagLoadError(false);
+          setTagFilter((current) =>
+            current &&
+            current !== "untagged" &&
+            !labels.some((t) => t.id === current)
+              ? ""
+              : current,
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setTagLoadError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [tagsRevision]);
+  const tagQuery =
+    tagFilter === "untagged"
+      ? "&untagged=true"
+      : tagFilter
+        ? `&tag_id=${encodeURIComponent(tagFilter)}`
+        : "";
   const [mine, setMine] = useState(false);
   const [tab, setTab] = useState<Tab>(isLawyer ? "real" : initialOrigin);
   const [urgentOnly, setUrgentOnly] = useState(initialUrgentOnly);
@@ -78,17 +116,26 @@ export function ConversationsPanel({
     const sequence = ++refreshSequenceRef.current;
     setRefreshing(true);
     try {
-      const response = await backendFetch(
-        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}&limit=${PAGE_SIZE}&offset=0`,
+      const pages = tagFilter
+        ? Math.max(1, Math.ceil(conversationsRef.current.length / PAGE_SIZE))
+        : 1;
+      const chunks = await Promise.all(
+        Array.from({ length: pages }, async (_, page) => {
+          const response = await backendFetch(
+            `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
+          );
+          if (!response.ok) throw new Error("conversations request failed");
+          return (await response.json()) as Conversation[];
+        }),
       );
-      if (!response.ok) throw new Error("conversations request failed");
-      const data: Conversation[] = await response.json();
+      const data = chunks.flat();
       if (sequence !== refreshSequenceRef.current) return;
       const selectedId = selectedIdRef.current;
       if (
         selectedId &&
         !mine &&
         !urgentOnly &&
+        !tagFilter &&
         !data.some((c) => c.id === selectedId)
       ) {
         const detail = await backendFetch(`conversations/${selectedId}/detail`);
@@ -105,12 +152,12 @@ export function ConversationsPanel({
       if (sequence !== refreshSequenceRef.current) return;
       // Com o filtro ativo, uma conversa resolvida precisa sair da lista.
       setConversations((current) =>
-        urgentOnly || mine || isLawyer
+        urgentOnly || mine || isLawyer || tagFilter
           ? data
           : mergeConversations(current, data),
       );
-      if (conversationsRef.current.length <= PAGE_SIZE) {
-        setHasMore(data.length === PAGE_SIZE);
+      if (tagFilter || conversationsRef.current.length <= PAGE_SIZE) {
+        setHasMore(chunks.at(-1)?.length === PAGE_SIZE);
       }
       setLoadError(false);
       setLastUpdatedAt(new Date());
@@ -122,17 +169,19 @@ export function ConversationsPanel({
         setRefreshing(false);
       }
     }
-  }, [tab, urgentOnly, mine, isLawyer]);
+  }, [tab, urgentOnly, mine, isLawyer, tagFilter, tagQuery]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
+    const sequence = refreshSequenceRef.current;
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
       );
       if (!response.ok) throw new Error("older conversations request failed");
       const data: Conversation[] = await response.json();
+      if (sequence !== refreshSequenceRef.current) return;
       setConversations((current) => appendConversations(current, data));
       setHasMore(data.length === PAGE_SIZE);
       setLoadError(false);
@@ -175,6 +224,7 @@ export function ConversationsPanel({
   const switchTab = (next: Tab) => {
     if (next === tab) return;
     setTab(next);
+    setTagFilter("");
     setSelectedId(null);
     setConversations([]);
     setLoaded(false);
@@ -212,6 +262,21 @@ export function ConversationsPanel({
     );
   };
 
+  if (contactsOpen && !isLawyer)
+    return (
+      <ContactsPanel
+        initialConversation={contactSeed}
+        onClose={() => {
+          setContactsOpen(false);
+          void loadConversations();
+        }}
+        onChanged={() => {
+          setTagsRevision((v) => v + 1);
+          void loadConversations();
+        }}
+      />
+    );
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-3 border-b border-line px-5 py-2 text-sm">
@@ -229,10 +294,21 @@ export function ConversationsPanel({
           Meus atendimentos
         </label>
       </div>
-      <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-4">
         <h1 className="font-display text-[26px] leading-tight font-semibold">
           Conversas
         </h1>
+        {!isLawyer && (
+          <button
+            className="text-sm text-accent underline"
+            onClick={() => {
+              setContactSeed(null);
+              setContactsOpen(true);
+            }}
+          >
+            Contatos e tags
+          </button>
+        )}
         <div className="flex gap-1">
           <button
             type="button"
@@ -262,6 +338,17 @@ export function ConversationsPanel({
           )}
         </div>
       </header>
+      {tagLoadError && (
+        <p role="alert" className="px-5 py-2 text-sm text-danger">
+          Não foi possível carregar as tags.{" "}
+          <button
+            className="underline"
+            onClick={() => setTagsRevision((v) => v + 1)}
+          >
+            Recarregar tags
+          </button>
+        </p>
+      )}
       {actionNotice ? (
         <p
           role="status"
@@ -297,6 +384,33 @@ export function ConversationsPanel({
         <aside
           className={`${selected ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-r border-line md:w-80`}
         >
+          {tab === "real" && (
+            <label className="border-b border-line px-5 py-3 text-sm">
+              Filtrar por tag
+              <select
+                aria-label="Filtrar por tag"
+                className="mt-1 block w-full rounded border border-line bg-surface p-2"
+                value={tagFilter}
+                onChange={(e) => {
+                  refreshSequenceRef.current += 1;
+                  conversationsRef.current = [];
+                  setTagFilter(e.target.value);
+                  setSelectedId(null);
+                  setConversations([]);
+                  setLoaded(false);
+                  setHasMore(true);
+                }}
+              >
+                <option value="">Todas</option>
+                <option value="untagged">Sem tag</option>
+                {tags.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="flex items-center justify-between px-5 py-3">
             <button
               type="button"
@@ -350,6 +464,10 @@ export function ConversationsPanel({
               />
             ) : (
               <ConversationThread
+                onEditContact={() => {
+                  setContactSeed(selected);
+                  setContactsOpen(true);
+                }}
                 key={selected.id}
                 conversation={selected}
                 onConversationUpdate={handleConversationUpdate}

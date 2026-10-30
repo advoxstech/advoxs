@@ -5,6 +5,7 @@ import type { Conversation } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 import { UrgentTag } from "./ConversationUrgency";
+import { ContactBadges } from "./ContactBadges";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -28,7 +29,9 @@ export function ConversationList({
   loadFailed = false,
 }: ConversationListProps) {
   if (!loaded) {
-    return <p className="px-5 py-6 text-sm text-muted">Carregando conversas…</p>;
+    return (
+      <p className="px-5 py-6 text-sm text-muted">Carregando conversas…</p>
+    );
   }
 
   if (loaded && loadFailed && conversations.length === 0) return null;
@@ -47,9 +50,12 @@ export function ConversationList({
       {conversations.map((conversation) => {
         const isSelected = conversation.id === selectedId;
         const isUrgent = Boolean(conversation.urgent_since);
-        const mediaType = conversation.last_message_media_type?.toLowerCase() ?? "";
+        const mediaType =
+          conversation.last_message_media_type?.toLowerCase() ?? "";
         const direction =
-          conversation.last_message_sender_type === "contact" ? "recebido" : "enviado";
+          conversation.last_message_sender_type === "contact"
+            ? "recebido"
+            : "enviado";
         const mediaLabel =
           mediaType.startsWith("image/") || mediaType === "image"
             ? `Imagem ${direction === "recebido" ? "recebida" : "enviada"}`
@@ -62,8 +68,11 @@ export function ConversationList({
                     mediaType.includes("word")
                   ? `Documento ${direction === "recebido" ? "recebido" : "enviado"}`
                   : "Anexo recebido";
-        const preview = conversation.last_message_preview?.trim()
-          || (conversation.last_message_media_type ? mediaLabel : "Sem mensagens ainda");
+        const preview =
+          conversation.last_message_preview?.trim() ||
+          (conversation.last_message_media_type
+            ? mediaLabel
+            : "Sem mensagens ainda");
         return (
           <li key={conversation.id} className="border-b border-line">
             <button
@@ -82,7 +91,8 @@ export function ConversationList({
                 <span className="truncate font-mono text-sm font-medium">
                   {conversation.is_test
                     ? "Conversa de teste"
-                    : formatPhone(conversation.contact_phone_number)}
+                    : conversation.contact_name ||
+                      formatPhone(conversation.contact_phone_number)}
                 </span>
                 {conversation.last_message_at ? (
                   <time className="shrink-0 font-mono text-micro text-muted">
@@ -90,6 +100,10 @@ export function ConversationList({
                   </time>
                 ) : null}
               </span>
+              <ContactBadges
+                tags={conversation.tags}
+                humanOnly={conversation.human_only}
+              />
               <span className="truncate text-xs text-muted" title={preview}>
                 {preview}
               </span>

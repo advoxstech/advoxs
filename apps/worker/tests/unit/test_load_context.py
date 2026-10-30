@@ -56,6 +56,7 @@ def _session_with(
 def _conversation(**overrides):
     row = SimpleNamespace(
         state="agent",
+        human_only=False,
         contact_phone_number="5511999998888",
         human_last_seen_at=None,
         billing_gate_step=None,

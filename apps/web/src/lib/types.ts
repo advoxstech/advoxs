@@ -9,6 +9,10 @@ export type ConversationStatus =
 export interface Conversation {
   id: string;
   contact_phone_number: string;
+  contact_id?: string | null;
+  contact_name?: string | null;
+  human_only?: boolean;
+  tags?: ContactTag[];
   state: ConversationState;
   status?: ConversationStatus;
   is_test: boolean;
@@ -31,6 +35,11 @@ export interface Conversation {
   urgent_reason?: string | null;
   urgent_source?: "agent" | "keyword" | "manual" | null;
   urgent_agent_name?: string | null;
+}
+
+export interface ContactTag { id: string; name: string; color: string }
+export interface OfficeContact {
+  id: string; name: string; phone_number: string; human_only: boolean; tags: ContactTag[];
 }
 
 export interface UrgencyKeyword {

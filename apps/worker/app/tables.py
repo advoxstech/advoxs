@@ -45,6 +45,7 @@ conversations = Table(
     Column("id", Uuid, primary_key=True),
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
+    Column("human_only", Boolean, nullable=False),
     Column("state", String),
     Column("automation_status", String),
     Column("is_test", Boolean, nullable=False),

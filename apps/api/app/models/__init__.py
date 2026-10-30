@@ -3,6 +3,7 @@ from app.models.agent import Agent, AgentKnowledgeBaseFile
 from app.models.agent_version import AgentTestSession, AgentVersion
 from app.models.base import Base
 from app.models.billing import CreditPackage, CreditTransaction, PricingConfig
+from app.models.contact import Contact, ContactTag, ContactTagLink
 from app.models.conversation import Conversation
 from app.models.conversation_cleanup_job import ConversationCleanupJob
 from app.models.conversation_processing_lock import ConversationProcessingLock
@@ -31,6 +32,9 @@ from app.models.whatsapp_number import WhatsAppNumber
 from app.models.zapi_provisioning_request import ZApiProvisioningRequest
 
 __all__ = [
+    "Contact",
+    "ContactTag",
+    "ContactTagLink",
     "AdminAuditLog",
     "Agent",
     "AgentKnowledgeBaseFile",
