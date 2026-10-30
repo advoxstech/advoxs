@@ -7,6 +7,8 @@ export const API_URL =
 const ALLOWED_PREFIXES = [
   "team",
   "conversations",
+  "contacts",
+  "contact-tags",
   "test-conversations",
   "knowledge-base",
   "whatsapp",
