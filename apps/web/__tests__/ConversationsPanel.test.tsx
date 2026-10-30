@@ -98,6 +98,31 @@ describe("ConversationsPanel — abas", () => {
     expect(screen.getByText("Nova conversa de teste")).toBeInTheDocument();
   });
 
+  it("aba Contatos abre o cadastro e a aba Conversas volta para a lista", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+
+    render(<ConversationsPanel pollMs={0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Contatos" }));
+
+    expect(
+      await screen.findByRole("region", { name: "Contatos e tags" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Contatos" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: /voltar/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Conversas" }));
+
+    expect(screen.queryByRole("region", { name: "Contatos e tags" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Conversas" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("carrega conversas anteriores usando o próximo offset", async () => {
     const firstPage = Array.from({ length: 50 }, (_, index) => conversation(`r${index}`, false));
     backendFetchMock.mockImplementation(async (path: string) => {

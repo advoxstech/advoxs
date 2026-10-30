@@ -25,14 +25,20 @@ const blank = {
   tag_ids: [] as string[],
 };
 const field = "rounded-sm border border-line bg-ground px-3 py-2 text-sm";
+const primaryButton =
+  "rounded border border-accent bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity disabled:opacity-50";
+const secondaryButton =
+  "rounded border border-line px-3 py-2 text-action text-muted transition-colors hover:text-ink disabled:opacity-50";
+const textAction =
+  "text-action text-muted transition-colors hover:text-ink disabled:opacity-40";
+const dangerAction =
+  "text-action text-muted transition-colors hover:text-danger disabled:opacity-40";
 
 export function ContactsPanel({
   initialConversation,
-  onClose,
   onChanged,
 }: {
   initialConversation?: Conversation | null;
-  onClose: () => void;
   onChanged: () => void;
 }) {
   const [contacts, setContacts] = useState<OfficeContact[]>([]);
@@ -111,12 +117,9 @@ export function ContactsPanel({
       aria-label="Contatos e tags"
       className="flex-1 overflow-y-auto p-5"
     >
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <h2 className="font-display text-2xl">Contatos e tags</h2>
-        <button onClick={onClose} className="text-accent underline">
-          Voltar às conversas
-        </button>
-      </div>
+      <h2 className="mb-2 font-display text-xl font-semibold text-ink">
+        Contatos e tags
+      </h2>
       <p className="mb-4 text-sm text-muted">
         Cadastre números antes do primeiro contato. As tags aparecem apenas para
         a equipe.
@@ -217,17 +220,14 @@ export function ContactsPanel({
               Desativar esta opção não devolve uma conversa à IA
               automaticamente.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                disabled={busy}
-                className="rounded bg-accent px-3 py-2 text-white disabled:opacity-50"
-              >
+            <div className="flex flex-wrap items-center gap-3">
+              <button disabled={busy} className={primaryButton}>
                 {busy ? "Salvando…" : "Salvar contato"}
               </button>
               <button
                 type="button"
                 disabled={busy}
-                className="underline"
+                className={secondaryButton}
                 onClick={() => {
                   setEditing(null);
                   setForm(blank);
@@ -240,7 +240,7 @@ export function ContactsPanel({
                 <button
                   type="button"
                   disabled={busy}
-                  className="text-danger underline"
+                  className={`ml-auto ${dangerAction}`}
                   onClick={() => {
                     if (
                       window.confirm(
@@ -307,21 +307,23 @@ export function ContactsPanel({
                 />
               </label>
             </div>
-            <button disabled={busy} className="text-accent underline">
-              Salvar tag
-            </button>
-            {tagEditing && (
-              <button
-                type="button"
-                className="ml-3 underline"
-                onClick={() => {
-                  setTagEditing(null);
-                  setTagForm({ name: "", color: "#2563EB" });
-                }}
-              >
-                Cancelar edição
+            <div className="flex flex-wrap items-center gap-3">
+              <button disabled={busy} className={primaryButton}>
+                Salvar tag
               </button>
-            )}
+              {tagEditing && (
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  onClick={() => {
+                    setTagEditing(null);
+                    setTagForm({ name: "", color: "#2563EB" });
+                  }}
+                >
+                  Cancelar edição
+                </button>
+              )}
+            </div>
             <ul className="space-y-2">
               {tags.map((tag) => (
                 <li key={tag.id} className="flex items-center gap-3 text-sm">
@@ -333,7 +335,7 @@ export function ContactsPanel({
                       setTagForm({ name: tag.name, color: tag.color });
                     }}
                     aria-label={`Editar tag ${tag.name}`}
-                    className="underline"
+                    className={`ml-auto ${textAction}`}
                   >
                     Editar
                   </button>
@@ -341,7 +343,7 @@ export function ContactsPanel({
                     type="button"
                     disabled={busy}
                     aria-label={`Excluir tag ${tag.name}`}
-                    className="text-danger underline"
+                    className={dangerAction}
                     onClick={() => {
                       if (
                         window.confirm(
@@ -420,14 +422,14 @@ export function ContactsPanel({
           <div className="mt-4 flex gap-4">
             <button
               disabled={!offset || loading}
-              className="disabled:opacity-40"
+              className={textAction}
               onClick={() => setOffset((n) => Math.max(0, n - 50))}
             >
               Anterior
             </button>
             <button
               disabled={contacts.length < 50 || loading}
-              className="disabled:opacity-40"
+              className={textAction}
               onClick={() => setOffset((n) => n + 50)}
             >
               Próxima página
