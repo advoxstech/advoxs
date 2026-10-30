@@ -13,9 +13,10 @@ from sqlalchemy import (
     Uuid,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+from app.models.contact import Contact
 
 
 class Conversation(Base):
@@ -44,6 +45,11 @@ class Conversation(Base):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"), nullable=False)
     contact_phone_number: Mapped[str] = mapped_column(String, nullable=False)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("contacts.id", ondelete="SET NULL"), index=True
+    )
+    human_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    contact: Mapped[Contact | None] = relationship(lazy="selectin")
     state: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'agent'"))
     automation_status: Mapped[str] = mapped_column(
         String, nullable=False, default="idle", server_default=text("'idle'")

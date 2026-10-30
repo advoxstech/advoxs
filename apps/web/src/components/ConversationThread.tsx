@@ -1,6 +1,7 @@
 "use client";
 
 import { ResponseSources } from "@/components/ResponseSources";
+import { ContactAttachment } from "./ContactAttachment";
 
 import { useTeamSession } from "./TeamSession";
 import { AttendancePanel } from "./AttendancePanel";
@@ -17,6 +18,7 @@ import {
 import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
+import { ContactBadges } from "./ContactBadges";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
 import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
@@ -32,6 +34,7 @@ interface ConversationThreadProps {
   onConversationUpdate: (conversation: Conversation) => void;
   onDeleted?: () => void;
   onBack?: () => void;
+  onEditContact?: () => void;
   pollMs?: number;
 }
 
@@ -40,6 +43,7 @@ export function ConversationThread({
   onConversationUpdate,
   onDeleted,
   onBack,
+  onEditContact,
   pollMs = 4000,
 }: ConversationThreadProps) {
   const {
@@ -69,7 +73,7 @@ export function ConversationThread({
   const canSend =
     conversation.state === "human" &&
     (isOwner || (!identity && conversation.assigned_user_id === undefined));
-  const canReturn = isAdmin || isOwner;
+  const canReturn = !conversation.human_only && (isAdmin || isOwner);
   const isManual = conversation.state === "human";
   const urgency = useUrgencyUpdate(conversation, onConversationUpdate);
 
@@ -274,9 +278,14 @@ export function ConversationThread({
             </button>
           ) : null}
           <h2 className="font-mono text-sm font-medium">
+            {conversation.contact_name ? `${conversation.contact_name} · ` : ""}
             {formatPhone(conversation.contact_phone_number)}
           </h2>
           <ConversationStatusIndicator conversation={conversation} />
+          <ContactBadges
+            tags={conversation.tags}
+            humanOnly={conversation.human_only}
+          />
           {conversation.end_customer_billing_enabled &&
           conversation.end_customer_billing_exempt ? (
             <span className="rounded-sm bg-accent-soft px-1.5 py-0.5 font-mono text-micro uppercase tracking-[0.12em] text-accent">
@@ -285,6 +294,14 @@ export function ConversationThread({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && onEditContact && (
+            <button
+              className="text-xs text-accent underline"
+              onClick={onEditContact}
+            >
+              {conversation.contact_id ? "Editar contato" : "Cadastrar contato"}
+            </button>
+          )}
           <button
             type="button"
             disabled={isManual && !!conversation.assigned_user_id && !canReturn}
@@ -468,7 +485,11 @@ export function ConversationThread({
           </li>
         ) : null}
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            conversationId={conversation.id}
+          />
         ))}
       </ul>
 
@@ -521,7 +542,13 @@ export function ConversationThread({
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  conversationId,
+}: {
+  message: Message;
+  conversationId: string;
+}) {
   const fromContact = message.sender_type === "contact";
   const fromHuman = message.sender_type === "human";
 
@@ -548,7 +575,12 @@ function MessageBubble({ message }: { message: Message }) {
             {fromHuman ? "Você" : "Agente"}
           </span>
         ) : null}
-        {message.media_url ? (
+        {message.media_url && fromContact ? (
+          <ContactAttachment
+            conversationId={conversationId}
+            message={message}
+          />
+        ) : message.media_url ? (
           <a
             href={message.media_url}
             target="_blank"

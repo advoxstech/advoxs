@@ -26,6 +26,7 @@ async def create_test_conversation(
         tenant_id=ctx.tenant_id,
         contact_phone_number=f"teste-{uuid.uuid4().hex[:12]}",
         is_test=True,
+        human_only=False,
     )
     session.add(conversation)
     await session.commit()

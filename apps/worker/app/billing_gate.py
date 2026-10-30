@@ -32,6 +32,8 @@ async def maybe_enter_gate(
     o contato sem saldo. Retorna True se a conversa está (ou acabou de
     entrar) em billing_gate — nesse caso, process_inbound_message não deve
     seguir pro fluxo normal de chamar o agents."""
+    if inbound.human_only:
+        return False
     if inbound.conversation_state == "billing_gate":
         if inbound.end_customer_billing_exempt or inbound.end_customer_has_active_subscription:
             await session.execute(
@@ -121,6 +123,19 @@ async def _send_list(inbound: InboundContext) -> None:
 async def handle_billing_gate(
     session: AsyncSession, tenant_id: str, conversation_id: str, inbound: InboundContext
 ) -> None:
+    # Serialize with contact changes and keep the lock through provider calls.
+    row = (
+        await session.execute(
+            select(
+                tables.conversations.c.human_only,
+                tables.conversations.c.state,
+            )
+            .where(tables.conversations.c.id == uuid.UUID(conversation_id))
+            .with_for_update()
+        )
+    ).one_or_none()
+    if row is None or row.human_only or row.state != "billing_gate":
+        return
     if inbound.billing_gate_step is None:
         await _open_gate(session, tenant_id, conversation_id, inbound)
     elif inbound.billing_gate_step == "aguardando_selecao_pacote":

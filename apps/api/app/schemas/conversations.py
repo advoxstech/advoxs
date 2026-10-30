@@ -4,12 +4,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.contacts import TagOut
+
 
 class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     contact_phone_number: str
+    contact_id: uuid.UUID | None = None
+    contact_name: str | None = None
+    human_only: bool = False
+    tags: list[TagOut] = Field(default_factory=list)
     state: Literal["agent", "human", "billing_gate"]
     status: Literal["agent", "human", "billing_gate", "processing", "failed"] = "agent"
     is_test: bool

@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Literal
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, text, update
@@ -20,7 +20,13 @@ from app.clients.agents import (
     generate_conversation_summary,
     sync_conversation_context,
 )
+from app.clients.contact_media import (
+    ContactMediaError,
+    ContactMediaTooLarge,
+    download_contact_media,
+)
 from app.clients.whatsapp import WhatsAppSendError
+from app.core.crypto import decrypt_access_token
 from app.core.queue import get_arq_pool
 from app.core.safe_logging import safe_error, safe_identifier
 from app.models import (
@@ -40,6 +46,8 @@ from app.models import (
     User,
     WhatsAppNumber,
 )
+from app.models.contact import Contact, ContactTagLink
+from app.schemas.contacts import TagOut
 from app.schemas.conversations import (
     BillingExemptionUpdate,
     ConversationOut,
@@ -129,6 +137,8 @@ async def list_conversations(
     origin: Literal["real", "test"] = Query(default="real"),
     urgent: bool = Query(default=False),
     mine: bool = Query(default=False),
+    tag_id: uuid.UUID | None = Query(default=None),
+    untagged: bool = Query(default=False),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> list[ConversationOut]:
@@ -138,6 +148,23 @@ async def list_conversations(
         Conversation.deletion_requested_at.is_(None),
     ]
     filters.append(conversation_scope(ctx))
+    if isinstance(tag_id, uuid.UUID):
+        filters.append(
+            Conversation.contact_id.in_(
+                select(ContactTagLink.contact_id).where(
+                    ContactTagLink.tenant_id == ctx.tenant_id, ContactTagLink.tag_id == tag_id
+                )
+            )
+        )
+    if untagged is True:
+        filters.append(
+            ~select(ContactTagLink.contact_id)
+            .where(
+                ContactTagLink.contact_id == Conversation.contact_id,
+                ContactTagLink.tenant_id == ctx.tenant_id,
+            )
+            .exists()
+        )
     if ctx.role != "admin" and origin == "test":
         raise HTTPException(403, "Testes são exclusivos do administrador.")
     if mine is True:
@@ -239,6 +266,71 @@ async def list_messages(
     return [MessageOut.model_validate(m) for m in result.scalars().all()]
 
 
+@router.get("/{conversation_id}/messages/{message_id}/attachment")
+async def download_attachment(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    ctx=Depends(get_current_tenant),
+    session=Depends(get_tenant_session),
+):
+    await _get_conversation(conversation_id, ctx, session)
+    message = await session.scalar(
+        select(Message).where(
+            Message.id == message_id,
+            Message.conversation_id == conversation_id,
+            Message.tenant_id == ctx.tenant_id,
+            Message.sender_type == "contact",
+        )
+    )
+    if message is None or not message.media_url:
+        raise HTTPException(404, "Anexo não encontrado.")
+    number = await session.scalar(
+        select(WhatsAppNumber).where(
+            WhatsAppNumber.tenant_id == ctx.tenant_id,
+            WhatsAppNumber.status == "connected",
+        )
+    )
+    if number is None:
+        raise HTTPException(409, "Conecte o WhatsApp para baixar o anexo.")
+    encrypted = (
+        number.access_token_encrypted
+        if number.provider == "meta"
+        else number.zapi_client_token_encrypted
+    )
+    try:
+        data = await download_contact_media(
+            message.media_url,
+            number.provider,
+            decrypt_access_token(encrypted) if encrypted else "",
+        )
+    except ContactMediaTooLarge as exc:
+        raise HTTPException(413, "O anexo excede o limite de 20 MB.") from exc
+    except ContactMediaError as exc:
+        raise HTTPException(
+            502, "Anexo indisponível. O link pode ter expirado no WhatsApp."
+        ) from exc
+    extensions = {
+        "application/pdf": ".pdf",
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "audio/ogg": ".ogg",
+        "audio/mpeg": ".mp3",
+        "video/mp4": ".mp4",
+        "text/plain": ".txt",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    }
+    filename = f"anexo-{message.id}{extensions.get(message.media_type, '.bin')}"
+    return Response(
+        data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.patch("/{conversation_id}")
 async def update_state(
     conversation_id: uuid.UUID,
@@ -249,6 +341,10 @@ async def update_state(
     """Altera explicitamente entre atendimento humano e atendimento pela IA."""
     conversation = await _get_conversation(conversation_id, ctx, session, for_update=True)
     owner = getattr(conversation, "assigned_user_id", None)
+    if body.state == "agent" and getattr(conversation, "human_only", False):
+        raise HTTPException(
+            409, "Desative o atendimento exclusivamente humano no cadastro do contato."
+        )
     if body.state == "human":
         if owner is not None and owner != ctx.user_id:
             raise HTTPException(
@@ -388,12 +484,22 @@ async def update_billing_exemption(
             WhatsAppNumber.status == "connected",
         )
     )
+    blocked = (
+        await session.execute(
+            select(Conversation.human_only)
+            .where(
+                Conversation.id == conversation_id,
+                Conversation.tenant_id == ctx.tenant_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if number is None:
         logger.warning(
             "Sem número conectado pra avisar sobre mudança de isenção | conversation=%s",
             conversation_id,
         )
-    else:
+    elif blocked is not True:
         try:
             await send_text_to_contact(
                 number,
@@ -924,6 +1030,10 @@ def _to_conversation_out(
     latest_message: tuple[str, str | None, str] | None = None,
 ) -> ConversationOut:
     out = ConversationOut.model_validate(conversation)
+    contact = getattr(conversation, "contact", None)
+    if isinstance(contact, Contact):
+        out.contact_name = contact.name or None
+        out.tags = [TagOut.model_validate(tag) for tag in contact.tags]
     automation_status = getattr(conversation, "automation_status", "idle")
     if automation_status == "failed":
         out.status = "failed"

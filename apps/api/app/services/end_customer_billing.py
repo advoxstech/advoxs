@@ -278,11 +278,16 @@ async def _notify_end_customer(
     """
     try:
         conversation = await session.scalar(
-            select(Conversation).where(
+            select(Conversation)
+            .where(
                 Conversation.tenant_id == tenant_id,
                 Conversation.contact_phone_number == contact_phone_number,
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
+        if conversation is not None and getattr(conversation, "human_only", False):
+            return
         number = await session.scalar(
             select(WhatsAppNumber).where(
                 WhatsAppNumber.tenant_id == tenant_id, WhatsAppNumber.status == "connected"

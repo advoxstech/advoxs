@@ -171,6 +171,7 @@ async def create_draft_test(
         tenant_id=ctx.tenant_id,
         contact_phone_number=f"rascunho-{uuid.uuid4().hex}",
         is_test=True,
+        human_only=False,
         current_agent_id=agent_id,
     )
     session.add(conversation)

@@ -112,6 +112,30 @@ FIRST_MESSAGE_ID = uuid.uuid4()
 OUTBOUND_JOB_IDS = [uuid.uuid4()]
 
 
+@pytest.mark.parametrize("provider", ["meta", "zapi"])
+async def test_registered_human_contact_never_invokes_automation(patched, monkeypatch, provider):
+    inbound = _inbound(state="human", credit_balance=0)
+    inbound.human_only = True
+    inbound.whatsapp_provider = provider
+    inbound.media_url = "attachment-reference"
+    inbound.end_customer_billing_enabled = True
+    patched["load"].return_value = inbound
+    gate = AsyncMock()
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", gate)
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+    gate.assert_not_awaited()
+    for name in (
+        "send",
+        "persist",
+        "enqueue_outbound",
+        "debitar",
+        "debitar_cliente_final",
+        "sync",
+        "attachment",
+    ):
+        patched[name].assert_not_awaited()
+
+
 @pytest.fixture
 def patched(monkeypatch):
     mocks = {
