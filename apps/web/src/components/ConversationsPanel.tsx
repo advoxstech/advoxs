@@ -262,19 +262,75 @@ export function ConversationsPanel({
     );
   };
 
-  if (contactsOpen && !isLawyer)
+  const showContacts = contactsOpen && !isLawyer;
+
+  const openConversationTab = (next: Tab) => {
+    if (showContacts) {
+      setContactsOpen(false);
+      if (next === tab) void loadConversations();
+    }
+    switchTab(next);
+  };
+
+  const tabClass = (active: boolean) =>
+    `rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
+      active ? "bg-ink text-ground" : "text-muted hover:text-ink"
+    }`;
+
+  const header = (
+    <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-4">
+      <h1 className="font-display text-[26px] leading-tight font-semibold">
+        Conversas
+      </h1>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={() => openConversationTab("real")}
+          aria-pressed={!showContacts && tab === "real"}
+          className={tabClass(!showContacts && tab === "real")}
+        >
+          Conversas
+        </button>
+        {!isLawyer && (
+          <>
+            <button
+              type="button"
+              onClick={() => openConversationTab("test")}
+              aria-pressed={!showContacts && tab === "test"}
+              className={tabClass(!showContacts && tab === "test")}
+            >
+              Testes
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setContactSeed(null);
+                setContactsOpen(true);
+              }}
+              aria-pressed={showContacts}
+              className={tabClass(showContacts)}
+            >
+              Contatos
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  );
+
+  if (showContacts)
     return (
-      <ContactsPanel
-        initialConversation={contactSeed}
-        onClose={() => {
-          setContactsOpen(false);
-          void loadConversations();
-        }}
-        onChanged={() => {
-          setTagsRevision((v) => v + 1);
-          void loadConversations();
-        }}
-      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {header}
+        <ContactsPanel
+          key={contactSeed?.id ?? "new"}
+          initialConversation={contactSeed}
+          onChanged={() => {
+            setTagsRevision((v) => v + 1);
+            void loadConversations();
+          }}
+        />
+      </div>
     );
 
   return (
@@ -294,50 +350,7 @@ export function ConversationsPanel({
           Meus atendimentos
         </label>
       </div>
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-4">
-        <h1 className="font-display text-[26px] leading-tight font-semibold">
-          Conversas
-        </h1>
-        {!isLawyer && (
-          <button
-            className="text-sm text-accent underline"
-            onClick={() => {
-              setContactSeed(null);
-              setContactsOpen(true);
-            }}
-          >
-            Contatos e tags
-          </button>
-        )}
-        <div className="flex gap-1">
-          <button
-            type="button"
-            onClick={() => switchTab("real")}
-            aria-pressed={tab === "real"}
-            className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
-              tab === "real"
-                ? "bg-ink text-ground"
-                : "text-muted hover:text-ink"
-            }`}
-          >
-            Conversas
-          </button>
-          {!isLawyer && (
-            <button
-              type="button"
-              onClick={() => switchTab("test")}
-              aria-pressed={tab === "test"}
-              className={`rounded-sm px-3 py-1 font-mono text-micro uppercase tracking-[0.14em] transition-colors ${
-                tab === "test"
-                  ? "bg-ink text-ground"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              Testes
-            </button>
-          )}
-        </div>
-      </header>
+      {header}
       {tagLoadError && (
         <p role="alert" className="px-5 py-2 text-sm text-danger">
           Não foi possível carregar as tags.{" "}

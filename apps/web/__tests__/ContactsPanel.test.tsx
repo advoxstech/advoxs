@@ -37,7 +37,7 @@ beforeEach(() => {
 
 it("cadastra número, tags e regra humana sem precisar de conversa", async () => {
   const changed = vi.fn();
-  render(<ContactsPanel onClose={vi.fn()} onChanged={changed} />);
+  render(<ContactsPanel onChanged={changed} />);
   fireEvent.change(screen.getByLabelText("Nome ou identificação"), {
     target: { value: "Escritório cliente" },
   });
@@ -71,7 +71,6 @@ it("mostra conflito de número sem informar sucesso", async () => {
   render(
     <ContactsPanel
       initialConversation={chat}
-      onClose={vi.fn()}
       onChanged={changed}
     />,
   );
