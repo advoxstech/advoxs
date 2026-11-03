@@ -13,7 +13,21 @@ def test_worker_functions_registered() -> None:
         "recover_outbound_message_jobs",
         "process_conversation_cleanup",
         "recover_conversation_cleanup_jobs",
+        "deliver_follow_up_batch",
+        "recover_follow_up_batches",
     }
+
+
+def test_follow_up_recovery_can_reenqueue_finished_batches():
+    deliver = next(
+        fn
+        for fn in WorkerSettings.functions
+        if getattr(fn, "name", None) == "deliver_follow_up_batch"
+    )
+    assert deliver.keep_result_s == 0
+    assert any(
+        job.coroutine.__name__ == "recover_follow_up_batches" for job in WorkerSettings.cron_jobs
+    )
 
 
 def test_drive_recovery_can_reenqueue_finished_jobs():

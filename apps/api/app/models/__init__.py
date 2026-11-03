@@ -15,6 +15,7 @@ from app.models.end_customer_billing import (
     EndCustomerSubscriptionPayment,
     TenantBillingSettings,
 )
+from app.models.follow_up import FollowUpBatch, FollowUpRecipient
 from app.models.inbound_message_job import InboundMessageJob
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
@@ -51,6 +52,8 @@ __all__ = [
     "EndCustomerCreditTransaction",
     "EndCustomerSubscription",
     "EndCustomerSubscriptionPayment",
+    "FollowUpBatch",
+    "FollowUpRecipient",
     "KnowledgeBaseFile",
     "InboundMessageJob",
     "Message",

@@ -9,6 +9,7 @@ const ALLOWED_PREFIXES = [
   "conversations",
   "contacts",
   "contact-tags",
+  "follow-ups",
   "test-conversations",
   "knowledge-base",
   "whatsapp",

@@ -8,6 +8,7 @@ describe("isAllowedPath", () => {
     expect(isAllowedPath(["contacts", "contact-id"])).toBe(true);
     expect(isAllowedPath(["contact-tags"])).toBe(true);
     expect(isAllowedPath(["contact-tags", "tag-id"])).toBe(true);
+    expect(isAllowedPath(["follow-ups", "templates"])).toBe(true);
     expect(isAllowedPath(["contacts-admin"])).toBe(false);
   });
 

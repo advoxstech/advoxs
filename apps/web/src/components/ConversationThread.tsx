@@ -20,6 +20,7 @@ import type { Conversation, Message } from "@/lib/types";
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 import { ContactBadges } from "./ContactBadges";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
+import { FollowUpDialog } from "./FollowUpDialog";
 import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 function formatUpdateTime(date: Date): string {
@@ -66,6 +67,15 @@ export function ConversationThread({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const lastContactMessage = [...messages]
+    .reverse()
+    .find((message) => message.sender_type === "contact");
+  // Na Meta, respostas comuns só são entregues até 24h após a última mensagem do cliente.
+  const serviceWindowClosed =
+    !!lastContactMessage &&
+    Date.now() - new Date(lastContactMessage.created_at).getTime() >
+      24 * 60 * 60 * 1000;
 
   const identity = useTeamSession();
   const isAdmin = identity?.role !== "lawyer";
@@ -255,6 +265,10 @@ export function ConversationThread({
       : []),
     ...(isAdmin
       ? [
+          {
+            label: "Enviar follow-up",
+            onSelect: () => setFollowUpOpen(true),
+          },
           {
             label: "Excluir conversa",
             onSelect: () => void handleDelete(),
@@ -537,7 +551,31 @@ export function ConversationThread({
             Assuma o atendimento para responder manualmente.
           </p>
         ) : null}
+        {isManual && serviceWindowClosed ? (
+          <p className="mt-2 text-xs text-muted">
+            Passaram mais de 24h desde a última mensagem do cliente. No
+            WhatsApp oficial, a resposta comum não é entregue — use Mais ações →
+            Enviar follow-up.
+          </p>
+        ) : null}
       </footer>
+      {followUpOpen ? (
+        <FollowUpDialog
+          recipients={{ conversationIds: [conversation.id] }}
+          recipientLabel={
+            conversation.contact_name ||
+            formatPhone(conversation.contact_phone_number)
+          }
+          sampleName={conversation.contact_name ?? undefined}
+          onClose={() => setFollowUpOpen(false)}
+          onSent={() => {
+            setFollowUpOpen(false);
+            setActionSuccess(
+              "Follow-up na fila de envio. Ele aparece na conversa assim que for entregue.",
+            );
+          }}
+        />
+      ) : null}
     </div>
   );
 }

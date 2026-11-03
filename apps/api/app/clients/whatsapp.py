@@ -125,3 +125,41 @@ async def subscribe_app_to_waba(waba_id: str, access_token: str) -> None:
                 "Não foi possível inscrever o app na WhatsApp Business Account — confira o WABA ID",
             )
         )
+
+
+_TEMPLATE_FIELDS = "name,language,status,category,components,parameter_format,rejected_reason"
+_TEMPLATE_PAGES = 5
+
+
+async def fetch_message_templates(waba_id: str, access_token: str) -> list[dict]:
+    """Lista os modelos de mensagem da WABA (todas as situações, até 500)."""
+    url: str | None = (
+        f"{settings.graph_api_base_url}/{settings.graph_api_version}/{waba_id}/message_templates"
+    )
+    params: dict | None = {"fields": _TEMPLATE_FIELDS, "limit": 100}
+    templates: list[dict] = []
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for _ in range(_TEMPLATE_PAGES):
+                if url is None:
+                    break
+                response = await client.get(
+                    url, headers={"Authorization": f"Bearer {access_token}"}, params=params
+                )
+                if response.is_error:
+                    logger.warning(
+                        "Graph API (message_templates) retornou erro | status=%s",
+                        response.status_code,
+                    )
+                    raise WhatsAppApiError(
+                        _meta_error_message(
+                            response, "Não foi possível listar os modelos de mensagem da Meta"
+                        )
+                    )
+                body = response.json()
+                templates.extend(body.get("data") or [])
+                # A URL de próxima página já carrega os parâmetros da consulta.
+                url, params = (body.get("paging") or {}).get("next"), None
+    except httpx.HTTPError as exc:
+        raise WhatsAppNetworkError("Falha de rede ao listar modelos de mensagem") from exc
+    return templates

@@ -9,6 +9,7 @@ from app.api.v1.conversations import router as conversations_router
 from app.api.v1.credit_packages import router as credit_packages_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.end_customer_billing import router as end_customer_billing_router
+from app.api.v1.follow_ups import router as follow_ups_router
 from app.api.v1.google_drive import router as google_drive_router
 from app.api.v1.internal.end_customer_billing import router as internal_end_customer_billing_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
@@ -43,6 +44,7 @@ api_router.include_router(team_public_router)
 api_router.include_router(billing_router, dependencies=[Depends(require_admin)])
 api_router.include_router(conversations_router)
 api_router.include_router(contacts_router)
+api_router.include_router(follow_ups_router)
 api_router.include_router(credit_packages_router)
 api_router.include_router(dashboard_router, dependencies=[Depends(require_admin)])
 api_router.include_router(end_customer_billing_router, dependencies=[Depends(require_admin)])
