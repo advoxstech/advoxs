@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ContactBadges } from "./ContactBadges";
+import { FollowUpDialog, type FollowUpRecipients } from "./FollowUpDialog";
+import { FollowUpHistory } from "./FollowUpHistory";
 import { backendFetch } from "@/lib/client-api";
 import type { ContactTag, Conversation, OfficeContact } from "@/lib/types";
 
@@ -62,6 +64,25 @@ export function ContactsPanel({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
+  // Seleção para follow-up, mantida entre páginas e buscas.
+  const [selected, setSelected] = useState<Map<string, OfficeContact>>(
+    new Map(),
+  );
+  const [followUp, setFollowUp] = useState<{
+    recipients: FollowUpRecipients;
+    label: string;
+    sampleName?: string;
+  } | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
+  const toggleSelected = (contact: OfficeContact, checked: boolean) =>
+    setSelected((current) => {
+      const next = new Map(current);
+      if (checked) next.set(contact.id, contact);
+      else next.delete(contact.id);
+      return next;
+    });
+  const pageSelected =
+    contacts.length > 0 && contacts.every((c) => selected.has(c.id));
   const load = useCallback(
     async () =>
       Promise.all([
@@ -341,6 +362,19 @@ export function ContactsPanel({
                   </button>
                   <button
                     type="button"
+                    aria-label={`Enviar follow-up para a tag ${tag.name}`}
+                    className={textAction}
+                    onClick={() =>
+                      setFollowUp({
+                        recipients: { tagIds: [tag.id] },
+                        label: `todos os contatos com a tag “${tag.name}”`,
+                      })
+                    }
+                  >
+                    Follow-up
+                  </button>
+                  <button
+                    type="button"
                     disabled={busy}
                     aria-label={`Excluir tag ${tag.name}`}
                     className={dangerAction}
@@ -381,14 +415,53 @@ export function ContactsPanel({
               placeholder="Nome ou número"
             />
           </label>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+            <label className="text-sm">
+              <input
+                type="checkbox"
+                checked={pageSelected}
+                disabled={loading || !contacts.length}
+                onChange={(e) =>
+                  contacts.forEach((c) => toggleSelected(c, e.target.checked))
+                }
+              />{" "}
+              Selecionar todos desta página
+            </label>
+            <button
+              type="button"
+              disabled={!selected.size}
+              className={secondaryButton}
+              onClick={() => {
+                const chosen = [...selected.values()];
+                const [first] = chosen;
+                setFollowUp({
+                  recipients: { contactIds: chosen.map((c) => c.id) },
+                  label:
+                    chosen.length === 1 && first
+                      ? first.name || `+${first.phone_number}`
+                      : `${chosen.length} contatos`,
+                  sampleName: first?.name,
+                });
+              }}
+            >
+              Enviar follow-up ({selected.size})
+            </button>
+          </div>
           {loading ? (
             <p role="status">Carregando…</p>
           ) : (
             <ul className="divide-y divide-line">
               {contacts.map((contact) => (
-                <li key={contact.id}>
+                <li key={contact.id} className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-4"
+                    aria-label={`Selecionar ${contact.name || `+${contact.phone_number}`}`}
+                    checked={selected.has(contact.id)}
+                    onChange={(e) => toggleSelected(contact, e.target.checked)}
+                  />
                   <button
-                    className="w-full space-y-2 py-3 text-left"
+                    className="min-w-0 flex-1 space-y-2 py-3 text-left"
                     disabled={busy}
                     onClick={() => {
                       setEditing(contact.id);
@@ -437,6 +510,23 @@ export function ContactsPanel({
           </div>
         </div>
       </div>
+      <FollowUpHistory refreshKey={historyKey} />
+      {followUp && (
+        <FollowUpDialog
+          recipients={followUp.recipients}
+          recipientLabel={followUp.label}
+          sampleName={followUp.sampleName}
+          onClose={() => setFollowUp(null)}
+          onSent={(batch) => {
+            setFollowUp(null);
+            setSelected(new Map());
+            setHistoryKey((v) => v + 1);
+            setNotice(
+              `Follow-up enviado para a fila: ${batch.total} contato(s). Acompanhe abaixo.`,
+            );
+          }}
+        />
+      )}
     </section>
   );
 }

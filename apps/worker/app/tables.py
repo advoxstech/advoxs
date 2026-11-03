@@ -42,7 +42,7 @@ tenants = Table(
 conversations = Table(
     "conversations",
     metadata,
-    Column("id", Uuid, primary_key=True),
+    Column("id", Uuid, primary_key=True, server_default=text("gen_random_uuid()")),
     Column("tenant_id", Uuid),
     Column("contact_phone_number", String),
     Column("human_only", Boolean, nullable=False),
@@ -85,6 +85,8 @@ messages = Table(
     Column("conversation_id", Uuid),
     Column("tenant_id", Uuid),
     Column("sender_type", String),
+    Column("sender_user_id", Uuid),
+    Column("sender_user_name", Text),
     Column("content", Text),
     Column("delivery_status", String),
     Column("response_sources", JSONB),
@@ -291,4 +293,39 @@ end_customer_subscriptions = Table(
     Column("contact_phone_number", String),
     Column("status", String),
     Column("current_period_end", DateTime(timezone=True)),
+)
+
+follow_up_batches = Table(
+    "follow_up_batches",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("created_by_user_id", Uuid),
+    Column("created_by_name", Text),
+    Column("provider", String),
+    Column("template", JSONB),
+    Column("params", JSONB),
+    Column("text", Text),
+    Column("last_enqueued_at", DateTime(timezone=True)),
+    Column("created_at", DateTime(timezone=True)),
+)
+
+follow_up_recipients = Table(
+    "follow_up_recipients",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("batch_id", Uuid),
+    Column("contact_id", Uuid),
+    Column("phone", String),
+    Column("contact_name", String),
+    Column("conversation_id", Uuid),
+    Column("message_id", Uuid),
+    Column("status", String),
+    Column("attempts", Integer),
+    Column("available_at", DateTime(timezone=True)),
+    Column("locked_at", DateTime(timezone=True)),
+    Column("error", Text),
+    Column("sent_at", DateTime(timezone=True)),
+    Column("created_at", DateTime(timezone=True)),
 )

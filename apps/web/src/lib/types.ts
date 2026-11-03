@@ -142,3 +142,51 @@ export interface Agent {
   created_at: string;
   updated_at: string;
 }
+
+export interface FollowUpTemplate {
+  name: string;
+  language: string;
+  status: string;
+  category: string;
+  parameter_format: string;
+  header_text: string | null;
+  body_text: string;
+  footer_text: string | null;
+  param_names: string[];
+  supported: boolean;
+  unsupported_reason: string | null;
+  rejected_reason: string | null;
+}
+
+export interface FollowUpTemplates {
+  provider: "meta" | "zapi";
+  templates: FollowUpTemplate[];
+}
+
+export interface FollowUpBatch {
+  id: string;
+  created_at: string;
+  created_by_name: string;
+  provider: "meta" | "zapi";
+  template_name: string | null;
+  text: string | null;
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  pending: number;
+}
+
+export interface FollowUpRecipient {
+  id: string;
+  phone: string;
+  contact_name: string;
+  status: "pending" | "processing" | "sent" | "failed" | "skipped";
+  error: string | null;
+  sent_at: string | null;
+  conversation_id: string | null;
+}
+
+export interface FollowUpBatchDetail extends FollowUpBatch {
+  recipients: FollowUpRecipient[];
+}
