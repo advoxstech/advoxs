@@ -1,6 +1,8 @@
 import asyncio
 import io
 import os
+import re
+import unicodedata
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
@@ -23,7 +25,14 @@ from constants import (
     INGEST_CONCURRENCY,
     INGEST_PAGE_BATCH,
     INGEST_TEXT_BATCH_CHARS,
+    MAX_OCR_PAGES,
     MAX_PDF_PAGES,
+    OCR_DPI,
+    OCR_ENABLED,
+    OCR_LANGUAGES,
+    OCR_MAX_PIXELS,
+    OCR_MIN_PAGE_CHARS,
+    OCR_PAGE_TIMEOUT_SECONDS,
     QDRANT_COLLECTION,
     QDRANT_UPSERT_BATCH,
     SPARSE_BATCH,
@@ -52,6 +61,10 @@ _chunker = RecursiveChunker()
 _pdfium_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdfium")
 # Documentos processados ao mesmo tempo; os demais pedidos esperam a vez.
 _ingest_slots = asyncio.Semaphore(INGEST_CONCURRENCY)
+# Um OCR por vez em todo o processo: o Tesseract é pesado em CPU e a VPS é compartilhada.
+_ocr_slots = asyncio.Semaphore(1)
+# Caracteres de controle (fora tab/quebras) indicam fonte sem mapa Unicode.
+_CONTROLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 class DocumentoIlegivel(ValueError):
@@ -125,6 +138,127 @@ def _ler_paginas(pdf: pdfium.PdfDocument, inicio: int, fim: int) -> list[str]:
     return textos
 
 
+def _precisa_ocr(texto: str) -> bool:
+    """Página sem texto (escaneada) ou com texto embaralhado (fonte sem mapa Unicode)."""
+    visiveis = re.sub(r"\s", "", texto)
+    if len(visiveis) < OCR_MIN_PAGE_CHARS:
+        return True
+    if len(_CONTROLE.findall(texto)) > len(visiveis) * 0.01:
+        return True
+    letras = [c for c in unicodedata.normalize("NFD", texto.lower()) if c.isalpha()]
+    if len(letras) < OCR_MIN_PAGE_CHARS:
+        return False  # página de números/símbolos: o texto nativo é o melhor que há
+    vogais = sum(1 for c in letras if c in "aeiou")
+    return vogais / len(letras) < 0.25
+
+
+def _contar_paginas_para_ocr(pdf: pdfium.PdfDocument) -> int:
+    return sum(1 for texto in _ler_paginas(pdf, 0, len(pdf)) if _precisa_ocr(texto))
+
+
+def _renderizar_pagina(pdf: pdfium.PdfDocument, indice: int) -> bytes:
+    """Imagem PNG em tons de cinza da página, no DPI do OCR (reduzido em páginas enormes)."""
+    page = pdf[indice]
+    try:
+        largura, altura = page.get_size()
+        escala = OCR_DPI / 72
+        pixels = largura * altura * escala * escala
+        if pixels > OCR_MAX_PIXELS:
+            escala *= (OCR_MAX_PIXELS / pixels) ** 0.5
+        bitmap = page.render(scale=escala, grayscale=True)
+        try:
+            buffer = io.BytesIO()
+            dpi = round(escala * 72)
+            bitmap.to_pil().save(buffer, format="PNG", dpi=(dpi, dpi))
+            return buffer.getvalue()
+        finally:
+            bitmap.close()
+    finally:
+        page.close()
+
+
+def _baixar_prioridade() -> None:
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+
+async def _tesseract(argumentos: list[str], imagem: bytes) -> str | None:
+    """Roda o Tesseract na imagem (1 núcleo, prioridade baixa). None se falhar."""
+    try:
+        processo = await asyncio.create_subprocess_exec(
+            "tesseract",
+            "stdin",
+            "stdout",
+            *argumentos,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env={**os.environ, "OMP_THREAD_LIMIT": "1"},
+            preexec_fn=_baixar_prioridade,
+        )
+    except FileNotFoundError:
+        logger.error("Tesseract não encontrado — OCR indisponível")
+        return None
+    try:
+        saida, _ = await asyncio.wait_for(processo.communicate(imagem), OCR_PAGE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        processo.kill()
+        await processo.wait()
+        logger.warning("OCR excedeu o tempo da página | limite={}s", OCR_PAGE_TIMEOUT_SECONDS)
+        return None
+    if processo.returncode != 0:
+        # Detecção de orientação falha, por exemplo, em página com pouco texto.
+        logger.debug("Tesseract terminou com erro | codigo={}", processo.returncode)
+        return None
+    return saida.decode("utf-8", errors="replace")
+
+
+_ROTACAO = re.compile(r"^Rotate:\s*(\d+)", re.MULTILINE)
+_PALAVRAS_COMUNS = frozenset(
+    "a o e de do da dos das em no na nos nas que para por com não um uma os as ao se "
+    "ou mais como sua seu ser foi pela pelo".split()
+)
+
+
+def _girar(imagem: bytes, graus: int) -> bytes:
+    """Gira a imagem no sentido informado pelo Tesseract ("Rotate: N")."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(imagem)) as original:
+        dpi = original.info.get("dpi")
+        girada = original.rotate(-graus, expand=True)
+    buffer = io.BytesIO()
+    girada.save(buffer, format="PNG", **({"dpi": dpi} if dpi else {}))
+    return buffer.getvalue()
+
+
+def _pontuar(texto: str) -> int:
+    """Quantas palavras comuns do português o texto tem — mede se a leitura faz sentido."""
+    return sum(1 for palavra in re.findall(r"\w+", texto.lower()) if palavra in _PALAVRAS_COMUNS)
+
+
+async def _ocr_imagem(imagem: bytes) -> str:
+    """Texto da imagem pelo Tesseract, com a página posta em pé antes. Vazio se falhar.
+
+    A detecção de orientação tem confiança baixa em digitalizações ruins: quando ela
+    sugere girar, as duas versões são lidas e fica a que faz mais sentido em português.
+    """
+    async with _ocr_slots:
+        ler = ["-l", OCR_LANGUAGES, "--psm", "3"]
+        orientacao = await _tesseract(["--psm", "0"], imagem)
+        encontrada = _ROTACAO.search(orientacao or "")
+        graus = int(encontrada.group(1)) % 360 if encontrada else 0
+        texto = await _tesseract(ler, imagem) or ""
+        if graus:
+            girada = await asyncio.to_thread(_girar, imagem, graus)
+            texto_girado = await _tesseract(ler, girada) or ""
+            if _pontuar(texto_girado) > _pontuar(texto):
+                texto = texto_girado
+        return texto
+
+
 def _decodificar_txt(document_bytes: bytes) -> str:
     try:
         return document_bytes.decode("utf-8")
@@ -156,19 +290,50 @@ class DocumentoService:
         self.emb_model = _emb_model
         self.chunker = _chunker
 
-    async def _segmentos(self, document_bytes: bytes, extensao: str) -> AsyncIterator[_Segmento]:
-        """Entrega o documento em lotes, sem nunca carregar o texto inteiro de um PDF."""
+    async def _segmentos(
+        self, document_bytes: bytes, extensao: str, leitura: dict | None = None
+    ) -> AsyncIterator[_Segmento]:
+        """Entrega o documento em lotes, sem nunca carregar o texto inteiro de um PDF.
+
+        Páginas de PDF sem texto ou com texto embaralhado passam pelo OCR; `leitura`
+        recebe as contagens (páginas, lidas por OCR, sem texto mesmo com OCR).
+        """
+        leitura = leitura if leitura is not None else {}
         logger.debug(f"Extraindo texto | extensao={extensao}")
         if extensao == "pdf":
             loop = asyncio.get_running_loop()
             pdf = await loop.run_in_executor(_pdfium_thread, _abrir_pdf, document_bytes)
             try:
                 total = len(pdf)
+                leitura.update(paginas=total, ocr=0, ilegiveis=0)
+                if OCR_ENABLED:
+                    escaneadas = await loop.run_in_executor(
+                        _pdfium_thread, _contar_paginas_para_ocr, pdf
+                    )
+                    if escaneadas > MAX_OCR_PAGES:
+                        raise DocumentoIlegivel(
+                            f"O PDF tem {escaneadas} páginas escaneadas e o limite de leitura "
+                            f"por OCR é {MAX_OCR_PAGES}. Divida o arquivo em partes menores."
+                        )
                 for inicio in range(0, total, INGEST_PAGE_BATCH):
                     fim = min(inicio + INGEST_PAGE_BATCH, total)
                     textos = await loop.run_in_executor(
                         _pdfium_thread, _ler_paginas, pdf, inicio, fim
                     )
+                    if OCR_ENABLED:
+                        for posicao, texto in enumerate(textos):
+                            if not _precisa_ocr(texto):
+                                continue
+                            imagem = await loop.run_in_executor(
+                                _pdfium_thread, _renderizar_pagina, pdf, inicio + posicao
+                            )
+                            lido = await _ocr_imagem(imagem)
+                            del imagem
+                            leitura["ocr"] += 1
+                            if not lido.strip():
+                                leitura["ilegiveis"] += 1
+                            # O texto embaralhado original só atrapalharia a busca.
+                            textos[posicao] = lido
                     paginas, offset = [], 0
                     for numero, texto in enumerate(textos, start=inicio + 1):
                         paginas.append((offset, numero))
@@ -219,7 +384,8 @@ class DocumentoService:
         """
         total = 0
         sobra: _Segmento | None = None
-        async with aclosing(self._segmentos(document_bytes, extensao)) as segmentos:
+        leitura: dict = {}
+        async with aclosing(self._segmentos(document_bytes, extensao, leitura)) as segmentos:
             async for segmento in segmentos:
                 if sobra is not None:
                     segmento = sobra.seguido_de(segmento)
@@ -232,10 +398,24 @@ class DocumentoService:
         if sobra is not None:
             chunks = await asyncio.to_thread(self.chunker, sobra.texto)
             total += await self._gravar_chunks(sobra, chunks, document_id, payload)
+        if leitura.get("ocr"):
+            logger.info(
+                "Leitura por OCR | paginas={} | ocr={} | sem_texto_mesmo_com_ocr={}",
+                leitura["paginas"],
+                leitura["ocr"],
+                leitura["ilegiveis"],
+            )
         if total == 0:
+            if leitura.get("ocr"):
+                raise DocumentoIlegivel(
+                    "Não foi possível ler texto no arquivo, nem com OCR. "
+                    "Verifique a qualidade da digitalização."
+                )
             raise DocumentoIlegivel(
-                "Não há texto legível no arquivo. Se for um PDF escaneado, "
-                "a leitura por OCR ainda não é suportada."
+                "Não há texto legível no arquivo."
+                if OCR_ENABLED
+                else "Não há texto legível no arquivo. Se for um PDF escaneado, "
+                "a leitura por OCR está desativada."
             )
         return total
 
