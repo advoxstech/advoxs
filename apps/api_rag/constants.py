@@ -29,3 +29,15 @@ QDRANT_UPSERT_BATCH = int(os.getenv("QDRANT_UPSERT_BATCH", "64"))
 MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "3000"))
 # Documentos processados ao mesmo tempo neste processo; os demais pedidos esperam a vez.
 INGEST_CONCURRENCY = int(os.getenv("INGEST_CONCURRENCY", "2"))
+
+# OCR (Tesseract) só nas páginas sem texto ou com texto embaralhado.
+OCR_ENABLED = os.getenv("OCR_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+OCR_DPI = int(os.getenv("OCR_DPI", "300"))
+# Páginas escaneadas por documento; acima disso, recusa antes de começar.
+MAX_OCR_PAGES = int(os.getenv("MAX_OCR_PAGES", "300"))
+# Abaixo disso (sem contar espaços), a página é tratada como sem texto.
+OCR_MIN_PAGE_CHARS = int(os.getenv("OCR_MIN_PAGE_CHARS", "30"))
+OCR_PAGE_TIMEOUT_SECONDS = int(os.getenv("OCR_PAGE_TIMEOUT_SECONDS", "90"))
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "por")
+# Teto de pixels da imagem de uma página: páginas enormes têm a resolução reduzida.
+OCR_MAX_PIXELS = int(os.getenv("OCR_MAX_PIXELS", "40000000"))

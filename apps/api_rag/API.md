@@ -45,7 +45,8 @@ retrofit já concluído.
 **Stack:** Python 3.13 · FastAPI · SQLAlchemy (async / asyncpg) · Alembic ·
 Qdrant (`qdrant-client` async) · LangChain + `langchain-openai` · `chonkie`
 (chunking) · `pypdfium2` / `python-docx` (extração de texto, em lotes de páginas —
-ver `services/documents/main.py`) · `loguru`.
+ver `services/documents/main.py`) · Tesseract (OCR das páginas escaneadas ou com texto
+embaralhado, instalado no `Dockerfile`; `OCR_*` em `constants.py`) · `loguru`.
 
 ### Fluxo de ingestão
 1. Recebe arquivo (`pdf`, `docx` ou `txt`) via `multipart/form-data`.
