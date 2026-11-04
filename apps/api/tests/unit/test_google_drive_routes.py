@@ -132,6 +132,7 @@ def test_new_import_saves_only_document_metadata_and_enqueues_after_commit(setup
     assert TOKEN not in str(setup.queue.enqueue_job.call_args)
     setup.session.commit.assert_awaited_once()
     setup.queue.enqueue_job.assert_awaited_once()
+    assert setup.queue.enqueue_job.call_args.kwargs["_queue_name"] == "arq:ingestion"
     assert any(
         isinstance(call.args[0], AgentKnowledgeBaseFile)
         for call in setup.session.add.call_args_list

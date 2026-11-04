@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.google_drive import DriveError, GoogleDrive
 from app.core.config import settings
-from app.core.queue import get_arq_pool
+from app.core.queue import INGESTION_QUEUE, get_arq_pool
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 from app.schemas.knowledge_base import DriveImport, DriveSelection
 from app.services.subscriptions import get_active_subscription
@@ -252,6 +252,7 @@ async def import_file(
             tenant_id=str(ctx.tenant_id),
             file_id=str(record.id),
             _job_id=f"kb:{record.id}",
+            _queue_name=INGESTION_QUEUE,
         )
     except Exception:
         record.status = "error"

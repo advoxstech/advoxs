@@ -117,6 +117,34 @@ services:
     depends_on:
       - postgres
       - qdrant
+    # A VPS é compartilhada: um documento problemático derruba só o api_rag
+    # (que reinicia), nunca a máquina inteira. A ingestão é em lotes e fica
+    # bem abaixo disso; ver INGEST_* em apps/api_rag/constants.py.
+    mem_limit: 2g
+    memswap_limit: 2g
+    logging: *default-logging
+
+  # Fila da base de conhecimento: um arquivo por vez (IngestionWorkerSettings),
+  # separada do atendimento — livros grandes não atrasam as mensagens.
+  worker-ingestion:
+    build:
+      context: apps/worker
+    image: ghcr.io/advoxstech/worker:${TAG:-latest}
+    command: ["uv", "run", "arq", "app.worker.IngestionWorkerSettings"]
+    restart: unless-stopped
+    env_file: *default-env-file
+    environment:
+      RAG_API_URL: http://api_rag:8000
+      API_URL: http://api:8000
+      APP_ENV: production
+    volumes:
+      - kb_uploads:/data/kb_uploads
+    depends_on:
+      - postgres
+      - redis
+      - api_rag
+    mem_limit: 512m
+    memswap_limit: 512m
     logging: *default-logging
 
   worker:

@@ -20,6 +20,27 @@ logger = logging.getLogger(__name__)
 # max_tries do Arq também é 5 — manter em sincronia).
 MAX_TRIES = 5
 
+# Fila própria, consumida por um worker que processa um arquivo por vez
+# (IngestionWorkerSettings) — livros grandes nunca disputam memória entre si
+# nem atrasam as mensagens do WhatsApp. Espelhado em apps/api/app/core/queue.py.
+INGESTION_QUEUE = "arq:ingestion"
+
+
+def _rag_error_detail(response: httpx.Response) -> str:
+    """Motivo legível devolvido pelo api_rag (ex.: PDF protegido por senha).
+
+    Só recusas (4xx) trazem texto para o painel; erro interno fica genérico.
+    """
+    if response.status_code >= 500:
+        return f"Falha na ingestão (HTTP {response.status_code})"
+    try:
+        detail = response.json().get("detail")
+    except ValueError:
+        detail = None
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()[:500]
+    return f"Falha na ingestão (HTTP {response.status_code})"
+
 
 async def recover_drive_imports(ctx: dict) -> None:
     """Recupera importações aceitas antes de queda da API/fila/worker, sem token Google."""
@@ -43,6 +64,7 @@ async def recover_drive_imports(ctx: dict) -> None:
             tenant_id=str(row.tenant_id),
             file_id=str(row.id),
             _job_id=f"kb:{row.id}",
+            _queue_name=INGESTION_QUEUE,
         )
 
 
@@ -85,7 +107,7 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
             session_factory,
             file_id,
             "error",
-            f"Falha na ingestão (HTTP {exc.response.status_code})",
+            _rag_error_detail(exc.response),
             tenant_id,
         )
         return
