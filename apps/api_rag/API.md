@@ -44,7 +44,8 @@ retrofit já concluído.
 
 **Stack:** Python 3.13 · FastAPI · SQLAlchemy (async / asyncpg) · Alembic ·
 Qdrant (`qdrant-client` async) · LangChain + `langchain-openai` · `chonkie`
-(chunking) · `pdfplumber` / `python-docx` (extração de texto) · `loguru`.
+(chunking) · `pypdfium2` / `python-docx` (extração de texto, em lotes de páginas —
+ver `services/documents/main.py`) · `loguru`.
 
 ### Fluxo de ingestão
 1. Recebe arquivo (`pdf`, `docx` ou `txt`) via `multipart/form-data`.

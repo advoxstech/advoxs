@@ -44,6 +44,13 @@ services:
       - ./apps/worker:/app
       - /app/.venv
 
+  worker-ingestion:
+    environment:
+      APP_ENV: development
+    volumes:
+      - ./apps/worker:/app
+      - /app/.venv
+
   # Portas de host deslocadas por padrão para não colidir com outras stacks
   # locais (Langfuse usa 5432/6379/3000; Qdrant avulso usa 6333).
   postgres:

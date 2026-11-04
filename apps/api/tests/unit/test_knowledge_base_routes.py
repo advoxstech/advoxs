@@ -142,6 +142,7 @@ class TestUpload:
         arq.enqueue_job.assert_awaited_once()
         kwargs = arq.enqueue_job.await_args.kwargs
         assert kwargs["tenant_id"] == str(TENANT_ID)
+        assert kwargs["_queue_name"] == "arq:ingestion"
         saved = tmp_path / str(TENANT_ID) / kwargs["file_id"]
         assert saved.read_bytes() == b"%PDF-1.4 conteudo"
 
@@ -434,7 +435,10 @@ class TestReprocess:
         assert record.error_message is None
         session.commit.assert_awaited_once()
         arq.enqueue_job.assert_awaited_once_with(
-            "ingest_knowledge_base_file", tenant_id=str(TENANT_ID), file_id=str(FILE_ID)
+            "ingest_knowledge_base_file",
+            tenant_id=str(TENANT_ID),
+            file_id=str(FILE_ID),
+            _queue_name="arq:ingestion",
         )
 
     def test_reprocessa_arquivo_inexistente_404(self, client, session, arq) -> None:

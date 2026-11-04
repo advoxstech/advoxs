@@ -143,6 +143,38 @@ async def test_erro_definitivo_4xx_marca_error(patched, temp_file) -> None:
     assert "400" in args[3]
 
 
+async def test_recusa_do_rag_mostra_o_motivo_no_painel(patched, temp_file) -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "http://rag"),
+        json={"detail": "O PDF está protegido por senha. Envie uma versão sem senha."},
+    )
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "400", request=response.request, response=response
+    )
+
+    await ingest_knowledge_base_file(_ctx(job_try=1), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[3] == (
+        "O PDF está protegido por senha. Envie uma versão sem senha."
+    )
+
+
+async def test_erro_interno_do_rag_nao_vaza_detalhe(patched, temp_file) -> None:
+    response = httpx.Response(
+        500,
+        request=httpx.Request("POST", "http://rag"),
+        json={"detail": "Falha ao indexar documento no Qdrant: timeout em 10.0.0.5"},
+    )
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "500", request=response.request, response=response
+    )
+
+    await ingest_knowledge_base_file(_ctx(job_try=5), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[3] == "Falha na ingestão (HTTP 500)"
+
+
 async def test_load_file_session_tem_tenant_id_setado(patched, temp_file) -> None:
     ctx = _ctx()
 
@@ -229,5 +261,9 @@ async def test_recovery_deduplicates_jobs_without_google_credentials():
     ctx["_session"].execute.return_value = result
     await kb_task.recover_drive_imports(ctx)
     ctx["redis"].enqueue_job.assert_awaited_once_with(
-        "ingest_knowledge_base_file", tenant_id=TENANT_ID, file_id=FILE_ID, _job_id=f"kb:{FILE_ID}"
+        "ingest_knowledge_base_file",
+        tenant_id=TENANT_ID,
+        file_id=FILE_ID,
+        _job_id=f"kb:{FILE_ID}",
+        _queue_name=kb_task.INGESTION_QUEUE,
     )
