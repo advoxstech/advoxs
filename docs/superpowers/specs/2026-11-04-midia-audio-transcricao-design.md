@@ -28,6 +28,7 @@ recuperação após falha, idempotência em eventos repetidos.
 | Onde vive o estado | Tabela nova `message_media` (1 linha por mensagem com mídia), compartilhada com o OCR. |
 | Onde roda | Etapa `prepare_media` dentro de `_process_inbound_message` (worker), antes de qualquer saída antecipada. Sem job Arq separado. |
 | Normalização | Nenhuma (sem ffmpeg). Formatos fora da lista aceita viram `invalid_format`. |
+| Liga/desliga | `AUDIO_TRANSCRIPTION_ENABLED` (default `false`). Desligado, o áudio segue o comportamento atual (nota "formato não suportado"). Ligado sem `OPENAI_API_KEY`, o worker não sobe. |
 
 ## 3. Fluxo
 
@@ -117,8 +118,8 @@ Antes de qualquer chamada à OpenAI:
 
 - **Tipo real por magic bytes** (não confia no mime declarado). Aceitos:
   OGG/Opus (`OggS`), MP3 (`ID3` ou frame sync `0xFFE`), M4A/MP4 (`ftyp` no
-  offset 4), WAV (`RIFF`…`WAVE`), WebM (`1A 45 DF A3`). Qualquer outro (ex: AMR
-  `#!AMR`) → `invalid_format`.
+  offset 4), WAV (`RIFF`…`WAVE`). Qualquer outro (ex: AMR `#!AMR`, WebM — o
+  `mutagen` não lê duração de WebM) → `invalid_format`.
 - **Tamanho** > 20 MB → `too_large` (o download já interrompe no limite).
 - **Duração** via `mutagen` (Python puro). Ilegível → `invalid_format`; acima de
   `AUDIO_MAX_DURATION_SECONDS` → `too_long`.
@@ -134,7 +135,7 @@ Antes de qualquer chamada à OpenAI:
   (`exp(logprob)`) abaixo de `TRANSCRIPTION_UNCERTAIN_THRESHOLD=0.5` é marcada
   `[?palavra?]` no texto (palavras incertas adjacentes formam um único trecho) e
   registrada em `uncertain_spans`.
-- **Silêncio:** texto vazio ou sem nenhuma letra → `silence`.
+- **Silêncio:** texto sem nenhuma letra ou dígito → `silence` (não é cobrado).
 - **Concorrência:** `asyncio.Semaphore(TRANSCRIPTION_MAX_CONCURRENCY=2)` por
   processo do worker.
 - **Custo:** `cost_usd = duration_seconds / 60 × TRANSCRIPTION_USD_PER_MINUTE`
@@ -166,13 +167,15 @@ automática; o painel mostra o selo "Áudio não transcrito" com o motivo.
 
 ## 8. Cobrança
 
-- Modo `agent`: créditos da transcrição somam ao débito do turno, na mesma
-  carteira que paga a resposta (tenant ou cliente final — moeda única); turno
-  com assinatura ativa do cliente final não debita nada, como hoje.
-- Modo `human` / `human_only`: lançamento `consumption` próprio no ledger do
-  tenant (`related_message_id` = mensagem do áudio, descrição sem a palavra
-  "tokens"), com o mesmo `FOR UPDATE` da wallet.
-- Reaproveitamento de `done` nunca debita de novo.
+- A transcrição gera um lançamento `consumption` **próprio**, na mesma
+  transação que grava `status=done` (descrição "Transcrição de áudio",
+  `related_message_id` = mensagem do áudio, mesmo `FOR UPDATE` da wallet).
+  Débito próprio, e não somado ao turno, porque a transcrição pode ocorrer sem
+  resposta cobrada (resposta descartada por mensagem mais nova, modo `human`).
+- Quem paga: modo `agent` segue a moeda única do turno (cliente final com saldo
+  → wallet do cliente final; assinatura ativa → ninguém; senão → tenant). Modo
+  `human` / `human_only` → tenant.
+- Reaproveitamento de `done` nunca debita de novo. Falhas não são cobradas.
 
 ## 9. Privacidade e retenção
 
@@ -233,6 +236,7 @@ selo "Áudio não transcrito — <motivo>". Trechos `[? ?]` ficam destacados.
 
 ## 14. Fora de escopo
 
-AMR e normalização via ffmpeg; reprocessamento manual pelo painel; dashboard de
+Palavras-chave de urgência aplicadas ao texto transcrito (o agente ainda pode
+sinalizar urgência pela tool `sinalizar_urgencia`); AMR, WebM e normalização via ffmpeg; reprocessamento manual pelo painel; dashboard de
 métricas; transcrição de áudio enviado pelo atendente; áudio em conversas de
 teste; alteração do prompt base dos agentes.
