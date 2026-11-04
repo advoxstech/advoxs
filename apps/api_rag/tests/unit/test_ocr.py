@@ -74,6 +74,21 @@ class TestSegmentosComOcr:
 
         assert leitura["ilegiveis"] == 1
 
+    async def test_ocr_sem_leitura_mantem_texto_nativo_curto(self, ocr) -> None:
+        ocr.return_value = ""
+
+        segmentos = await _coletar(_service(), _pdf(["Pagina 3 de 50"]), {})
+
+        assert "Pagina 3 de 50" in segmentos[0].texto
+
+    async def test_ocr_sem_leitura_descarta_texto_embaralhado(self, ocr, monkeypatch) -> None:
+        ocr.return_value = ""
+        monkeypatch.setattr(documents_main, "_precisa_ocr", lambda texto: True)
+
+        segmentos = await _coletar(_service(), _pdf([TEXTO_BOM]), {})
+
+        assert segmentos[0].texto.strip() == ""
+
     async def test_escaneadas_demais_recusa_antes_de_ler(self, ocr, monkeypatch) -> None:
         monkeypatch.setattr(documents_main, "MAX_OCR_PAGES", 1)
 

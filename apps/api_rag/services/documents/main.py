@@ -330,10 +330,14 @@ class DocumentoService:
                             lido = await _ocr_imagem(imagem)
                             del imagem
                             leitura["ocr"] += 1
-                            if not lido.strip():
-                                leitura["ilegiveis"] += 1
-                            # O texto embaralhado original só atrapalharia a busca.
-                            textos[posicao] = lido
+                            if lido.strip():
+                                textos[posicao] = lido
+                                continue
+                            leitura["ilegiveis"] += 1
+                            # Sem leitura do OCR, fica o pouco texto nativo que houver; o
+                            # embaralhado (fonte sem mapa Unicode) só atrapalharia a busca.
+                            if len(re.sub(r"\s", "", texto)) >= OCR_MIN_PAGE_CHARS:
+                                textos[posicao] = ""
                     paginas, offset = [], 0
                     for numero, texto in enumerate(textos, start=inicio + 1):
                         paginas.append((offset, numero))
