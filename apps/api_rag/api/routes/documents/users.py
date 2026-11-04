@@ -79,8 +79,14 @@ async def inserir_documento(
             len(files),
             safe_identifier(tenant_id),
         )
-        await service.inserir_documento_usuario(files, tenant_id, conversation_id, doc_id=doc_id)
-        return {"mensagem": "Documentos inseridos com sucesso"}
+        resumos = await service.inserir_documento_usuario(
+            files, tenant_id, conversation_id, doc_id=doc_id
+        )
+        return {
+            "mensagem": "Documentos inseridos com sucesso",
+            # Páginas totais (só PDF), lidas por OCR e com leitura parcial.
+            "leitura": resumos[0] if resumos else None,
+        }
     except ValueError as exc:
         logger.warning("Erro de validação ao inserir documento | error_type={}", safe_error(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -349,6 +349,23 @@ class TestList:
         assert body[0]["filename"] == "regimento.pdf"
         assert body[0]["agent_ids"] == [str(AGENT_ID)]
         assert body[0]["category"] == "livros_digitais"
+        assert body[0]["partial_pages"] == []
+        assert body[0]["pages_total"] is None
+
+    def test_lista_paginas_com_leitura_parcial(self, client, session) -> None:
+        record = _record()
+        record.pages_total = 50
+        record.partial_pages = [3, 7]
+        files_result = MagicMock()
+        files_result.scalars.return_value.all.return_value = [record]
+        links_result = MagicMock()
+        links_result.all.return_value = [(FILE_ID, AGENT_ID)]
+        session.execute.side_effect = [files_result, links_result]
+
+        body = client.get("/api/v1/knowledge-base/files").json()
+
+        assert body[0]["pages_total"] == 50
+        assert body[0]["partial_pages"] == [3, 7]
 
     def test_lista_arquivos_com_multiplos_agentes_e_sem_agente(self, client, session) -> None:
         """Cobre as 3 cardinalidades que a árvore do frontend precisa

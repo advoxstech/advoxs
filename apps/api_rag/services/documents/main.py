@@ -31,7 +31,9 @@ from constants import (
     OCR_ENABLED,
     OCR_LANGUAGES,
     OCR_MAX_PIXELS,
+    OCR_MIN_CONFIDENCE,
     OCR_MIN_PAGE_CHARS,
+    OCR_MIN_WORDS_TO_JUDGE,
     OCR_PAGE_TIMEOUT_SECONDS,
     QDRANT_COLLECTION,
     QDRANT_UPSERT_BATCH,
@@ -239,24 +241,86 @@ def _pontuar(texto: str) -> int:
     return sum(1 for palavra in re.findall(r"\w+", texto.lower()) if palavra in _PALAVRAS_COMUNS)
 
 
-async def _ocr_imagem(imagem: bytes) -> str:
+@dataclass
+class _LeituraOcr:
+    texto: str
+    # Confiança média do Tesseract (0 a 100) nas palavras com letras; None sem palavras.
+    confianca: float | None = None
+    palavras: int = 0
+
+    @property
+    def fraca(self) -> bool:
+        """Leitura de baixa qualidade (digitalização ruim, foto, página torta).
+
+        Página com poucas palavras (capa, assinatura, carimbo) não é julgada.
+        """
+        return (
+            self.confianca is not None
+            and self.palavras >= OCR_MIN_WORDS_TO_JUDGE
+            and self.confianca < OCR_MIN_CONFIDENCE
+        )
+
+
+def _ler_tsv(tsv: str) -> _LeituraOcr:
+    """Texto (linhas e parágrafos preservados) e confiança média da saída TSV do Tesseract."""
+    linhas: list[str] = []
+    confiancas: list[float] = []
+    atual, chave_linha, chave_paragrafo = [], None, None
+    for registro in tsv.splitlines()[1:]:
+        colunas = registro.split("\t")
+        if len(colunas) < 12 or colunas[0] != "5":
+            continue
+        palavra = colunas[11].strip()
+        if not palavra:
+            continue
+        paragrafo = tuple(colunas[1:4])
+        linha = (*paragrafo, colunas[4])
+        if linha != chave_linha:
+            if atual:
+                linhas.append(" ".join(atual))
+            if chave_paragrafo is not None and paragrafo != chave_paragrafo:
+                linhas.append("")
+            atual, chave_linha, chave_paragrafo = [], linha, paragrafo
+        atual.append(palavra)
+        if any(c.isalpha() for c in palavra):
+            try:
+                confiancas.append(float(colunas[10]))
+            except ValueError:
+                pass
+    if atual:
+        linhas.append(" ".join(atual))
+    media = sum(confiancas) / len(confiancas) if confiancas else None
+    return _LeituraOcr("\n".join(linhas), media, len(confiancas))
+
+
+def resumo_leitura(leitura: dict) -> dict:
+    """Resumo público da leitura: páginas totais, lidas por OCR e as com leitura parcial."""
+    parciais = sorted(set(leitura.get("sem_texto", [])) | set(leitura.get("fracas", [])))
+    return {
+        "paginas": leitura.get("paginas"),
+        "ocr": leitura.get("ocr", 0),
+        "paginas_parciais": parciais,
+    }
+
+
+async def _ocr_imagem(imagem: bytes) -> _LeituraOcr:
     """Texto da imagem pelo Tesseract, com a página posta em pé antes. Vazio se falhar.
 
     A detecção de orientação tem confiança baixa em digitalizações ruins: quando ela
     sugere girar, as duas versões são lidas e fica a que faz mais sentido em português.
     """
     async with _ocr_slots:
-        ler = ["-l", OCR_LANGUAGES, "--psm", "3"]
+        ler = ["-l", OCR_LANGUAGES, "--psm", "3", "tsv"]
         orientacao = await _tesseract(["--psm", "0"], imagem)
         encontrada = _ROTACAO.search(orientacao or "")
         graus = int(encontrada.group(1)) % 360 if encontrada else 0
-        texto = await _tesseract(ler, imagem) or ""
+        leitura = _ler_tsv(await _tesseract(ler, imagem) or "")
         if graus:
             girada = await asyncio.to_thread(_girar, imagem, graus)
-            texto_girado = await _tesseract(ler, girada) or ""
-            if _pontuar(texto_girado) > _pontuar(texto):
-                texto = texto_girado
-        return texto
+            leitura_girada = _ler_tsv(await _tesseract(ler, girada) or "")
+            if _pontuar(leitura_girada.texto) > _pontuar(leitura.texto):
+                leitura = leitura_girada
+        return leitura
 
 
 def _decodificar_txt(document_bytes: bytes) -> str:
@@ -296,7 +360,8 @@ class DocumentoService:
         """Entrega o documento em lotes, sem nunca carregar o texto inteiro de um PDF.
 
         Páginas de PDF sem texto ou com texto embaralhado passam pelo OCR; `leitura`
-        recebe as contagens (páginas, lidas por OCR, sem texto mesmo com OCR).
+        recebe as contagens (páginas, lidas por OCR, sem texto mesmo com OCR) e os
+        números das páginas sem texto (`sem_texto`) ou com leitura fraca (`fracas`).
         """
         leitura = leitura if leitura is not None else {}
         logger.debug(f"Extraindo texto | extensao={extensao}")
@@ -305,7 +370,7 @@ class DocumentoService:
             pdf = await loop.run_in_executor(_pdfium_thread, _abrir_pdf, document_bytes)
             try:
                 total = len(pdf)
-                leitura.update(paginas=total, ocr=0, ilegiveis=0)
+                leitura.update(paginas=total, ocr=0, ilegiveis=0, sem_texto=[], fracas=[])
                 if OCR_ENABLED:
                     escaneadas = await loop.run_in_executor(
                         _pdfium_thread, _contar_paginas_para_ocr, pdf
@@ -330,10 +395,13 @@ class DocumentoService:
                             lido = await _ocr_imagem(imagem)
                             del imagem
                             leitura["ocr"] += 1
-                            if lido.strip():
-                                textos[posicao] = lido
+                            if lido.texto.strip():
+                                textos[posicao] = lido.texto
+                                if lido.fraca:
+                                    leitura["fracas"].append(inicio + posicao + 1)
                                 continue
                             leitura["ilegiveis"] += 1
+                            leitura["sem_texto"].append(inicio + posicao + 1)
                             # Sem leitura do OCR, fica o pouco texto nativo que houver; o
                             # embaralhado (fonte sem mapa Unicode) só atrapalharia a busca.
                             if len(re.sub(r"\s", "", texto)) >= OCR_MIN_PAGE_CHARS:
@@ -379,16 +447,22 @@ class DocumentoService:
         await self._salvar_qdrant(textos, embeddings, sparse, payload, paginas)
 
     async def _indexar(
-        self, document_bytes: bytes, extensao: str, document_id: str, payload: dict
+        self,
+        document_bytes: bytes,
+        extensao: str,
+        document_id: str,
+        payload: dict,
+        leitura: dict | None = None,
     ) -> int:
         """Lê, divide, vetoriza e grava um lote por vez. Devolve quantos trechos gravou.
 
         O último trecho de cada lote pode ter sido cortado na emenda: ele volta para
         o começo do lote seguinte, para nenhuma frase ficar partida entre trechos.
+        `leitura` recebe o resultado da leitura (ver `_segmentos`).
         """
         total = 0
         sobra: _Segmento | None = None
-        leitura: dict = {}
+        leitura = leitura if leitura is not None else {}
         async with aclosing(self._segmentos(document_bytes, extensao, leitura)) as segmentos:
             async for segmento in segmentos:
                 if sobra is not None:
@@ -404,10 +478,12 @@ class DocumentoService:
             total += await self._gravar_chunks(sobra, chunks, document_id, payload)
         if leitura.get("ocr"):
             logger.info(
-                "Leitura por OCR | paginas={} | ocr={} | sem_texto_mesmo_com_ocr={}",
+                "Leitura por OCR | paginas={} | ocr={} | sem_texto_mesmo_com_ocr={} | "
+                "leitura_fraca={}",
                 leitura["paginas"],
                 leitura["ocr"],
                 leitura["ilegiveis"],
+                len(leitura["fracas"]),
             )
         if total == 0:
             if leitura.get("ocr"):
@@ -421,6 +497,23 @@ class DocumentoService:
                 else "Não há texto legível no arquivo. Se for um PDF escaneado, "
                 "a leitura por OCR está desativada."
             )
+        resumo = resumo_leitura(leitura)
+        if resumo["paginas_parciais"]:
+            # Todo trecho do documento carrega as páginas com leitura parcial: o agente
+            # avisa da limitação mesmo quando a busca traz um trecho de página boa.
+            result = await self.qdrant.set_payload_by_filter(
+                collection_name=QDRANT_COLLECTION,
+                tenant_id=payload["tenant_id"],
+                field="doc_id",
+                value=payload["doc_id"],
+                payload={
+                    "partial_pages": resumo["paginas_parciais"],
+                    "pages_total": resumo["paginas"],
+                },
+            )
+            if not result.get("success"):
+                error = result.get("error") or "erro desconhecido"
+                raise RuntimeError(f"Falha ao marcar leitura parcial no Qdrant: {error}")
         return total
 
     async def _gravar_chunks(self, segmento: _Segmento, chunks, document_id, payload) -> int:
@@ -505,6 +598,7 @@ class DocumentoService:
             {"file_name": file.filename, "file_bytes": await file.read()} for file in files
         ]
 
+        resumos: list[dict] = []
         async with _ingest_slots:
             for doc_item in list_documents_bytes:
                 extensao = self._extensao(doc_item["file_name"])
@@ -538,6 +632,7 @@ class DocumentoService:
                 doc = await self.repo.criar_documento_usuario(instance)
                 logger.info(f"Documento salvo no banco | id={doc.id}")
 
+                leitura: dict = {}
                 try:
                     trechos = await self._indexar(
                         doc_item["file_bytes"],
@@ -549,6 +644,7 @@ class DocumentoService:
                             "name": doc_item["file_name"],
                             "doc_id": str(doc.id),
                         },
+                        leitura,
                     )
                 except Exception:
                     # Nada fica pela metade: lotes já gravados, arquivo e registro saem.
@@ -562,9 +658,10 @@ class DocumentoService:
                     safe_identifier(tenant_id),
                     safe_identifier(conversation_id),
                 )
+                resumos.append(resumo_leitura(leitura))
 
         logger.info("Processamento concluido")
-        return
+        return resumos
 
     async def deletar_documento_usuario(self, tenant_id: str, docs_ids: list[str]):
         if not tenant_id:

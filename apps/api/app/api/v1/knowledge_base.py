@@ -305,6 +305,8 @@ async def list_files(
             drive_file_id=getattr(f, "drive_file_id", None),
             imported_at=getattr(f, "imported_at", None),
             replaces_file_id=getattr(f, "replaces_file_id", None),
+            pages_total=getattr(f, "pages_total", None),
+            partial_pages=getattr(f, "partial_pages", None) or [],
         )
         for f in files
     ]

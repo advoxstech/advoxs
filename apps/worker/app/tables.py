@@ -17,7 +17,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
 
@@ -219,6 +219,8 @@ knowledge_base_files = Table(
     Column("superseded_at", DateTime(timezone=True)),
     Column("drive_file_id", String),
     Column("imported_at", DateTime(timezone=True)),
+    Column("pages_total", Integer),
+    Column("partial_pages", ARRAY(Integer)),
 )
 
 agents = Table(

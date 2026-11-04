@@ -217,7 +217,9 @@ class TestSendTestMessage:
                     "filename": "Regimento.pdf",
                     "chunk_id": "chunk-1",
                     "excerpt": "Trecho original",
-                    "page": None,
+                    "page": 3,
+                    "page_end": 4,
+                    "partial_pages": [9],
                 }
             ],
         }
