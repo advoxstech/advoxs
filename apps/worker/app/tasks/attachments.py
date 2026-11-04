@@ -101,7 +101,7 @@ async def process_inbound_attachment(
 
     filename = f"anexo-{message_id}.{extension}"
     try:
-        await ingest_document(
+        reading = await ingest_document(
             rag_http,
             tenant_id=tenant_id,
             doc_id=message_id,
@@ -123,4 +123,19 @@ async def process_inbound_attachment(
         conversation_id,
         message_id,
     )
-    return f"[Documento recebido e processado: {filename} — disponível para busca.]"
+    return processed_note(filename, reading)
+
+
+def processed_note(filename: str, reading: dict | None) -> str:
+    """Nota para o agente; cita as páginas com leitura parcial, se houver."""
+    partial = (reading or {}).get("partial_pages") or []
+    if not partial:
+        return f"[Documento recebido e processado: {filename} — disponível para busca.]"
+    pages = ", ".join(str(p) for p in partial[:30]) + ("…" if len(partial) > 30 else "")
+    return (
+        f"[Documento recebido e processado parcialmente: {filename} — disponível para busca, "
+        f"mas a leitura falhou ou ficou ruim nas páginas {pages} (digitalização de baixa "
+        "qualidade). Se a informação pedida não estiver nos trechos encontrados, explique ao "
+        "cliente que essas páginas não puderam ser lidas e peça o trecho ou uma cópia mais "
+        "nítida; não invente o conteúdo.]"
+    )

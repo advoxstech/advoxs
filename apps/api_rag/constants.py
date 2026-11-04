@@ -39,5 +39,10 @@ MAX_OCR_PAGES = int(os.getenv("MAX_OCR_PAGES", "300"))
 OCR_MIN_PAGE_CHARS = int(os.getenv("OCR_MIN_PAGE_CHARS", "30"))
 OCR_PAGE_TIMEOUT_SECONDS = int(os.getenv("OCR_PAGE_TIMEOUT_SECONDS", "90"))
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "por")
+# Leitura fraca: confiança média do Tesseract (0 a 100) abaixo disso. Calibrado no
+# corpus de teste: digitalização boa fica entre 94 e 96; ruim (100 dpi, torta) entre
+# 40 e 48; foto de celular entre 54 e 59. Páginas com poucas palavras não são julgadas.
+OCR_MIN_CONFIDENCE = float(os.getenv("OCR_MIN_CONFIDENCE", "75"))
+OCR_MIN_WORDS_TO_JUDGE = int(os.getenv("OCR_MIN_WORDS_TO_JUDGE", "40"))
 # Teto de pixels da imagem de uma página: páginas enormes têm a resolução reduzida.
 OCR_MAX_PIXELS = int(os.getenv("OCR_MAX_PIXELS", "40000000"))

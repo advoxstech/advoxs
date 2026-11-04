@@ -60,7 +60,7 @@ async def process_test_attachment(
         return _NOTA_ARQUIVO_GRANDE
 
     try:
-        await insert_user_document(
+        partial_pages = await insert_user_document(
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             doc_id=message_id,
@@ -73,4 +73,21 @@ async def process_test_attachment(
         )
         return _NOTA_FALHA_INGESTAO
 
-    return f"[Documento recebido e processado: {filename} — disponível para busca.]"
+    return processed_note(filename, partial_pages)
+
+
+def processed_note(filename: str, partial_pages: list[int] | None) -> str:
+    """Nota para o agente; cita as páginas com leitura parcial, se houver.
+
+    Mesmo texto de apps/worker/app/tasks/attachments.py::processed_note.
+    """
+    if not partial_pages:
+        return f"[Documento recebido e processado: {filename} — disponível para busca.]"
+    pages = ", ".join(str(p) for p in partial_pages[:30]) + ("…" if len(partial_pages) > 30 else "")
+    return (
+        f"[Documento recebido e processado parcialmente: {filename} — disponível para busca, "
+        f"mas a leitura falhou ou ficou ruim nas páginas {pages} (digitalização de baixa "
+        "qualidade). Se a informação pedida não estiver nos trechos encontrados, explique ao "
+        "cliente que essas páginas não puderam ser lidas e peça o trecho ou uma cópia mais "
+        "nítida; não invente o conteúdo.]"
+    )

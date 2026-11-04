@@ -56,6 +56,8 @@ export interface ResponseSource {
   chunk_id: string;
   excerpt: string;
   page: number | null;
+  page_end?: number | null;
+  partial_pages?: number[];
 }
 
 export interface ResponseEvidence {

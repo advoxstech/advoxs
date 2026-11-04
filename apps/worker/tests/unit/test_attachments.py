@@ -21,7 +21,7 @@ def patched(monkeypatch):
     mocks = {
         "download_meta": AsyncMock(return_value=b"%PDF-1.4"),
         "download_zapi": AsyncMock(return_value=b"%PDF-1.4"),
-        "ingest": AsyncMock(),
+        "ingest": AsyncMock(return_value={}),
     }
     monkeypatch.setattr(attachments_task, "download_meta_media", mocks["download_meta"])
     monkeypatch.setattr(attachments_task, "download_zapi_media", mocks["download_zapi"])
@@ -88,6 +88,25 @@ async def test_pdf_via_meta_baixa_e_ingere_com_sucesso(patched) -> None:
     assert kwargs["file_bytes"] == b"%PDF-1.4"
     assert result is not None
     assert "disponível para busca" in result
+
+
+async def test_pdf_com_leitura_parcial_avisa_o_agente(patched) -> None:
+    patched["ingest"].return_value = {"pages_total": 50, "partial_pages": [12, 18]}
+
+    result = await process_inbound_attachment(
+        AsyncMock(),
+        tenant_id=TENANT_ID,
+        conversation_id=CONVERSATION_ID,
+        message_id=MESSAGE_ID,
+        media_ref="media-123",
+        media_type="application/pdf",
+        whatsapp_provider="meta",
+        access_token="token-abc",
+    )
+
+    assert "processado parcialmente" in result
+    assert "páginas 12, 18" in result
+    assert "não invente" in result
 
 
 async def test_docx_via_zapi_usa_download_zapi(patched) -> None:
