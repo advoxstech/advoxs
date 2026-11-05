@@ -8,7 +8,10 @@ import type { KbFile } from "@/components/AgentFolder";
 import { backendFetch } from "@/lib/client-api";
 import type { Agent } from "@/lib/types";
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
+// Espelha KB_MAX_FILE_SIZE_BYTES do api (60 MB). Se o api mudar, o servidor
+// continua recusando o excedente; aqui só evita enviar à toa.
+const MAX_FILE_MB = 60;
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [files, setFiles] = useState<KbFile[]>([]);
@@ -75,7 +78,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
           continue;
         }
         if (file.size > MAX_FILE_BYTES) {
-          errors.push(`${file.name}: excede o limite de 20 MB`);
+          errors.push(`${file.name}: excede o limite de ${MAX_FILE_MB} MB`);
           continue;
         }
         const form = new FormData();
@@ -198,7 +201,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
       <header className="border-b border-line px-8 py-5">
         <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Base de conhecimento</h1>
         <p className="text-sm text-muted">
-          PDF, DOCX ou TXT, até 20 MB por arquivo — organizada por agente e, dentro de cada
+          PDF, DOCX ou TXT, até {MAX_FILE_MB} MB por arquivo — organizada por agente e, dentro de cada
           agente, por categoria. Selecione vários arquivos de uma vez pra enviar em lote. Um
           arquivo pode ser anexado a mais de um agente.
         </p>

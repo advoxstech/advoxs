@@ -403,7 +403,7 @@ class TestSendTestMessage:
             return_value="[Documento recebido e processado: laudo.pdf — disponível para busca.]"
         )
         monkeypatch.setattr(
-            test_conversations_module.service, "process_test_attachment", attachment_mock
+            test_conversations_module.service, "ingest_test_attachment", attachment_mock
         )
         self._arm_session(session, _conversation())
 
@@ -429,7 +429,7 @@ class TestSendTestMessage:
             return_value="[Documento recebido e processado: laudo.pdf — disponível para busca.]"
         )
         monkeypatch.setattr(
-            test_conversations_module.service, "process_test_attachment", attachment_mock
+            test_conversations_module.service, "ingest_test_attachment", attachment_mock
         )
         self._arm_session(session, _conversation())
 
@@ -446,12 +446,12 @@ class TestSendTestMessage:
             "[Documento recebido e processado: laudo.pdf — disponível para busca.]"
         )
 
-    def test_sem_anexo_nao_chama_process_test_attachment(
+    def test_sem_anexo_nao_chama_ingest_test_attachment(
         self, client, session, playground_mock, monkeypatch
     ) -> None:
         attachment_mock = AsyncMock()
         monkeypatch.setattr(
-            test_conversations_module.service, "process_test_attachment", attachment_mock
+            test_conversations_module.service, "ingest_test_attachment", attachment_mock
         )
         self._arm_session(session, _conversation())
 
@@ -462,3 +462,112 @@ class TestSendTestMessage:
 
         attachment_mock.assert_not_awaited()
         assert playground_mock.await_args.kwargs["message"] == "oi"
+
+    def test_anexo_demorado_responde_com_aviso_e_termina_depois(
+        self, client, session, playground_mock, monkeypatch
+    ) -> None:
+        import asyncio
+
+        service = test_conversations_module.service
+
+        async def slow_ingest(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return "[Documento recebido e processado: livro.pdf — disponível para busca.]"
+
+        finish = AsyncMock()
+        monkeypatch.setattr(service, "ATTACHMENT_NOTICE_AFTER_SECONDS", 0.01)
+        monkeypatch.setattr(service, "ingest_test_attachment", slow_ingest)
+        monkeypatch.setattr(service, "_finish_turn_after_reading", finish)
+        conversation = _conversation()
+        self._arm_session(session, conversation)
+
+        response = client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/test-messages",
+            data={"content": "qual o prazo?"},
+            files={"file": ("livro.pdf", b"%PDF-1.4", "application/pdf")},
+        )
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["reading"] is True
+        assert [m["sender_type"] for m in body["messages"]] == ["contact", "system"]
+        assert body["messages"][1]["content"] == service.READING_NOTICE
+        assert conversation.automation_status == "processing"
+        playground_mock.assert_not_awaited()
+        finish.assert_called_once()
+        assert finish.call_args.args[2] == "qual o prazo?"
+
+
+async def _finished_ingestion(note: str):
+    import asyncio
+
+    future = asyncio.get_running_loop().create_future()
+    future.set_result(note)
+    return future
+
+
+def _patch_background_session(monkeypatch, conversation):
+    from contextlib import asynccontextmanager
+
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.scalar.return_value = conversation
+    session.get.return_value = conversation
+
+    @asynccontextmanager
+    async def fake_open(_tenant_id):
+        yield session
+
+    monkeypatch.setattr(test_conversations_module.service, "open_tenant_session", fake_open)
+    return session
+
+
+async def test_turno_depois_da_leitura_chama_o_agente_com_a_nota(monkeypatch) -> None:
+    service = test_conversations_module.service
+    conversation = _conversation()
+    conversation.automation_status = "processing"
+    _patch_background_session(monkeypatch, conversation)
+    run_turn = AsyncMock()
+    monkeypatch.setattr(service, "_run_agent_turn", run_turn)
+    ingestion = await _finished_ingestion("[Documento recebido e processado: livro.pdf.]")
+
+    await service._finish_turn_after_reading(
+        TENANT_ID, CONVERSATION_ID, "qual o prazo?", ingestion, [], None
+    )
+
+    assert run_turn.await_args.args[4] == (
+        "qual o prazo?\n[Documento recebido e processado: livro.pdf.]\n"
+        + service.READING_NOTICE_AGENT_NOTE
+    )
+    assert conversation.automation_status == "idle"
+
+
+async def test_turno_depois_da_leitura_ignora_conversa_apagada(monkeypatch) -> None:
+    service = test_conversations_module.service
+    session = _patch_background_session(monkeypatch, None)
+    run_turn = AsyncMock()
+    monkeypatch.setattr(service, "_run_agent_turn", run_turn)
+    ingestion = await _finished_ingestion("[nota]")
+
+    await service._finish_turn_after_reading(TENANT_ID, CONVERSATION_ID, "", ingestion, [], None)
+
+    run_turn.assert_not_awaited()
+    session.add.assert_not_called()
+
+
+async def test_falha_no_turno_depois_da_leitura_avisa_na_conversa(monkeypatch) -> None:
+    service = test_conversations_module.service
+    conversation = _conversation()
+    conversation.automation_status = "processing"
+    session = _patch_background_session(monkeypatch, conversation)
+    monkeypatch.setattr(
+        service, "_run_agent_turn", AsyncMock(side_effect=AgentsNetworkError("fora"))
+    )
+    ingestion = await _finished_ingestion("[nota]")
+
+    await service._finish_turn_after_reading(TENANT_ID, CONVERSATION_ID, "oi", ingestion, [], None)
+
+    added = session.add.call_args.args[0]
+    assert added.sender_type == "system"
+    assert added.content == service.BACKGROUND_FAILURE_NOTICE
+    assert conversation.automation_status == "idle"

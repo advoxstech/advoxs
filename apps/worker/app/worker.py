@@ -24,6 +24,9 @@ from app.tasks.team_emails import deliver_team_emails
 # ingestão espera bem mais que o atendimento, mas nunca para sempre.
 INGESTION_RAG_TIMEOUT_SECONDS = 1500
 INGESTION_JOB_TIMEOUT_SECONDS = 1800
+# Turno de mensagem com anexo: leitura (ATTACHMENT_RAG_TIMEOUT_SECONDS) + agente.
+# Menor que PROCESSING_LEASE (app/tasks/messages.py), que protege a ordem dos turnos.
+TURN_JOB_TIMEOUT_SECONDS = 1800
 
 
 async def startup(ctx: dict) -> None:
@@ -68,7 +71,8 @@ class WorkerSettings:
         func(deliver_follow_up_batch, keep_result=0),
         recover_follow_up_batches,
         process_conversation_cleanup,
-        process_inbound_message,
+        # O turno pode esperar a leitura de um anexo grande (até 25 min no api_rag).
+        func(process_inbound_message, timeout=TURN_JOB_TIMEOUT_SECONDS),
         recover_inbound_message_jobs,
         deliver_outbound_message,
         recover_outbound_message_jobs,

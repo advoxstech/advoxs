@@ -98,6 +98,8 @@ class SendMessageRequest(BaseModel):
 class TestMessagesOut(BaseModel):
     messages: list[MessageOut]
     grouped: bool
+    # Documento grande ainda em leitura: a resposta do agente chega depois.
+    reading: bool = False
 
 
 class ConversationUsageOut(BaseModel):

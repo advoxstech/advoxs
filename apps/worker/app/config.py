@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     # Anexo (PDF/DOCX/TXT) recebido do contato via WhatsApp e ingerido na
     # base de conhecimento pessoal dele — mesmo teto já usado na base de
     # conhecimento do escritório (ver apps/api/app/core/config.py,
-    # kb_max_file_size_bytes).
-    attachment_max_bytes: int = 20 * 1024 * 1024
+    # kb_max_file_size_bytes). Env: ATTACHMENT_MAX_BYTES.
+    attachment_max_bytes: int = 60 * 1024 * 1024
 
     # Notificação por e-mail (Gmail SMTP) quando o saldo de créditos de um
     # tenant zera — ver app/email_notifications.py. Mesmas 3 variáveis já

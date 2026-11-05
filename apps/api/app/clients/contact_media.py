@@ -6,7 +6,9 @@ import httpx
 
 from app.core.config import settings
 
-MAX_MEDIA_BYTES = 20 * 1024 * 1024
+# Mesmo teto do anexo processado pela IA (worker: ATTACHMENT_MAX_BYTES), para o
+# atendente conseguir baixar qualquer documento que a IA conseguiu ler.
+MAX_MEDIA_BYTES = 60 * 1024 * 1024
 
 
 class ContactMediaError(Exception):

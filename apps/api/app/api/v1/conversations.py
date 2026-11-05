@@ -21,6 +21,7 @@ from app.clients.agents import (
     sync_conversation_context,
 )
 from app.clients.contact_media import (
+    MAX_MEDIA_BYTES,
     ContactMediaError,
     ContactMediaTooLarge,
     download_contact_media,
@@ -304,7 +305,9 @@ async def download_attachment(
             decrypt_access_token(encrypted) if encrypted else "",
         )
     except ContactMediaTooLarge as exc:
-        raise HTTPException(413, "O anexo excede o limite de 20 MB.") from exc
+        raise HTTPException(
+            413, f"O anexo excede o limite de {MAX_MEDIA_BYTES // (1024 * 1024)} MB."
+        ) from exc
     except ContactMediaError as exc:
         raise HTTPException(
             502, "Anexo indisponível. O link pode ter expirado no WhatsApp."

@@ -18,6 +18,8 @@ from app.clients.agents import (
     send_message_to_agents,
     sync_context_to_agents,
 )
+from app.clients.whatsapp import send_text_message
+from app.clients.zapi import send_zapi_text_message
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
 from app.email_notifications import send_tenant_out_of_credits_notification
@@ -27,7 +29,11 @@ from app.pricing import (
     get_current_pricing_config,
 )
 from app.safe_logging import safe_error
-from app.tasks.attachments import process_inbound_attachment
+from app.tasks.attachments import (
+    READING_NOTICE,
+    READING_NOTICE_AGENT_NOTE,
+    process_inbound_attachment,
+)
 from app.tasks.inbound_context import InboundContext
 from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
 
@@ -37,7 +43,9 @@ logger = logging.getLogger(__name__)
 # default de max_tries do Arq também é 5 — manter em sincronia, mesmo padrão
 # já usado em apps/worker/app/tasks/knowledge_base.py).
 MAX_TRIES = 5
-PROCESSING_LEASE = timedelta(minutes=15)
+# Maior que a espera da leitura de um anexo grande (ver app/tasks/attachments.py):
+# o bloqueio da conversa não pode expirar enquanto o turno ainda está vivo.
+PROCESSING_LEASE = timedelta(minutes=35)
 
 
 def _normalize_urgency_text(value: str) -> str:
@@ -156,6 +164,59 @@ async def _sync_context(
             tenant_id,
             safe_error(exc),
         )
+
+
+async def _send_reading_notice(
+    session_factory, tenant_id: str, conversation_id: str, inbound: InboundContext
+) -> bool:
+    """Avisa o contato que o documento é grande e registra o aviso na conversa.
+
+    Texto fixo, sem IA e sem cobrança. Só sai se a conversa ainda está com a IA.
+    Devolve True quando o aviso foi registrado (mesmo se a entrega falhou).
+    """
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        if not await _conversation_allows_automation(session, conversation_id):
+            return False
+    delivery_status = "sent"
+    try:
+        if inbound.whatsapp_provider == "zapi":
+            await send_zapi_text_message(
+                instance_id=inbound.zapi_instance_id,
+                token=decrypt_access_token(inbound.zapi_instance_token_encrypted),
+                client_token=(
+                    decrypt_access_token(inbound.zapi_client_token_encrypted)
+                    if inbound.zapi_client_token_encrypted
+                    else None
+                ),
+                to=inbound.contact_phone_number,
+                text=READING_NOTICE,
+            )
+        else:
+            await send_text_message(
+                phone_number_id=inbound.phone_number_id,
+                access_token=decrypt_access_token(inbound.access_token_encrypted),
+                to=inbound.contact_phone_number,
+                text=READING_NOTICE,
+            )
+    except Exception as exc:
+        delivery_status = "failed"
+        logger.warning(
+            "Falha ao enviar aviso de leitura | tenant=%s error_type=%s",
+            tenant_id,
+            safe_error(exc),
+        )
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        await session.execute(
+            insert(tables.messages).values(
+                conversation_id=uuid.UUID(conversation_id),
+                tenant_id=uuid.UUID(tenant_id),
+                sender_type="system",
+                content=READING_NOTICE,
+                delivery_status=delivery_status,
+            )
+        )
+        await session.commit()
+    return True
 
 
 async def _claim_inbound_job(ctx: dict, tenant_id: str, job_id: str) -> bool:
@@ -652,6 +713,14 @@ async def _process_inbound_message(
     # antes de consultar o api_rag, então a ingestão precisa gravar sob a
     # MESMA metade (o contato) que sobra depois desse split, senão a busca
     # nunca encontra o documento (bug real encontrado em teste manual).
+    reading_notice_sent = False
+
+    async def notify_slow_reading() -> None:
+        nonlocal reading_notice_sent
+        reading_notice_sent = await _send_reading_notice(
+            session_factory, tenant_id, conversation_id, inbound
+        )
+
     attachment_note = await process_inbound_attachment(
         rag_http,
         tenant_id=tenant_id,
@@ -662,10 +731,13 @@ async def _process_inbound_message(
         whatsapp_provider=inbound.whatsapp_provider,
         access_token=meta_access_token,
         zapi_client_token=zapi_client_token,
+        on_slow_reading=notify_slow_reading,
     )
     message_content = inbound.message_content
     if attachment_note:
         message_content = f"{message_content}\n{attachment_note}".strip()
+    if reading_notice_sent:
+        message_content = f"{message_content}\n{READING_NOTICE_AGENT_NOTE}".strip()
 
     # Se outra mensagem já chegou antes de iniciarmos a IA, preserva a atual
     # no checkpoint e deixa apenas o último turno pendente gerar a resposta.
@@ -683,6 +755,16 @@ async def _process_inbound_message(
             role="contact",
             content=message_content,
         )
+        if reading_notice_sent:
+            # Aviso na memória, na ordem real: pedido com o documento, aviso, e
+            # só depois as mensagens que o cliente mandou enquanto esperava.
+            await sync_context_to_agents(
+                http,
+                tenant_id=tenant_id,
+                contact_phone_number=inbound.contact_phone_number,
+                role="attendant",
+                content=READING_NOTICE,
+            )
         logger.info(
             "Mensagem incorporada sem gerar resposta; há turno mais recente | "
             "tenant=%s conversation=%s",

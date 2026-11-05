@@ -610,7 +610,11 @@ function MessageBubble({
               fromHuman ? "text-brass-ink" : "text-accent"
             }`}
           >
-            {fromHuman ? "Você" : "Agente"}
+            {fromHuman
+              ? "Você"
+              : message.sender_type === "system"
+                ? "Aviso automático"
+                : "Agente"}
           </span>
         ) : null}
         {message.media_url && fromContact ? (

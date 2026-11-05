@@ -168,7 +168,7 @@ async def test_arquivo_grande_demais_nao_ingere(patched, monkeypatch) -> None:
     )
 
     assert result is not None
-    assert "20 mb" in result.lower()
+    assert "excede o limite" in result.lower()
     patched["ingest"].assert_not_awaited()
 
 
@@ -207,3 +207,83 @@ async def test_txt_e_formato_suportado(patched) -> None:
     kwargs = patched["ingest"].await_args.kwargs
     assert kwargs["filename"] == f"anexo-{MESSAGE_ID}.txt"
     assert result is not None
+
+
+# --- leitura demorada: aviso ao contato -----------------------------------------
+
+
+async def _slow_ingest(*_args, **_kwargs):
+    import asyncio
+
+    await asyncio.sleep(0.2)
+    return {"pages_total": 300, "partial_pages": []}
+
+
+def _pdf_kwargs(on_slow):
+    return dict(
+        tenant_id=TENANT_ID,
+        conversation_id=CONVERSATION_ID,
+        message_id=MESSAGE_ID,
+        media_ref="media-123",
+        media_type="application/pdf",
+        whatsapp_provider="meta",
+        access_token="token",
+        on_slow_reading=on_slow,
+    )
+
+
+async def test_leitura_rapida_nao_avisa_e_usa_prazo_longo(patched) -> None:
+    on_slow = AsyncMock()
+
+    result = await process_inbound_attachment(AsyncMock(), **_pdf_kwargs(on_slow))
+
+    on_slow.assert_not_awaited()
+    assert "processado" in result
+    assert patched["ingest"].await_args.kwargs["timeout"] == (
+        attachments_task.ATTACHMENT_RAG_TIMEOUT_SECONDS
+    )
+
+
+async def test_leitura_demorada_avisa_uma_vez_e_espera_o_fim(patched, monkeypatch) -> None:
+    monkeypatch.setattr(attachments_task, "ATTACHMENT_NOTICE_AFTER_SECONDS", 0.01)
+    monkeypatch.setattr(attachments_task, "ingest_document", _slow_ingest)
+    on_slow = AsyncMock()
+
+    result = await process_inbound_attachment(AsyncMock(), **_pdf_kwargs(on_slow))
+
+    on_slow.assert_awaited_once()
+    assert "disponível para busca" in result
+
+
+async def test_falha_no_aviso_nao_interrompe_a_leitura(patched, monkeypatch) -> None:
+    monkeypatch.setattr(attachments_task, "ATTACHMENT_NOTICE_AFTER_SECONDS", 0.01)
+    monkeypatch.setattr(attachments_task, "ingest_document", _slow_ingest)
+    on_slow = AsyncMock(side_effect=RuntimeError("whatsapp fora"))
+
+    result = await process_inbound_attachment(AsyncMock(), **_pdf_kwargs(on_slow))
+
+    assert "disponível para busca" in result
+
+
+async def test_cancelar_a_espera_cancela_a_leitura() -> None:
+    import asyncio
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def work():
+        started.set()
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    waiting = asyncio.ensure_future(
+        attachments_task.await_with_notice(work(), None, tenant_id=TENANT_ID, notice_after=5)
+    )
+    await started.wait()
+    waiting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiting
+    assert cancelled.is_set()

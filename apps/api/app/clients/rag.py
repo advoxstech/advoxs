@@ -39,6 +39,7 @@ async def insert_user_document(
     doc_id: str,
     filename: str,
     file_bytes: bytes,
+    timeout: float = 60,
 ) -> list[int]:
     """Ingere um documento na base pessoal de um contato e devolve as páginas com
     leitura parcial (sem texto ou leitura fraca mesmo com OCR; vazia se completa). `conversation_id`
@@ -52,7 +53,7 @@ async def insert_user_document(
     apps/worker/app/tasks/attachments.py, o caminho equivalente pra
     conversas reais via WhatsApp)."""
     try:
-        async with httpx.AsyncClient(base_url=settings.rag_api_url, timeout=60) as client:
+        async with httpx.AsyncClient(base_url=settings.rag_api_url, timeout=timeout) as client:
             response = await client.post(
                 "/documents/users/insert",
                 data={

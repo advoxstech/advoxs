@@ -51,7 +51,10 @@ class Settings(BaseSettings):
 
     # Base de conhecimento (upload → volume compartilhado → ingestão no api_rag)
     kb_upload_dir: str = "/data/kb_uploads"
-    kb_max_file_size_bytes: int = 20 * 1024 * 1024
+    # 60 MB cobre um escaneado de ~300 páginas; o teto prático é 100 MB (limite de
+    # envio da Cloudflare e de documento do WhatsApp). Também vale para anexo da
+    # aba Testes e importação do Drive.
+    kb_max_file_size_bytes: int = 60 * 1024 * 1024
     # Configuração pública do seletor; OAuth temporário, sem refresh token armazenado.
     google_drive_enabled: bool = False
     google_drive_client_id: str = ""
