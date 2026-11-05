@@ -12,12 +12,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
+from app.audio_validation import is_audio
 from app.billing_gate import handle_billing_gate, maybe_enter_gate
 from app.clients.agents import (
     replace_context_to_agents,
     send_message_to_agents,
     sync_context_to_agents,
 )
+from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
 from app.email_notifications import send_tenant_out_of_credits_notification
@@ -29,6 +31,7 @@ from app.pricing import (
 from app.safe_logging import safe_error
 from app.tasks.attachments import process_inbound_attachment
 from app.tasks.inbound_context import InboundContext
+from app.tasks.media import prepare_media, record_media_skipped
 from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
 from app.tasks.wallet import _debitar_creditos, _debitar_creditos_cliente_final
 
@@ -546,12 +549,27 @@ async def _process_inbound_message(
         return
 
     if inbound.human_only:
-        # Registered human-only contacts never enter billing or agent generation.
+        # Registered human-only contacts never enter billing or agent generation,
+        # but the audio is still transcribed for the panel (spec §3).
+        await prepare_media(
+            ctx,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            inbound=inbound,
+        )
         return
 
     async with open_tenant_session(session_factory, tenant_id) as session:
         entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
     if entrou_no_gate:
+        await record_media_skipped(
+            ctx,
+            tenant_id=tenant_id,
+            message_id=message_id,
+            inbound=inbound,
+            error_code="billing_gate",
+        )
         try:
             async with open_tenant_session(session_factory, tenant_id) as session:
                 await handle_billing_gate(session, tenant_id, conversation_id, inbound)
@@ -588,6 +606,17 @@ async def _process_inbound_message(
                 await session.commit()
         return
 
+    media_note = await prepare_media(
+        ctx,
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
+        inbound=inbound,
+    )
+    message_content = inbound.message_content
+    if media_note:
+        message_content = f"{message_content}\n{media_note}".strip()
+
     if inbound.conversation_state != "agent":
         # O takeover persiste até o atendente devolver a conversa à IA.
         logger.info(
@@ -596,7 +625,7 @@ async def _process_inbound_message(
             conversation_id,
             inbound.conversation_state,
         )
-        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
         return
 
     # Moeda única: turno custeado pelo cliente final (cobrança habilitada e
@@ -619,7 +648,7 @@ async def _process_inbound_message(
             conversation_id,
             inbound.credit_balance,
         )
-        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
         async with open_tenant_session(session_factory, tenant_id) as session:
             await session.execute(
                 update(tables.conversations)
@@ -653,18 +682,20 @@ async def _process_inbound_message(
     # antes de consultar o api_rag, então a ingestão precisa gravar sob a
     # MESMA metade (o contato) que sobra depois desse split, senão a busca
     # nunca encontra o documento (bug real encontrado em teste manual).
-    attachment_note = await process_inbound_attachment(
-        rag_http,
-        tenant_id=tenant_id,
-        conversation_id=inbound.contact_phone_number,
-        message_id=message_id,
-        media_ref=inbound.media_url,
-        media_type=inbound.media_type,
-        whatsapp_provider=inbound.whatsapp_provider,
-        access_token=meta_access_token,
-        zapi_client_token=zapi_client_token,
-    )
-    message_content = inbound.message_content
+    audio_handled = settings.audio_transcription_enabled and is_audio(inbound.media_type)
+    attachment_note = None
+    if not audio_handled:
+        attachment_note = await process_inbound_attachment(
+            rag_http,
+            tenant_id=tenant_id,
+            conversation_id=inbound.contact_phone_number,
+            message_id=message_id,
+            media_ref=inbound.media_url,
+            media_type=inbound.media_type,
+            whatsapp_provider=inbound.whatsapp_provider,
+            access_token=meta_access_token,
+            zapi_client_token=zapi_client_token,
+        )
     if attachment_note:
         message_content = f"{message_content}\n{attachment_note}".strip()
 

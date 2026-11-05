@@ -165,6 +165,8 @@ def patched(monkeypatch):
         "has_newer": AsyncMock(return_value=False),
         "restore_context": AsyncMock(),
         "allows_automation": AsyncMock(return_value=True),
+        "prepare_media": AsyncMock(return_value=None),
+        "record_skipped": AsyncMock(),
     }
     monkeypatch.setattr(messages_task, "_load_context", mocks["load"])
     monkeypatch.setattr(messages_task, "decrypt_access_token", mocks["decrypt"])
@@ -180,6 +182,8 @@ def patched(monkeypatch):
         messages_task, "send_tenant_out_of_credits_notification", mocks["notify_sem_creditos"]
     )
     monkeypatch.setattr(messages_task, "process_inbound_attachment", mocks["attachment"])
+    monkeypatch.setattr(messages_task, "prepare_media", mocks["prepare_media"])
+    monkeypatch.setattr(messages_task, "record_media_skipped", mocks["record_skipped"])
     monkeypatch.setattr(messages_task, "enqueue_outbound_message_jobs", mocks["enqueue_outbound"])
     monkeypatch.setattr(messages_task, "_has_newer_contact_message", mocks["has_newer"])
     monkeypatch.setattr(
@@ -921,3 +925,80 @@ async def test_sem_urgencia_nao_toca_nas_colunas(patched) -> None:
         if hasattr(call.args[0], "compile")
     ]
     assert not any("urgent_since" in s for s in statements)
+
+
+NOTE = "[Áudio do cliente, transcrito automaticamente]: quero falar do contrato"
+
+
+def _audio_inbound(**kwargs) -> InboundContext:
+    inbound = _inbound(**kwargs)
+    inbound.message_content = ""
+    inbound.media_url = "media-1"
+    inbound.media_type = "audio/ogg; codecs=opus"
+    return inbound
+
+
+async def test_audio_em_modo_agent_vai_transcrito_para_o_agente(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", True)
+    patched["load"].return_value = _audio_inbound()
+    patched["prepare_media"].return_value = NOTE
+
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert patched["send"].await_args.kwargs["message"] == NOTE
+    patched["attachment"].assert_not_awaited()
+
+
+async def test_audio_em_modo_human_sincroniza_transcricao(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", True)
+    patched["load"].return_value = _audio_inbound(state="human")
+    patched["prepare_media"].return_value = NOTE
+
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()
+    assert patched["sync"].await_args.kwargs["content"] == NOTE
+
+
+async def test_audio_de_contato_human_only_e_transcrito_sem_agente(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", True)
+    inbound = _audio_inbound(state="human")
+    inbound.human_only = True
+    patched["load"].return_value = inbound
+
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["prepare_media"].assert_awaited_once()
+    patched["send"].assert_not_awaited()
+
+
+async def test_billing_gate_registra_skipped_e_nao_transcreve(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", True)
+    patched["load"].return_value = _audio_inbound()
+    monkeypatch.setattr(messages_task, "maybe_enter_gate", AsyncMock(return_value=True))
+    monkeypatch.setattr(messages_task, "handle_billing_gate", AsyncMock())
+
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["record_skipped"].assert_awaited_once()
+    assert patched["record_skipped"].await_args.kwargs["error_code"] == "billing_gate"
+    patched["prepare_media"].assert_not_awaited()
+
+
+async def test_retry_da_transcricao_propaga(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", True)
+    patched["load"].return_value = _audio_inbound()
+    patched["prepare_media"].side_effect = Retry(defer=10)
+
+    with pytest.raises(Retry):
+        await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+    patched["send"].assert_not_awaited()
+
+
+async def test_audio_com_recurso_desligado_mantem_caminho_antigo(patched, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "audio_transcription_enabled", False)
+    patched["load"].return_value = _audio_inbound()
+
+    await messages_task._process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["attachment"].assert_awaited_once()
