@@ -252,12 +252,78 @@ async def test_agente_atual_first_run_reseta_flag():
     from agents.nodes import agent_node
 
     resposta = ai_response("Olá! Sou o especialista condominial.")
+    state = base_state(current_agent_id="other-1", receptive_message_specialist=True)
+    state["agents"][1]["knowledge_base_file_ids"] = []  # sem base: nada a buscar
     with patch("agents.nodes.model", mock_model(resposta)):
+        result = await agent_node(state)
+
+    assert result.update.get("receptive_message_specialist") is False
+
+
+@pytest.mark.asyncio
+async def test_especialista_com_base_busca_obrigatoriamente_ao_chegar():
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_with_tool_call("buscar_base_conhecimento_agente", {"query": "multa"}))
+    with patch("agents.nodes.model", model):
         result = await agent_node(
             base_state(current_agent_id="other-1", receptive_message_specialist=True)
         )
 
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "buscar_base_conhecimento_agente"
+    # A apresentação + parecer vem na chamada seguinte, já com o resultado da busca.
+    assert "receptive_message_specialist" not in result.update
+    assert result.goto == "tool_node"
+
+
+@pytest.mark.asyncio
+async def test_depois_da_busca_forcada_o_especialista_responde_livre():
+    from langchain_core.messages import ToolMessage
+
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("Sou o Dr. X. A multa é de 15%."))
+    state = base_state(current_agent_id="other-1", receptive_message_specialist=True)
+    state["messages"].append(
+        ToolMessage(content="{}", tool_call_id="c1", name="buscar_base_conhecimento_agente")
+    )
+    with patch("agents.nodes.model", model):
+        result = await agent_node(state)
+
+    assert "tool_choice" not in model.bind_tools.call_args.kwargs
     assert result.update.get("receptive_message_specialist") is False
+    prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
+    assert "primeira resposta" in prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_busca_ja_feita_no_turno_nao_e_forcada_de_novo():
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    state = base_state(
+        current_agent_id="other-1",
+        receptive_message_specialist=True,
+        source_searches={"other-1": ["found"]},
+    )
+    with patch("agents.nodes.model", model):
+        await agent_node(state)
+
+    assert "tool_choice" not in model.bind_tools.call_args.kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_run", [False, True])
+async def test_ponto_de_entrada_e_turnos_seguintes_nao_forcam_busca(first_run):
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    with patch("agents.nodes.model", model):
+        await agent_node(base_state(current_agent_id=None, receptive_message_specialist=first_run))
+        await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=False))
+
+    for call in model.bind_tools.call_args_list:
+        assert "tool_choice" not in call.kwargs
 
 
 @pytest.mark.asyncio

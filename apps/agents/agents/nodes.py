@@ -168,7 +168,26 @@ async def agent_node(state: dict) -> Command:
             enviar_edital_convocacao,
             enviar_aviso,
         ]
-    model_with_tools = model.bind_tools(tools_for_agent)
+    # Na chegada de um especialista com base própria, a busca é obrigatória antes
+    # do parecer: só a instrução não bastava (o gpt-5-mini respondia "me manda o
+    # contrato" sem buscar, mesmo com o documento na base — produção, 2026-11-05).
+    # source_searches é zerado a cada mensagem do cliente (services/call_agent.py),
+    # então "ainda não buscou" vale para o turno atual.
+    last = state["messages"][-1] if state["messages"] else None
+    just_searched = isinstance(last, ToolMessage) and last.name == "buscar_base_conhecimento_agente"
+    force_kb_search = (
+        is_first_run
+        and bool(current.get("knowledge_base_file_ids"))
+        and not state.get("source_searches", {}).get(current["id"])
+        and not just_searched
+    )
+    if force_kb_search:
+        logger.info("Busca na base forçada na chegada do especialista | agent_id={}", current["id"])
+        model_with_tools = model.bind_tools(
+            tools_for_agent, tool_choice="buscar_base_conhecimento_agente"
+        )
+    else:
+        model_with_tools = model.bind_tools(tools_for_agent)
 
     # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
     prompt = (
@@ -234,7 +253,9 @@ async def agent_node(state: dict) -> Command:
             _log_final_sources(False, [], evidence)
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
-    if is_first_run:
+    if is_first_run and not force_kb_search:
+        # Com a busca forçada, a "primeira resposta" (apresentação + parecer) é a
+        # chamada seguinte, já com o resultado da busca no histórico.
         update["receptive_message_specialist"] = False
 
     if response.tool_calls:
@@ -317,7 +338,9 @@ async def tool_node(state: dict) -> dict:
         else:
             content = str(observation)
 
-        messages.append(ToolMessage(content=content, tool_call_id=tool_call["id"]))
+        messages.append(
+            ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
+        )
 
     logger.info("tool_node finalizado | mensagens_geradas={}", len(messages))
     return {"messages": messages, **state_updates}
