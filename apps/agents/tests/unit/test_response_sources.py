@@ -157,6 +157,69 @@ async def test_structured_final_is_clean_and_keeps_tokens(monkeypatch):
     assert message.additional_kwargs["response_sources"]["sources"][0]["page"] == 3
 
 
+@pytest.fixture
+def final_logs():
+    from loguru import logger
+
+    lines = []
+    sink = logger.add(lambda m: lines.append(m.record["message"]), level="INFO")
+    yield lambda: [line for line in lines if line.startswith("Resposta final")]
+    logger.remove(sink)
+
+
+async def test_final_log_counts_sent_and_valid_ids(monkeypatch, final_logs):
+    state, agent = evidence_state()
+    result, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    ref = result["results"][0]["reference_id"]
+    reply = ai_with_tool_call(
+        "responder_com_fontes",
+        {"answer": "A consulta dura 45 minutos.", "reference_ids": [ref, "invented"]},
+    )
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=sim | ids_enviados=2 | ids_validos=1 | status=referenced"
+    ]
+
+
+async def test_final_log_when_tool_is_used_without_ids(monkeypatch, final_logs):
+    state, agent = evidence_state()
+    _, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    reply = ai_with_tool_call(
+        "responder_com_fontes", {"answer": "A consulta dura 45 minutos.", "reference_ids": []}
+    )
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=sim | ids_enviados=0 | ids_validos=0 | status=not_used"
+    ]
+
+
+async def test_final_log_when_tool_is_ignored(monkeypatch, final_logs):
+    from langchain_core.messages import AIMessage
+
+    state, agent = evidence_state()
+    _, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    monkeypatch.setattr(
+        "agents.nodes.model", mock_model(AIMessage(content="A consulta dura 45 minutos."))
+    )
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=nao | ids_enviados=0 | ids_validos=0 | status=not_used"
+    ]
+
+
+async def test_no_final_log_while_calling_other_tools(monkeypatch, final_logs):
+    state, _ = evidence_state()
+    reply = ai_with_tool_call("buscar_base_conhecimento_agente", {"query": "duração"})
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == []
+
+
 async def test_final_cannot_be_combined_with_a_transfer(monkeypatch):
     state, _ = evidence_state()
     reply = ai_with_tool_call(
