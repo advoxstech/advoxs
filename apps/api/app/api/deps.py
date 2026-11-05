@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import jwt
 from fastapi import Depends, Header, HTTPException, status
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_session, get_system_session
+from app.core.db import SessionLocal, get_session, get_system_session
 from app.core.platform_security import decode_platform_token
 from app.core.security import decode_token
 from app.models import OfficeMembership, OfficeSession, Tenant, User
@@ -115,6 +116,19 @@ async def get_tenant_session(
         yield session
     finally:
         event.remove(session.sync_session, "after_begin", setter)
+
+
+@asynccontextmanager
+async def open_tenant_session(tenant_id: uuid.UUID) -> AsyncIterator[AsyncSession]:
+    """Sessão com RLS do tenant fora de uma request (trabalho que continua depois
+    da resposta). Mesmo listener de get_tenant_session."""
+    async with SessionLocal() as session:
+        setter = _tenant_id_setter(str(tenant_id))
+        event.listen(session.sync_session, "after_begin", setter)
+        try:
+            yield session
+        finally:
+            event.remove(session.sync_session, "after_begin", setter)
 
 
 class PlatformAdminContext(BaseModel):

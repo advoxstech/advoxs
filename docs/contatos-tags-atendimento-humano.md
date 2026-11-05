@@ -36,7 +36,7 @@ Apagar uma conversa não apaga o cadastro do contato.
 ## Anexos
 
 As referências dos anexos permanecem nas mensagens. O painel permite baixá-los
-sob demanda, com autorização por conversa e limite de 20 MB, sem chamar IA/RAG.
+sob demanda, com autorização por conversa e limite de 60 MB, sem chamar IA/RAG.
 O download depende de o provedor ainda disponibilizar o arquivo: esta entrega
 não cria um arquivo permanente de mídias. Links expirados exibem erro no painel.
 Downloads aceitam apenas HTTPS em domínios de mídia permitidos; não seguem

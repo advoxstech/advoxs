@@ -48,7 +48,8 @@ export interface UrgencyKeyword {
   created_at: string;
 }
 
-export type SenderType = "agent" | "human" | "contact";
+// "system": avisos automáticos sem IA (confirmação de pagamento, leitura de documento grande).
+export type SenderType = "agent" | "human" | "contact" | "system";
 
 export interface ResponseSource {
   document_id: string;

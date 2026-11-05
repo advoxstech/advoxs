@@ -921,3 +921,113 @@ async def test_sem_urgencia_nao_toca_nas_colunas(patched) -> None:
         if hasattr(call.args[0], "compile")
     ]
     assert not any("urgent_since" in s for s in statements)
+
+
+# --- aviso de leitura demorada do anexo -----------------------------------------
+
+
+def _statements(ctx) -> list[str]:
+    session = ctx["session_factory"].return_value.__aenter__.return_value
+    return [
+        str(call.args[0].compile(compile_kwargs={"literal_binds": True}))
+        for call in session.execute.await_args_list
+        if hasattr(call.args[0], "compile")
+    ]
+
+
+async def test_leitura_demorada_envia_aviso_e_registra_na_conversa(patched, monkeypatch) -> None:
+    sent = AsyncMock()
+    monkeypatch.setattr(messages_task, "send_text_message", sent)
+
+    async def slow_attachment(*_args, on_slow_reading, **_kwargs):
+        await on_slow_reading()
+        return "[Documento recebido e processado: anexo.pdf — disponível para busca.]"
+
+    patched["attachment"].side_effect = slow_attachment
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    sent.assert_awaited_once()
+    assert sent.await_args.kwargs["text"] == messages_task.READING_NOTICE
+    assert any(
+        "INSERT INTO messages" in s and "'system'" in s and "'sent'" in s for s in _statements(ctx)
+    )
+    assert "disponível para busca" in patched["send"].await_args.kwargs["message"]
+
+
+async def test_aviso_nao_sai_se_atendente_assumiu(patched, monkeypatch) -> None:
+    sent = AsyncMock()
+    monkeypatch.setattr(messages_task, "send_text_message", sent)
+    patched["allows_automation"].return_value = False
+
+    async def slow_attachment(*_args, on_slow_reading, **_kwargs):
+        await on_slow_reading()
+        return None
+
+    patched["attachment"].side_effect = slow_attachment
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    sent.assert_not_awaited()
+
+
+async def test_falha_no_envio_do_aviso_fica_registrada(patched, monkeypatch) -> None:
+    monkeypatch.setattr(
+        messages_task, "send_text_message", AsyncMock(side_effect=RuntimeError("fora do ar"))
+    )
+
+    async def slow_attachment(*_args, on_slow_reading, **_kwargs):
+        await on_slow_reading()
+        return None
+
+    patched["attachment"].side_effect = slow_attachment
+    ctx = _ctx()
+
+    await process_inbound_message(ctx, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    assert any("'system'" in s and "'failed'" in s for s in _statements(ctx))
+    patched["send"].assert_awaited_once()
+
+
+async def test_apos_aviso_agente_sabe_que_deve_responder_o_pedido(patched, monkeypatch) -> None:
+    monkeypatch.setattr(messages_task, "send_text_message", AsyncMock())
+
+    async def slow_attachment(*_args, on_slow_reading, **_kwargs):
+        await on_slow_reading()
+        return "[Documento recebido e processado: anexo.pdf — disponível para busca.]"
+
+    patched["attachment"].side_effect = slow_attachment
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    message = patched["send"].await_args.kwargs["message"]
+    assert message.endswith(messages_task.READING_NOTICE_AGENT_NOTE)
+
+
+async def test_ok_durante_a_leitura_grava_pedido_e_aviso_na_memoria(patched, monkeypatch) -> None:
+    monkeypatch.setattr(messages_task, "send_text_message", AsyncMock())
+    patched["has_newer"].return_value = True
+
+    async def slow_attachment(*_args, on_slow_reading, **_kwargs):
+        await on_slow_reading()
+        return "[Documento recebido e processado: anexo.pdf — disponível para busca.]"
+
+    patched["attachment"].side_effect = slow_attachment
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    patched["send"].assert_not_awaited()
+    calls = [c.kwargs for c in patched["sync"].await_args_list]
+    assert [c["role"] for c in calls] == ["contact", "attendant"]
+    assert messages_task.READING_NOTICE_AGENT_NOTE in calls[0]["content"]
+    assert calls[1]["content"] == messages_task.READING_NOTICE
+
+
+async def test_sem_aviso_nao_acrescenta_nota_de_leitura(patched) -> None:
+    patched["attachment"].return_value = "[Documento recebido e processado: anexo.pdf.]"
+
+    await process_inbound_message(_ctx(), TENANT_ID, CONVERSATION_ID, MESSAGE_ID)
+
+    message = patched["send"].await_args.kwargs["message"]
+    assert messages_task.READING_NOTICE_AGENT_NOTE not in message

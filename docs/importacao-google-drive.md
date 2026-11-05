@@ -34,7 +34,7 @@ após dez minutos. Falhas já identificadas podem ser retomadas pelo botão Repr
 PDF, DOCX e TXT usam o processamento atual. Documentos Google são exportados como
 DOCX. Planilhas, apresentações, pastas e atalhos não fazem parte desta versão.
 O Google limita exportações de documentos nativos a 10 MB; downloads também
-respeitam o limite configurado da base (20 MB por padrão).
+respeitam o limite configurado da base (60 MB por padrão).
 
 Não existe sincronização automática nem acesso permanente à conta. Para atualizar,
 selecione novamente o arquivo e marque explicitamente a atualização. Arquivos

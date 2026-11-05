@@ -92,7 +92,7 @@ async def test_arquivo_grande_demais_nao_ingere(ingest_mock, monkeypatch) -> Non
         message_id=MESSAGE_ID,
     )
 
-    assert "20 mb" in result.lower()
+    assert "excede o limite" in result.lower()
     ingest_mock.assert_not_awaited()
 
 

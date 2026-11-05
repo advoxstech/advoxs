@@ -62,14 +62,14 @@ async def send_test_message(
         )
 
     try:
-        messages, grouped = await service.send_test_message(
-            session, ctx.tenant_id, conversation, content, file
-        )
+        turn = await service.send_test_message(session, ctx.tenant_id, conversation, content, file)
     except (AgentsNetworkError, AgentsApiError):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_AGENTS_ERROR_DETAIL)
 
     return TestMessagesOut(
-        messages=[MessageOut.model_validate(m) for m in messages], grouped=grouped
+        messages=[MessageOut.model_validate(m) for m in turn.messages],
+        grouped=turn.grouped,
+        reading=turn.reading,
     )
 
 
