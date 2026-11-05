@@ -287,6 +287,14 @@ async def prepare_media(
         if current is not None and current.status == "done":
             return transcript_note(current.text or "", bool(current.uncertain_spans))
         config = await get_current_pricing_config(session)
+        if config.transcription_credits_per_minute is None:
+            logger.warning(
+                "pricing_config sem transcription_credits_per_minute; transcrição sem custo "
+                "tenant_id=%s message_id=%s pricing_config_id=%s",
+                tenant_id,
+                message_id,
+                config.id,
+            )
         rate = config.transcription_credits_per_minute or Decimal(0)
         credits = (duration_dec / 60 * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         billed = Decimal(0)

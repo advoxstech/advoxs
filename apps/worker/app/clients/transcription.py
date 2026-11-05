@@ -40,11 +40,15 @@ def mark_uncertain(text: str, logprobs: list[dict], threshold: float) -> Transcr
     if not logprobs:
         return TranscriptionResult(text=text.strip())
 
+    if "".join(entry.get("token", "") for entry in logprobs).strip() != text.strip():
+        # tokenização/bytes divergentes do texto final: não arrisca texto truncado
+        return TranscriptionResult(text=text.strip())
+
     words: list[list] = []  # [texto_bruto, menor_probabilidade]
     for entry in logprobs:
         token = entry.get("token", "")
         prob = math.exp(entry.get("logprob", 0.0))
-        if not words or token[:1].isspace() or not token[:1].isalnum():
+        if not words or token[:1].isspace():
             words.append([token, prob])
         else:
             words[-1][0] += token
@@ -59,9 +63,10 @@ def mark_uncertain(text: str, logprobs: list[dict], threshold: float) -> Transcr
         if not run:
             return
         joined = "".join(run)
-        core = joined.strip()
-        lead = joined[: len(joined) - len(joined.lstrip())]
-        out.append(f"{lead}[?{core}?]")
+        start = next(i for i, ch in enumerate(joined) if ch.isalnum())
+        end = max(i for i, ch in enumerate(joined) if ch.isalnum()) + 1
+        core = joined[start:end]
+        out.append(f"{joined[:start]}[?{core}?]{joined[end:]}")
         spans.append({"text": core, "confidence": round(min(run_probs), 2)})
         run.clear()
         run_probs.clear()
@@ -109,7 +114,10 @@ async def transcribe(
         raise TranscriptionError("invalid_format")
     if response.status_code >= 400:
         raise TranscriptionError("provider_unavailable")
-    body = response.json()
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise TranscriptionError("provider_unavailable") from exc
     return mark_uncertain(
         body.get("text") or "",
         body.get("logprobs") or [],

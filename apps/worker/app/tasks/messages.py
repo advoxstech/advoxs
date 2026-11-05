@@ -31,7 +31,13 @@ from app.pricing import (
 from app.safe_logging import safe_error
 from app.tasks.attachments import process_inbound_attachment
 from app.tasks.inbound_context import InboundContext
-from app.tasks.media import prepare_media, record_media_skipped
+from app.tasks.media import (
+    TRANSIENT_ERRORS,
+    failure_note,
+    prepare_media,
+    record_media_skipped,
+    transcript_note,
+)
 from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
 from app.tasks.wallet import _debitar_creditos, _debitar_creditos_cliente_final
 
@@ -428,6 +434,23 @@ async def _conversation_allows_automation(
     return row is not None and row.state == "agent" and row.deletion_requested_at is None
 
 
+def _content_with_media_note(row) -> str:
+    """Mesma composição do turno: legenda + nota do áudio (transcrição ou falha)."""
+    if row.sender_type != "contact":
+        return row.content
+    note = None
+    if row.media_status == "done":
+        note = transcript_note(row.media_text or "", bool(row.media_uncertain_spans))
+    elif row.media_status == "failed" and (
+        row.media_error_code not in TRANSIENT_ERRORS
+        or (row.media_attempts or 0) >= settings.media_max_attempts
+    ):
+        note = failure_note(row.media_error_code)
+    if note is None:
+        return row.content
+    return f"{row.content}\n{note}".strip()
+
+
 async def _restore_agent_context_before_stale_response(
     session: AsyncSession,
     http: httpx.AsyncClient,
@@ -448,7 +471,21 @@ async def _restore_agent_context_before_stale_response(
         raise RuntimeError("mensagem de referência não encontrada para restaurar contexto")
     rows = (
         await session.execute(
-            select(tables.messages.c.sender_type, tables.messages.c.content)
+            select(
+                tables.messages.c.sender_type,
+                tables.messages.c.content,
+                tables.message_media.c.status.label("media_status"),
+                tables.message_media.c.text.label("media_text"),
+                tables.message_media.c.uncertain_spans.label("media_uncertain_spans"),
+                tables.message_media.c.error_code.label("media_error_code"),
+                tables.message_media.c.attempts.label("media_attempts"),
+            )
+            .select_from(
+                tables.messages.outerjoin(
+                    tables.message_media,
+                    tables.message_media.c.message_id == tables.messages.c.id,
+                )
+            )
             .where(
                 tables.messages.c.conversation_id == uuid.UUID(conversation_id),
                 tables.messages.c.created_at <= marker,
@@ -460,7 +497,7 @@ async def _restore_agent_context_before_stale_response(
     history = [
         {
             "role": "contact" if row.sender_type == "contact" else "attendant",
-            "content": row.content,
+            "content": _content_with_media_note(row),
         }
         for row in rows
     ]
