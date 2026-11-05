@@ -336,3 +336,37 @@ async def test_logs_nao_contem_texto(patched, caplog) -> None:
     assert "123.456" not in caplog.text
     assert "media-id-1" not in caplog.text
     assert "status=done" in caplog.text
+
+
+async def test_skipped_nunca_sobrescreve_done() -> None:
+    session = AsyncMock()
+    await media_task._save_media_row(
+        session,
+        TENANT_ID,
+        uuid.UUID(MESSAGE_ID),
+        only_if_not_done=True,
+        status="skipped",
+        error_code="no_credits",
+    )
+    sql = str(session.execute.await_args.args[0].compile())
+    assert "message_media.status != " in sql
+    session.execute.reset_mock()
+    await media_task._save_media_row(session, TENANT_ID, uuid.UUID(MESSAGE_ID), status="done")
+    assert "message_media.status != " not in str(session.execute.await_args.args[0].compile())
+
+
+async def test_done_concorrente_nao_cobra_de_novo(patched) -> None:
+    done = SimpleNamespace(
+        status="done", error_code=None, attempts=1, text=SECRET_TEXT, uncertain_spans=None
+    )
+    patched["load_row"].side_effect = [None, done]
+    note = await _run()
+    assert note == transcript_note(SECRET_TEXT, uncertain=False)
+    patched["debit_tenant"].assert_not_awaited()
+    assert all(c.kwargs.get("status") != "done" for c in patched["save_row"].await_args_list)
+
+
+async def test_ultima_tentativa_do_job_nao_reagenda(patched) -> None:
+    patched["transcribe"].side_effect = TranscriptionError("timeout")
+    note = await _run(ctx=_ctx(job_try=5))
+    assert note == failure_note("timeout")

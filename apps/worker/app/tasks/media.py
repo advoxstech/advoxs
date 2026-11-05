@@ -36,6 +36,8 @@ from app.tasks.wallet import _debitar_creditos, _debitar_creditos_cliente_final
 
 logger = logging.getLogger(__name__)
 
+# Espelha messages.MAX_TRIES (default do Arq); não importado para evitar ciclo.
+MAX_TRIES = 5
 TRANSIENT_ERRORS = {"download_failed", "timeout", "provider_unavailable"}
 _DESCRIPTION = "Transcrição de áudio"
 
@@ -111,7 +113,11 @@ async def _load_media_row(session: AsyncSession, message_id: uuid.UUID):
 
 
 async def _save_media_row(
-    session: AsyncSession, tenant_id: str, message_id: uuid.UUID, **values
+    session: AsyncSession,
+    tenant_id: str,
+    message_id: uuid.UUID,
+    only_if_not_done: bool = False,
+    **values,
 ) -> None:
     values["updated_at"] = datetime.now(UTC)
     statement = pg_insert(tables.message_media).values(
@@ -119,7 +125,9 @@ async def _save_media_row(
     )
     await session.execute(
         statement.on_conflict_do_update(
-            index_elements=[tables.message_media.c.message_id], set_=values
+            index_elements=[tables.message_media.c.message_id],
+            set_=values,
+            where=tables.message_media.c.status != "done" if only_if_not_done else None,
         )
     )
 
@@ -148,7 +156,12 @@ async def record_media_skipped(
         return
     async with open_tenant_session(ctx["session_factory"], tenant_id) as session:
         await _save_media_row(
-            session, tenant_id, uuid.UUID(message_id), status="skipped", error_code=error_code
+            session,
+            tenant_id,
+            uuid.UUID(message_id),
+            status="skipped",
+            error_code=error_code,
+            only_if_not_done=True,
         )
         await session.commit()
 
@@ -193,7 +206,12 @@ async def prepare_media(
         payer = transcription_payer(inbound)
         if payer is None:
             await _save_media_row(
-                session, tenant_id, mid, status="skipped", error_code="no_credits"
+                session,
+                tenant_id,
+                mid,
+                status="skipped",
+                error_code="no_credits",
+                only_if_not_done=True,
             )
             await session.commit()
             _log(tenant_id, conversation_id, message_id, "skipped", "no_credits", 0)
@@ -251,8 +269,13 @@ async def prepare_media(
             )
             await session.commit()
         _log(tenant_id, conversation_id, message_id, "failed", error_code, attempts, **metrics)
-        if error_code in TRANSIENT_ERRORS and attempts < settings.media_max_attempts:
-            raise Retry(defer=attempts * 10) from None
+        job_try = ctx.get("job_try", 1)
+        if (
+            error_code in TRANSIENT_ERRORS
+            and attempts < settings.media_max_attempts
+            and job_try < MAX_TRIES
+        ):
+            raise Retry(defer=job_try * 10) from None
         return failure_note(error_code)
 
     duration_dec = Decimal(str(round(duration, 2)))
@@ -260,6 +283,9 @@ async def prepare_media(
         Decimal("0.000001")
     )
     async with open_tenant_session(session_factory, tenant_id) as session:
+        current = await _load_media_row(session, mid)  # trava a linha: evita débito duplo
+        if current is not None and current.status == "done":
+            return transcript_note(current.text or "", bool(current.uncertain_spans))
         config = await get_current_pricing_config(session)
         rate = config.transcription_credits_per_minute or Decimal(0)
         credits = (duration_dec / 60 * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
