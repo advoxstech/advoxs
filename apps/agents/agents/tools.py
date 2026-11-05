@@ -57,11 +57,13 @@ async def buscar_base_conhecimento_agente(
 ) -> dict:
     """Busca na base de conhecimento anexada a este agente.
 
-    A base é opcional e complementa seu conhecimento nativo. Use quando a
-    pergunta envolver documentos, materiais, modelos ou orientações que você
-    tenha na sua própria base. Quando houver conteúdo relevante, priorize-o.
-    Quando não houver arquivos ou resultados, responda normalmente com seu
-    conhecimento nativo. Cada agente só acessa os arquivos anexados a ele.
+    Pode conter qualquer documento cadastrado pelo escritório: contratos,
+    processos e documentos de clientes, além de materiais institucionais. Use
+    antes de pedir um documento ao cliente e sempre que a pergunta citar um
+    contrato, cláusula, prazo, valor, data, pessoa ou processo específico.
+    Quando houver conteúdo relevante, priorize-o. Quando não houver arquivos
+    ou resultados, responda normalmente com seu conhecimento nativo. Cada
+    agente só acessa os arquivos anexados a ele.
 
     Args:
         query: Pergunta ou tema a ser pesquisado.
