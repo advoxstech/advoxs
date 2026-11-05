@@ -75,6 +75,22 @@ def _urgency_rule() -> str:
     return _URGENCY_RULE + "\n\n---\n\n"
 
 
+def _log_final_sources(via_tool: bool, reference_ids, evidence: dict) -> None:
+    """Registra como a resposta final citou fontes — só contagens, nunca conteúdo.
+
+    Distingue o modelo que ignora responder_com_fontes (via_ferramenta=nao) do que
+    a usa sem citar (ids_enviados=0) ou com IDs inválidos (ids_validos < ids_enviados).
+    """
+    sent = len(reference_ids) if isinstance(reference_ids, list) else 0
+    logger.info(
+        "Resposta final | via_ferramenta={} | ids_enviados={} | ids_validos={} | status={}",
+        "sim" if via_tool else "nao",
+        sent,
+        len(evidence["sources"]),
+        evidence["status"],
+    )
+
+
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
 # o tenant_id vive dentro dele (isolamento multi-tenant). As tools de
 # documento (ver agents/tools.py) usam conversation_id só pra log/rastreio,
@@ -184,7 +200,9 @@ async def agent_node(state: dict) -> Command:
         args = final_calls[0]["args"]
         answer = args.get("answer")
         if isinstance(answer, str) and answer.strip():
-            evidence = response_evidence(state, current, args.get("reference_ids", []))
+            reference_ids = args.get("reference_ids", [])
+            evidence = response_evidence(state, current, reference_ids)
+            _log_final_sources(True, reference_ids, evidence)
             # Preserve usage and identity, but never persist internal tool arguments in
             # the customer-facing message or leave an unanswered tool call in memory.
             response = response.model_copy(
@@ -196,7 +214,10 @@ async def agent_node(state: dict) -> Command:
                 }
             )
     if not final_calls:
-        response.additional_kwargs["response_sources"] = response_evidence(state, current)
+        evidence = response_evidence(state, current)
+        response.additional_kwargs["response_sources"] = evidence
+        if not response.tool_calls:
+            _log_final_sources(False, [], evidence)
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
     if is_first_run:
