@@ -244,6 +244,37 @@ class TestListMessages:
         assert response.status_code == 200
         assert response.json()[0]["content"] == "Olá"
 
+    def test_lista_mensagens_inclui_transcricao_do_audio(self, client, session) -> None:
+        session.scalar.return_value = _conversation()
+        message_id = uuid.uuid4()
+        message = SimpleNamespace(
+            id=message_id,
+            sender_type="contact",
+            content="",
+            media_url="media-1",
+            media_type="audio/ogg",
+            delivery_status=None,
+            created_at=datetime.now(UTC),
+        )
+        media = SimpleNamespace(
+            message_id=message_id,
+            kind="audio",
+            status="done",
+            error_code=None,
+            text="Quero revisar o contrato",
+        )
+        session.execute.side_effect = [_execute_returning([message]), _execute_returning([media])]
+
+        response = client.get(f"/api/v1/conversations/{CONVERSATION_ID}/messages")
+
+        assert response.status_code == 200
+        assert response.json()[0]["media"] == {
+            "kind": "audio",
+            "status": "done",
+            "error_code": None,
+            "text": "Quero revisar o contrato",
+        }
+
     def test_conversa_inexistente_retorna_404(self, client, session) -> None:
         session.scalar.return_value = None
 
