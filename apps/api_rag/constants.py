@@ -37,6 +37,8 @@ OCR_DPI = int(os.getenv("OCR_DPI", "300"))
 MAX_OCR_PAGES = int(os.getenv("MAX_OCR_PAGES", "300"))
 # Abaixo disso (sem contar espaços), a página é tratada como sem texto.
 OCR_MIN_PAGE_CHARS = int(os.getenv("OCR_MIN_PAGE_CHARS", "30"))
+# OCRs simultâneos no processo. 2 = um por núcleo da VPS (KVM 2); 1 volta ao modo serial.
+OCR_CONCURRENCY = max(1, int(os.getenv("OCR_CONCURRENCY", "2")))
 OCR_PAGE_TIMEOUT_SECONDS = int(os.getenv("OCR_PAGE_TIMEOUT_SECONDS", "90"))
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "por")
 # Leitura fraca: confiança média do Tesseract (0 a 100) abaixo disso. Calibrado no
