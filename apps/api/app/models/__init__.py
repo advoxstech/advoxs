@@ -18,6 +18,7 @@ from app.models.end_customer_billing import (
 from app.models.inbound_message_job import InboundMessageJob
 from app.models.knowledge_base_file import KnowledgeBaseFile
 from app.models.message import Message
+from app.models.message_media import MessageMedia
 from app.models.office_membership import OfficeMembership
 from app.models.office_session import OfficeSession
 from app.models.outbound_message_job import OutboundMessageJob
@@ -54,6 +55,7 @@ __all__ = [
     "KnowledgeBaseFile",
     "InboundMessageJob",
     "Message",
+    "MessageMedia",
     "OutboundMessageJob",
     "PendingSignup",
     "PlatformAdmin",

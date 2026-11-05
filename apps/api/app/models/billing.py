@@ -34,6 +34,7 @@ class PricingConfig(Base):
     tokens_per_credit: Mapped[int] = mapped_column(Integer, nullable=False)
     input_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False)
     output_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False)
+    transcription_credits_per_minute: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     effective_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
