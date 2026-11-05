@@ -288,6 +288,34 @@ async def test_ponto_de_entrada_nunca_recebe_instrucao_de_first_run(monkeypatch)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("agent_id", [None, "other-1"])
+async def test_todo_agente_busca_na_base_antes_de_pedir_documento(monkeypatch, agent_id):
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(current_agent_id=agent_id))
+
+    prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
+    assert "inclusive contratos, processos e documentos de clientes" in prompt
+    assert "Só peça o documento ao cliente quando as buscas não trouxerem" in prompt
+
+
+@pytest.mark.asyncio
+async def test_primeira_resposta_do_especialista_busca_antes_do_parecer(monkeypatch):
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=True))
+
+    prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
+    assert "consulte a base de conhecimento antes de dar o parecer" in prompt
+
+
+@pytest.mark.asyncio
 async def test_transfer_sem_content_injeta_despedida_no_agente_atual():
     from agents.nodes import agent_node
 

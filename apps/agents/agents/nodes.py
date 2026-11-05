@@ -46,13 +46,24 @@ _CONTINUITY_RULE = (
     "use o que já foi contado."
 )
 
+# Vale para todo agente, inclusive os com prompt editado pelo escritório. Sem ela,
+# o especialista recém-transferido pedia ao cliente o contrato que já estava na
+# base (experimento de 2026-11-05: 18% de acerto nas perguntas transferidas
+# contra 57% nas respondidas pela recepção) — os prompts padrão descrevem a base
+# como "materiais institucionais" e mandam "pedir o documento necessário".
 _KNOWLEDGE_BASE_RULE = (
     "\n\n---\n"
-    "**Regra da base de conhecimento:** a base é opcional e complementa seu conhecimento. "
-    "Quando a busca trouxer conteúdo relevante, priorize as informações do escritório. "
-    "Quando não houver documentos ou resultados relevantes, responda normalmente usando seu "
-    "conhecimento nativo. Se a busca estiver indisponível, você também pode responder com seu "
-    "conhecimento nativo, mas nunca afirme que consultou ou encontrou algo nos documentos."
+    "**Regra da base de conhecimento:** a base do escritório pode conter qualquer documento "
+    "que ele cadastrou — inclusive contratos, processos e documentos de clientes, não só "
+    "materiais institucionais. Antes de pedir um documento ao cliente, de dizer que não tem a "
+    "informação ou de responder sobre um contrato, cláusula, prazo, valor, data, pessoa ou "
+    "processo específico, consulte buscar_base_conhecimento_agente; se o cliente enviou "
+    "arquivo nesta conversa, consulte também bucar_base_conhecimento_usuario. Só peça o "
+    "documento ao cliente quando as buscas não trouxerem a informação. Quando a busca trouxer "
+    "conteúdo relevante, priorize as informações do escritório. Quando não houver documentos "
+    "ou resultados relevantes, responda normalmente usando seu conhecimento nativo. Se a busca "
+    "estiver indisponível, você também pode responder com seu conhecimento nativo, mas nunca "
+    "afirme que consultou ou encontrou algo nos documentos."
 )
 
 # Injetada em todo prompt, igual à de continuidade: a IA sinaliza e continua
@@ -184,6 +195,9 @@ async def agent_node(state: dict) -> Command:
             "### Se Apresente, diga sua especialidade e diga que dali para frente é "
             "responsável pelo atendimento. "
             "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
+            "Se a pergunta depende de um documento (contrato, cláusula, prazo, valor, nome), "
+            "consulte a base de conhecimento antes de dar o parecer — não peça o documento ao "
+            "cliente sem buscar primeiro. "
         )
 
     response = await model_with_tools.ainvoke(
