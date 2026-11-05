@@ -6,9 +6,11 @@ WhatsApp (Meta/Z-API) → api (webhook, persiste `messages`, `inbound_message_jo
 (download → validação → OpenAI → `message_media` + débito) → agents | checkpoint | painel.
 
 ## Publicação
-1. Backup: `docker compose exec postgres pg_dump -U advoxs -Fc advoxs > backup-pre-0049.dump`.
-2. Deploy normal (`deploy.yml` roda `alembic upgrade head`, aplica a 0049).
-3. Conferir: `SELECT count(*) FROM message_media;` (0) e
+1. Backup (o `-T` desliga o TTY, sem ele o binário sai corrompido no arquivo do host):
+   `docker compose exec -T postgres pg_dump -U advoxs -Fc advoxs > backup-pre-0049.dump`.
+2. Deploy normal (`deploy.yml` roda `docker compose run --rm api uv run alembic upgrade head`, aplica a 0049).
+3. Conferir (após o upgrade; ver nota de execução das queries em "Métricas"):
+   `SELECT count(*) FROM message_media;` (0) e
    `SELECT transcription_credits_per_minute FROM pricing_configs ORDER BY effective_at DESC LIMIT 1;` (1.0000).
 4. Definir `OPENAI_API_KEY` e `AUDIO_TRANSCRIPTION_ENABLED=true` no `.env`; `docker compose up -d worker`.
 5. Enviar um áudio de teste e conferir a linha `Mídia processada | ... status=done` no log do worker.
@@ -16,8 +18,17 @@ WhatsApp (Meta/Z-API) → api (webhook, persiste `messages`, `inbound_message_jo
 ## Reversão
 - Sem perda de dados: `AUDIO_TRANSCRIPTION_ENABLED=false` + `docker compose up -d worker`
   (o áudio volta ao comportamento anterior).
-- Schema: `uv run alembic downgrade 0048` (apaga `message_media`; a linha de pricing fica).
-- Restauração completa: `pg_restore -U advoxs -d advoxs --clean backup-pre-0049.dump`.
+- Schema: `docker compose stop worker api`, depois
+  `docker compose run --rm api uv run alembic downgrade 0048`, depois `docker compose up -d api worker`.
+  O downgrade apaga a tabela `message_media` **e** a coluna `pricing_configs.transcription_credits_per_minute`.
+  A linha inserida em `pricing_configs` permanece, mas perde esse valor: a query de conferência da Publicação
+  só se aplica depois do upgrade.
+- Restauração completa (com dados): a restauração exige parar a aplicação, pois o `--clean` derruba objetos em uso.
+  1. `docker compose stop api worker`
+  2. `docker compose exec -T postgres pg_restore -U advoxs -d advoxs --clean --if-exists < backup-pre-0049.dump`
+  3. `docker compose up -d api worker`
+
+  O `-T` aqui também é obrigatório, e o `<` lê o dump do host pela entrada padrão do container.
 
 ## Teste de migration com backup (registrar resultado)
 dump → `upgrade head` → `downgrade 0048` → `upgrade head` → `pg_restore` num banco descartável.
@@ -35,6 +46,11 @@ dump → `upgrade head` → `downgrade 0048` → `upgrade head` → `pg_restore`
 | Worker (compose) | 1 CPU / 768 MB | docker-compose.yml |
 
 ## Métricas (SQL)
+Todas as queries desta seção e as de conferência da Publicação rodam no container do Postgres, por exemplo:
+`docker compose exec -T postgres psql -U advoxs -d advoxs -c "SELECT count(*) FROM message_media;"`.
+Para as queries de múltiplas linhas, use o mesmo comando com o SQL por entrada padrão:
+`docker compose exec -T postgres psql -U advoxs -d advoxs < query.sql`.
+
 ```sql
 -- Tempo médio e taxa de falha, últimos 7 dias
 SELECT status, error_code, count(*),
