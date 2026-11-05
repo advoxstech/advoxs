@@ -70,6 +70,13 @@ export interface ResponseEvidence {
   search_failed: boolean;
 }
 
+export interface MessageMedia {
+  kind: "audio" | "document" | "image";
+  status: "pending" | "processing" | "done" | "failed" | "skipped";
+  error_code: string | null;
+  text: string | null;
+}
+
 export interface Message {
   id: string;
   sender_type: SenderType;
@@ -79,6 +86,7 @@ export interface Message {
   content: string;
   media_url: string | null;
   media_type: string | null;
+  media?: MessageMedia | null;
   delivery_status: "pending" | "sent" | "failed" | "cancelled" | null;
   created_at: string;
 }
