@@ -1,5 +1,6 @@
 """OCR das páginas escaneadas ou com texto embaralhado, dentro da leitura em lotes."""
 
+import asyncio
 import io
 import shutil
 from unittest.mock import AsyncMock, MagicMock
@@ -149,6 +150,60 @@ class TestSegmentosComOcr:
         ocr.assert_not_awaited()
 
 
+def _ocr_contando(limite: int, monkeypatch) -> dict:
+    """OCR falso que mede o pico de leituras simultâneas e devolve o índice da página."""
+    estado = {"agora": 0, "pico": 0}
+    monkeypatch.setattr(documents_main, "_ocr_slots", asyncio.Semaphore(limite))
+    monkeypatch.setattr(documents_main, "_renderizar_pagina", lambda pdf, indice: indice)
+
+    async def ocr(indice):
+        estado["agora"] += 1
+        estado["pico"] = max(estado["pico"], estado["agora"])
+        await asyncio.sleep(0.01 * (5 - indice % 5))  # termina fora de ordem
+        estado["agora"] -= 1
+        return _LeituraOcr(f"pagina lida numero {indice + 1}")
+
+    monkeypatch.setattr(documents_main, "_ocr_imagem", ocr)
+    return estado
+
+
+class TestOcrEmParalelo:
+    @pytest.mark.parametrize("limite", [1, 2, 3])
+    async def test_respeita_o_limite_de_ocrs_simultaneos(self, monkeypatch, limite) -> None:
+        estado = _ocr_contando(limite, monkeypatch)
+
+        await _coletar(_service(), _pdf([""] * 8), {})
+
+        assert estado["pico"] == limite
+
+    async def test_texto_volta_na_ordem_das_paginas(self, monkeypatch) -> None:
+        _ocr_contando(2, monkeypatch)
+        leitura: dict = {}
+
+        segmentos = await _coletar(_service(), _pdf(["", TEXTO_BOM, "", "", ""]), leitura)
+
+        texto = segmentos[0].texto
+        posicoes = [texto.index(f"pagina lida numero {n}") for n in (1, 3, 4, 5)]
+        assert posicoes == sorted(posicoes)
+        assert "contratada" in texto.split("pagina lida numero 3")[0]
+        assert segmentos[0].pagina_em(texto.index("numero 4")) == 4
+        assert leitura["ocr"] == 4
+
+    async def test_falha_em_uma_pagina_interrompe_o_documento(self, monkeypatch) -> None:
+        _ocr_contando(2, monkeypatch)
+
+        async def falha(indice):
+            if indice == 2:
+                raise RuntimeError("pdfium")
+            await asyncio.sleep(0.05)
+            return _LeituraOcr("ok")
+
+        monkeypatch.setattr(documents_main, "_ocr_imagem", falha)
+
+        with pytest.raises(ExceptionGroup):
+            await _coletar(_service(), _pdf([""] * 4), {})
+
+
 @pytest.fixture
 def indexador(monkeypatch) -> DocumentoService:
     service = DocumentoService(qdrant=AsyncMock(), repo=AsyncMock())
@@ -214,12 +269,40 @@ class TestOcrImagem:
         assert lido.texto == "a contratada deverá comunicar o conselho"
         assert lido.confianca == 95
 
+    async def test_leitura_confiavel_nao_detecta_orientacao(self, monkeypatch) -> None:
+        chamadas: list[str] = []
+
+        async def tesseract(argumentos, imagem):
+            chamadas.append(argumentos[-1])
+            return _tsv("a contratada deverá comunicar o conselho", 95)
+
+        monkeypatch.setattr(documents_main, "_tesseract", tesseract)
+
+        lido = await documents_main._ocr_imagem(b"original")
+
+        assert lido.confianca == 95
+        assert chamadas == ["tsv"]
+
+    async def test_leitura_vazia_detecta_orientacao(self, monkeypatch) -> None:
+        chamadas: list[str] = []
+
+        async def tesseract(argumentos, imagem):
+            chamadas.append(argumentos[-1])
+            return "" if argumentos[-1] == "tsv" else "Rotate: 0\n"
+
+        monkeypatch.setattr(documents_main, "_tesseract", tesseract)
+
+        lido = await documents_main._ocr_imagem(b"original")
+
+        assert lido.texto == ""
+        assert chamadas == ["tsv", "0"]
+
     async def test_orientacao_errada_nao_estraga_pagina_em_pe(self, monkeypatch) -> None:
         async def tesseract(argumentos, imagem):
             if argumentos[-1] == "0":
                 return "Rotate: 180\n"
             boa = "a contratada deverá comunicar o conselho"
-            return _tsv(boa) if imagem == b"original" else _tsv("zx")
+            return _tsv(boa, 60) if imagem == b"original" else _tsv("zx", 60)
 
         monkeypatch.setattr(documents_main, "_tesseract", tesseract)
         monkeypatch.setattr(documents_main, "_girar", lambda imagem, graus: b"girada")

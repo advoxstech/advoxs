@@ -27,6 +27,7 @@ from constants import (
     INGEST_TEXT_BATCH_CHARS,
     MAX_OCR_PAGES,
     MAX_PDF_PAGES,
+    OCR_CONCURRENCY,
     OCR_DPI,
     OCR_ENABLED,
     OCR_LANGUAGES,
@@ -63,8 +64,9 @@ _chunker = RecursiveChunker()
 _pdfium_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdfium")
 # Documentos processados ao mesmo tempo; os demais pedidos esperam a vez.
 _ingest_slots = asyncio.Semaphore(INGEST_CONCURRENCY)
-# Um OCR por vez em todo o processo: o Tesseract é pesado em CPU e a VPS é compartilhada.
-_ocr_slots = asyncio.Semaphore(1)
+# OCRs simultâneos em todo o processo (padrão 2, um por núcleo da VPS). Cada Tesseract
+# usa 1 núcleo com prioridade baixa: o atendimento sempre passa na frente.
+_ocr_slots = asyncio.Semaphore(OCR_CONCURRENCY)
 # Caracteres de controle (fora tab/quebras) indicam fonte sem mapa Unicode.
 _CONTROLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -210,6 +212,10 @@ async def _tesseract(argumentos: list[str], imagem: bytes) -> str | None:
         await processo.wait()
         logger.warning("OCR excedeu o tempo da página | limite={}s", OCR_PAGE_TIMEOUT_SECONDS)
         return None
+    except asyncio.CancelledError:
+        # Outra página do lote falhou: não deixa o Tesseract rodando sozinho.
+        processo.kill()
+        raise
     if processo.returncode != 0:
         # Detecção de orientação falha, por exemplo, em página com pouco texto.
         logger.debug("Tesseract terminou com erro | codigo={}", processo.returncode)
@@ -303,24 +309,39 @@ def resumo_leitura(leitura: dict) -> dict:
     }
 
 
-async def _ocr_imagem(imagem: bytes) -> _LeituraOcr:
-    """Texto da imagem pelo Tesseract, com a página posta em pé antes. Vazio se falhar.
+def _melhor(a: _LeituraOcr, b: _LeituraOcr) -> _LeituraOcr:
+    """A leitura que faz mais sentido em português; no empate, a de maior confiança."""
+    chave_a = (_pontuar(a.texto), a.confianca or 0)
+    chave_b = (_pontuar(b.texto), b.confianca or 0)
+    return b if chave_b > chave_a else a
 
-    A detecção de orientação tem confiança baixa em digitalizações ruins: quando ela
-    sugere girar, as duas versões são lidas e fica a que faz mais sentido em português.
+
+async def _ocr_imagem(imagem: bytes) -> _LeituraOcr:
+    """Texto da imagem pelo Tesseract. Vazio se falhar.
+
+    Lê direto: a maioria das páginas já está em pé e sai com confiança alta. Só uma
+    leitura fraca ou vazia passa pela detecção de orientação; quando ela sugere girar,
+    a página girada também é lida e fica a versão que faz mais sentido em português.
     """
-    async with _ocr_slots:
-        ler = ["-l", OCR_LANGUAGES, "--psm", "3", "tsv"]
-        orientacao = await _tesseract(["--psm", "0"], imagem)
-        encontrada = _ROTACAO.search(orientacao or "")
-        graus = int(encontrada.group(1)) % 360 if encontrada else 0
-        leitura = _ler_tsv(await _tesseract(ler, imagem) or "")
-        if graus:
-            girada = await asyncio.to_thread(_girar, imagem, graus)
-            leitura_girada = _ler_tsv(await _tesseract(ler, girada) or "")
-            if _pontuar(leitura_girada.texto) > _pontuar(leitura.texto):
-                leitura = leitura_girada
+    ler = ["-l", OCR_LANGUAGES, "--psm", "3", "tsv"]
+    leitura = _ler_tsv(await _tesseract(ler, imagem) or "")
+    if leitura.confianca is not None and leitura.confianca >= OCR_MIN_CONFIDENCE:
         return leitura
+    orientacao = await _tesseract(["--psm", "0"], imagem)
+    encontrada = _ROTACAO.search(orientacao or "")
+    graus = int(encontrada.group(1)) % 360 if encontrada else 0
+    if graus:
+        girada = await asyncio.to_thread(_girar, imagem, graus)
+        leitura = _melhor(leitura, _ler_tsv(await _tesseract(ler, girada) or ""))
+    return leitura
+
+
+async def _ocr_pagina(pdf: pdfium.PdfDocument, indice: int) -> _LeituraOcr:
+    """Renderiza e lê uma página, ocupando uma vaga de OCR (no máximo uma imagem por vaga)."""
+    loop = asyncio.get_running_loop()
+    async with _ocr_slots:
+        imagem = await loop.run_in_executor(_pdfium_thread, _renderizar_pagina, pdf, indice)
+        return await _ocr_imagem(imagem)
 
 
 def _decodificar_txt(document_bytes: bytes) -> str:
@@ -386,14 +407,16 @@ class DocumentoService:
                         _pdfium_thread, _ler_paginas, pdf, inicio, fim
                     )
                     if OCR_ENABLED:
-                        for posicao, texto in enumerate(textos):
-                            if not _precisa_ocr(texto):
-                                continue
-                            imagem = await loop.run_in_executor(
-                                _pdfium_thread, _renderizar_pagina, pdf, inicio + posicao
-                            )
-                            lido = await _ocr_imagem(imagem)
-                            del imagem
+                        # Páginas escaneadas do lote lidas em paralelo (limite: _ocr_slots);
+                        # cada resultado volta para a posição da sua página. Se uma falhar,
+                        # o TaskGroup cancela as outras antes de o PDF ser fechado.
+                        escaneadas = [p for p, t in enumerate(textos) if _precisa_ocr(t)]
+                        async with asyncio.TaskGroup() as grupo:
+                            tarefas = [
+                                grupo.create_task(_ocr_pagina(pdf, inicio + p)) for p in escaneadas
+                            ]
+                        for posicao, tarefa in zip(escaneadas, tarefas, strict=True):
+                            texto, lido = textos[posicao], tarefa.result()
                             leitura["ocr"] += 1
                             if lido.texto.strip():
                                 textos[posicao] = lido.texto
