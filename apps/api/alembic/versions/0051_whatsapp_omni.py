@@ -43,9 +43,7 @@ def upgrade():
         "UNIQUE (omni_webhook_path_secret)"
     )
     _drop_checks("whatsapp_numbers", "zapi_instance_id")
-    op.execute(
-        f"ALTER TABLE whatsapp_numbers ADD CONSTRAINT {_NOME_REGRA} CHECK ({_REGRA_NOVA})"
-    )
+    op.execute(f"ALTER TABLE whatsapp_numbers ADD CONSTRAINT {_NOME_REGRA} CHECK ({_REGRA_NOVA})")
     # Follow-up: no Omni, como na Meta, só modelo aprovado. As regras da 0049
     # não têm nome explícito; troca as duas que citam o provedor.
     _drop_checks("follow_up_batches", "provider")
@@ -97,9 +95,7 @@ def downgrade():
     # escritório perde a conexão e precisa reconectar depois de um novo upgrade.
     op.execute("DELETE FROM whatsapp_numbers WHERE provider = 'omni'")
     _drop_checks("whatsapp_numbers", "zapi_instance_id")
-    op.execute(
-        f"ALTER TABLE whatsapp_numbers ADD CONSTRAINT {_NOME_REGRA} CHECK ({_REGRA_ANTIGA})"
-    )
+    op.execute(f"ALTER TABLE whatsapp_numbers ADD CONSTRAINT {_NOME_REGRA} CHECK ({_REGRA_ANTIGA})")
     op.execute(
         "ALTER TABLE whatsapp_numbers "
         "DROP COLUMN omni_webhook_path_secret, "
