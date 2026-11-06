@@ -109,6 +109,8 @@ async def _load_delivery(session, message_id: str):
                 tables.whatsapp_numbers.c.zapi_instance_id,
                 tables.whatsapp_numbers.c.zapi_instance_token_encrypted,
                 tables.whatsapp_numbers.c.zapi_client_token_encrypted,
+                tables.whatsapp_numbers.c.omni_channel_id,
+                tables.whatsapp_numbers.c.omni_channel_token_encrypted,
             )
             .join(
                 tables.conversations,
@@ -165,6 +167,29 @@ def _document_filename(content: str) -> str | None:
 
 
 async def _send_delivery(delivery) -> None:
+    if delivery.provider == "omni":
+        # Z-API Omni: mesma API de envio da Z-API, pelo canal do escritório.
+        token = decrypt_access_token(delivery.omni_channel_token_encrypted)
+        if delivery.media_url:
+            await send_zapi_document_message(
+                delivery.omni_channel_id,
+                token,
+                None,
+                delivery.contact_phone_number,
+                delivery.media_url,
+                _document_filename(delivery.content),
+                omni=True,
+            )
+        else:
+            await send_zapi_text_message(
+                delivery.omni_channel_id,
+                token,
+                None,
+                delivery.contact_phone_number,
+                delivery.content,
+                omni=True,
+            )
+        return
     if delivery.provider == "zapi":
         token = decrypt_access_token(delivery.zapi_instance_token_encrypted)
         client_token = (

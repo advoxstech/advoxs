@@ -29,6 +29,8 @@ import logging
 
 import httpx
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.z-api.io"
@@ -43,14 +45,21 @@ class ZApiApiError(Exception):
     """A Z-API respondeu com erro (credenciais inválidas, instância não encontrada, etc.)."""
 
 
-def _headers(client_token: str | None) -> dict:
+def _headers(client_token: str | None, omni: bool = False) -> dict:
     headers = {"Content-Type": "application/json"}
-    if client_token:
+    if omni:
+        # Z-API Omni (WhatsApp oficial): mesma API de envio, autenticada pela
+        # Secret Key do workspace da Advoxs em vez do Client-Token da conta.
+        headers["Authorization"] = f"Bearer {settings.omni_secret_key}"
+    elif client_token:
         headers["Client-Token"] = client_token
     return headers
 
 
-def _instance_url(instance_id: str, token: str, path: str) -> str:
+def _instance_url(instance_id: str, token: str, path: str, omni: bool = False) -> str:
+    if omni:
+        base = settings.omni_compat_base_url.rstrip("/")
+        return f"{base}/channels/{instance_id}/token/{token}/{path}"
     return f"{_BASE_URL}/instances/{instance_id}/token/{token}/{path}"
 
 
@@ -208,17 +217,26 @@ async def disconnect_zapi_instance(instance_id: str, token: str, client_token: s
 
 
 async def send_zapi_text_message(
-    instance_id: str, token: str, client_token: str | None, to: str, text: str
+    instance_id: str,
+    token: str,
+    client_token: str | None,
+    to: str,
+    text: str,
+    *,
+    omni: bool = False,
 ) -> None:
     """Envia mensagem de texto pela Z-API — equivalente a
     app.clients.whatsapp.send_text_message (Meta), usado pelo roteamento por
     provedor em app/services/whatsapp_outbound.py (takeover humano, aviso de
-    isenção de cobrança, confirmação de compra do cliente final)."""
-    url = _instance_url(instance_id, token, "send-text")
+    isenção de cobrança, confirmação de compra do cliente final).
+
+    `omni=True`: envia pela camada de compatibilidade do Z-API Omni
+    (`instance_id`/`token` = canal e token do canal; `client_token` ignorado)."""
+    url = _instance_url(instance_id, token, "send-text", omni)
     payload = {"phone": to, "message": text}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(url, headers=_headers(client_token), json=payload)
+            response = await client.post(url, headers=_headers(client_token, omni), json=payload)
     except httpx.HTTPError as exc:
         raise ZApiNetworkError("Falha de rede ao enviar mensagem pela Z-API") from exc
 

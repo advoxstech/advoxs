@@ -16,6 +16,8 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app import tables
 from app.clients.agents import sync_context_to_agents
+from app.clients.omni import OmniTemplateError
+from app.clients.omni import send_template as send_omni_template
 from app.clients.whatsapp import WhatsAppTemplateError, send_template_message
 from app.clients.zapi import ZApiApiError, ZApiNetworkError, send_zapi_text_message
 from app.crypto import decrypt_access_token
@@ -118,9 +120,21 @@ async def _send(batch, number, phone: str, contact_name: str) -> str:
             raise FollowUpSendError(str(exc)[:500], retryable=False) from exc
         return content
 
-    if number.provider != "meta":
+    if number.provider != batch.provider:
         raise FollowUpSendError("O número conectado mudou de provedor.", retryable=False)
     values = resolve_params(batch.params or [], contact_name)
+    if batch.provider == "omni":
+        try:
+            await send_omni_template(
+                channel_id=number.omni_channel_id,
+                to=phone,
+                name=batch.template["name"],
+                language=batch.template["language"],
+                components=template_components(batch.template, values),
+            )
+        except OmniTemplateError as exc:
+            raise FollowUpSendError(str(exc), retryable=exc.retryable) from exc
+        return render_template(batch.template, values)
     try:
         await send_template_message(
             phone_number_id=number.phone_number_id,

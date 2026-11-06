@@ -140,8 +140,13 @@ def extract_inbound_zapi_message(payload: dict) -> InboundZApiMessage | None:
     media_type = None
 
     list_response = payload.get("listResponseMessage")
+    # Resposta de botão (send-button-list): o billing gate do Z-API Omni usa
+    # botões no lugar da lista, que não existe na API oficial.
+    buttons_response = payload.get("buttonsResponseMessage")
     if isinstance(list_response, dict) and list_response.get("title"):
         content = list_response["title"]
+    elif isinstance(buttons_response, dict) and buttons_response.get("message"):
+        content = buttons_response["message"]
     else:
         text = payload.get("text") or {}
         if isinstance(text, dict) and text.get("message"):

@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # kb_max_file_size_bytes). Env: ATTACHMENT_MAX_BYTES.
     attachment_max_bytes: int = 60 * 1024 * 1024
 
+    # WhatsApp oficial via Z-API Omni (workspace da Advoxs; mesma chave do api).
+    omni_secret_key: str = ""
+    omni_compat_base_url: str = "https://zapi.omni.z-api.io"
+    omni_api_base_url: str = "https://api.omni.z-api.io"
+
     # Notificação por e-mail (Gmail SMTP) quando o saldo de créditos de um
     # tenant zera — ver app/email_notifications.py. Mesmas 3 variáveis já
     # configuradas no apps/api (mesma conta Gmail, serviço diferente lendo

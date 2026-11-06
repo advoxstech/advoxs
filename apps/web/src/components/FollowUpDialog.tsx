@@ -216,7 +216,7 @@ export function FollowUpDialog({
           </p>
         )}
 
-        {data?.provider === "meta" && (
+        {data && data.provider !== "zapi" && (
           <>
             <label className="block text-sm">
               Modelo aprovado na Meta
@@ -342,7 +342,9 @@ export function FollowUpDialog({
           <p className="text-xs text-muted">
             {data.provider === "meta"
               ? "Cada modelo enviado é cobrado pela Meta na conta do escritório. "
-              : "Mensagens não solicitadas podem levar ao bloqueio do número. "}
+              : data.provider === "omni"
+                ? "Cada modelo enviado é cobrado pela Meta. "
+                : "Mensagens não solicitadas podem levar ao bloqueio do número. "}
             Envie só para quem aceitou receber mensagens do escritório.
           </p>
         )}

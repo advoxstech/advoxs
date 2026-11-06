@@ -10,6 +10,8 @@ e a ausência desse header foi identificada como causa provável de anexos via
 Z-API nunca chegarem a ser ingeridos (a chamada falha silenciosamente e vira
 uma nota de "falha ao baixar", best-effort, sem travar o turno)."""
 
+from urllib.parse import urlsplit
+
 import httpx
 
 from app.config import settings
@@ -68,10 +70,26 @@ async def download_meta_media(
 
 
 async def download_zapi_media(
-    media_url: str, client_token: str | None = None, max_bytes: int | None = None
+    media_url: str,
+    client_token: str | None = None,
+    max_bytes: int | None = None,
+    *,
+    omni: bool = False,
 ) -> bytes:
+    """Baixa a mídia pela URL que veio no webhook (Z-API ou Z-API Omni).
+
+    No Omni, a Secret Key só vai para o próprio domínio do Omni, nunca para
+    armazenamento de terceiros (domínio da mídia a confirmar no teste real)."""
     limit = max_bytes if max_bytes is not None else settings.attachment_max_bytes
-    headers = {"Client-Token": client_token} if client_token else {}
+    if omni:
+        host = urlsplit(media_url).hostname or ""
+        headers = (
+            {"Authorization": f"Bearer {settings.omni_secret_key}"}
+            if host == "omni.z-api.io" or host.endswith(".omni.z-api.io")
+            else {}
+        )
+    else:
+        headers = {"Client-Token": client_token} if client_token else {}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             async with client.stream("GET", media_url, headers=headers) as response:

@@ -6,7 +6,7 @@ import type { FormEvent } from "react";
 import { adminBackendFetch } from "@/lib/admin-client-api";
 
 type Connection = {
-  provider: "meta" | "zapi";
+  provider: "meta" | "zapi" | "omni";
   display_phone_number: string;
   status: "connected" | "disconnected";
   connected_at: string;
@@ -111,7 +111,12 @@ export function AdminTenantWhatsAppZApi({ tenantId }: { tenantId: string }) {
       {connection && (
         <div className="mt-3 rounded-sm border border-line bg-surface px-4 py-3 text-sm">
           <p className="text-ink">
-            Conexão atual: {connection.provider === "zapi" ? "Z-API" : "WhatsApp Business oficial"}{" "}
+            Conexão atual:{" "}
+            {connection.provider === "zapi"
+              ? "Z-API"
+              : connection.provider === "omni"
+                ? "WhatsApp oficial via Z-API Omni"
+                : "WhatsApp Business oficial"}{" "}
             · {connection.status === "connected" ? "conectado" : "desconectado"}
             {connection.provider === "zapi" && (
               <> · {connection.managed_by_advoxs ? "gerenciada pela Advoxs" : "conta própria do tenant"}</>

@@ -32,6 +32,7 @@ from app.core.crypto import encrypt_access_token
 from app.core.safe_logging import safe_error
 from app.models import WhatsAppNumber
 from app.schemas.whatsapp_connection import WhatsAppConnectionOut
+from app.services.omni_connection import clear_omni_fields, remove_omni_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,8 @@ def to_connection_out(number: WhatsAppNumber) -> WhatsAppConnectionOut:
         display_phone_number=mask_phone_number(number.display_phone_number),
         status=number.status,
         connected_at=number.connected_at,
-        managed_by_advoxs=number.zapi_managed_by_advoxs,
+        # Omni: sempre cadastrado pela Advoxs (workspace e portfólio da Advoxs).
+        managed_by_advoxs=number.zapi_managed_by_advoxs or number.provider == "omni",
     )
 
 
@@ -115,6 +117,9 @@ async def provision_zapi_connection(
     now = datetime.now(UTC)
 
     number = existing if existing is not None else WhatsAppNumber(tenant_id=tenant_id)
+    if number.provider == "omni":
+        await remove_omni_webhook(number)
+    clear_omni_fields(number)
 
     number.provider = "zapi"
     number.zapi_instance_id = instance_id

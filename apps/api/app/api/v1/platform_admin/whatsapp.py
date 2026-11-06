@@ -18,20 +18,25 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import PlatformAdminContext, get_current_platform_admin
+from app.clients.omni import OmniApiError, OmniNetworkError
 from app.clients.zapi import ZApiApiError, ZApiNetworkError
+from app.core.config import settings
 from app.core.db import get_system_session
 from app.models import AdminAuditLog, Tenant, WhatsAppNumber
 from app.schemas.whatsapp_connection import (
+    ConnectOmniRequest,
     ConnectZApiRequest,
     WhatsAppConnectionOut,
     ZApiProvisioningRequestOut,
 )
+from app.services.omni_connection import provision_omni_connection
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
 from app.services.zapi_provisioning_requests import get_pending_request, resolve_pending_request
 
 router = APIRouter(prefix="/platform-admin/tenants", tags=["platform-admin"])
 
 _ZAPI_ERROR_DETAIL = "Falha ao comunicar com a Z-API — tente novamente em instantes"
+_OMNI_ERROR_DETAIL = "Falha ao comunicar com o Z-API Omni — tente novamente em instantes"
 
 
 @router.get("/{tenant_id}/whatsapp")
@@ -103,6 +108,55 @@ async def provision_tenant_zapi_route(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Esta instância já está conectada a outro escritório",
+        )
+    await session.refresh(number)
+    return to_connection_out(number)
+
+
+@router.post("/{tenant_id}/whatsapp/omni")
+async def provision_tenant_omni_route(
+    tenant_id: uuid.UUID,
+    body: ConnectOmniRequest,
+    admin: PlatformAdminContext = Depends(get_current_platform_admin),
+    session: AsyncSession = Depends(get_system_session),
+) -> WhatsAppConnectionOut:
+    """Cadastra o canal do Z-API Omni (WhatsApp oficial) de um escritório.
+
+    O número já foi conectado à Meta pelo painel do Omni, no workspace e no
+    portfólio da Advoxs; aqui só ligamos o canal ao escritório e criamos o webhook.
+    """
+    if not settings.omni_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A integração com o Z-API Omni está desligada (OMNI_ENABLED)",
+        )
+    tenant = await session.get(Tenant, tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant não encontrado")
+
+    try:
+        number = await provision_omni_connection(
+            session,
+            tenant_id,
+            body.channel_id.strip(),
+            body.channel_token.strip(),
+            display_phone_number=body.display_phone_number,
+            waba_id=body.waba_id,
+        )
+    except OmniNetworkError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_OMNI_ERROR_DETAIL)
+    except OmniApiError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    session.add(AdminAuditLog(platform_admin_id=admin.admin_id, tenant_id=tenant_id))
+    await resolve_pending_request(session, tenant_id)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este canal já está conectado a outro escritório",
         )
     await session.refresh(number)
     return to_connection_out(number)

@@ -117,9 +117,12 @@ async def process_inbound_attachment(
         return _NOTA_FORMATO_NAO_SUPORTADO
 
     try:
-        if whatsapp_provider == "zapi":
+        if whatsapp_provider in ("zapi", "omni"):
             file_bytes = await download_zapi_media(
-                media_ref, zapi_client_token, settings.attachment_max_bytes
+                media_ref,
+                zapi_client_token,
+                settings.attachment_max_bytes,
+                **({"omni": True} if whatsapp_provider == "omni" else {}),
             )
         else:
             file_bytes = await download_meta_media(

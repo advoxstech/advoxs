@@ -139,6 +139,38 @@ describe("FollowUpDialog", () => {
     });
   });
 
+  it("Omni: usa modelos aprovados como a Meta e envia sem texto livre", async () => {
+    const onSent = vi.fn();
+    fetchMock.mockImplementation(async (path, init) => {
+      if (path === "follow-ups" && init?.method === "POST")
+        return response({ ...batch, provider: "omni" }, 201);
+      return response({
+        provider: "omni",
+        templates: [template({ body_text: "Olá, {{1}}.", param_names: ["1"] })],
+      });
+    });
+
+    render(
+      <FollowUpDialog
+        recipients={{ contactIds: ["c1"] }}
+        recipientLabel="Maria"
+        onClose={vi.fn()}
+        onSent={onSent}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Modelo aprovado na Meta"), {
+      target: { value: "retomada|pt_BR" },
+    });
+    expect(screen.getByText(/cobrado pela Meta\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enviar follow-up" }));
+
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    const body = postedBody();
+    expect(body.template_name).toBe("retomada");
+    expect(body).not.toHaveProperty("text");
+  });
+
   it("Z-API: envia texto livre com o nome do contato", async () => {
     const onSent = vi.fn();
     fetchMock.mockImplementation(async (path, init) => {

@@ -32,7 +32,13 @@ REQUIRED = {
 INTEGRATIONS = {
     "STRIPE_ENABLED": ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"),
     "STRIPE_CONNECT_ENABLED": ("STRIPE_CONNECT_SECRET_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET"),
+    # WhatsApp oficial via Z-API Omni: uma Secret Key do workspace da Advoxs.
+    "OMNI_ENABLED": ("OMNI_SECRET_KEY",),
 }
+# Integrações ligadas por padrão, salvo as listadas aqui.
+INTEGRATION_DEFAULTS = {"OMNI_ENABLED": "false"}
+# Serviços que usam as chaves de cada integração (padrão: só o api).
+INTEGRATION_SERVICES = {"OMNI_ENABLED": ("api", "worker")}
 
 
 def production_enforcement_enabled(values: Mapping) -> bool:
@@ -51,7 +57,7 @@ def production_enforcement_enabled(values: Mapping) -> bool:
 
 
 def integration_enabled(values: Mapping, name: str) -> bool:
-    value = str(values.get(name, "true")).strip().lower()
+    value = str(values.get(name, INTEGRATION_DEFAULTS.get(name, "true"))).strip().lower()
     if value in {"true", "1"}:
         return True
     if value in {"false", "0"}:
@@ -68,10 +74,9 @@ def validate_config(values: Mapping, service: str) -> None:
         return
 
     required = list(REQUIRED[service])
-    if service == "api":
-        for name, keys in INTEGRATIONS.items():
-            if enabled[name]:
-                required.extend(keys)
+    for name, keys in INTEGRATIONS.items():
+        if enabled[name] and service in INTEGRATION_SERVICES.get(name, ("api",)):
+            required.extend(keys)
 
     invalid = set()
     for name in required:

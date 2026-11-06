@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import tables
 from app.clients.billing import create_end_customer_checkout
 from app.clients.whatsapp import send_interactive_list_message, send_text_message
-from app.clients.zapi import send_zapi_option_list, send_zapi_text_message
+from app.clients.zapi import (
+    MAX_BUTTONS,
+    send_zapi_button_list,
+    send_zapi_option_list,
+    send_zapi_text_message,
+)
 from app.crypto import decrypt_access_token
 from app.tasks.inbound_context import InboundContext
 
@@ -23,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 MAX_LIST_ROWS = 10
+# Rótulo de botão de resposta rápida na API oficial (Z-API Omni).
+MAX_BUTTON_LABEL = 20
 
 
 async def maybe_enter_gate(
@@ -80,13 +87,14 @@ def _zapi_client_token(inbound: InboundContext) -> str | None:
 
 
 async def _send_text(inbound: InboundContext, text: str) -> None:
-    if inbound.whatsapp_provider == "zapi":
+    if inbound.usa_api_zapi:
         await send_zapi_text_message(
             instance_id=inbound.zapi_instance_id,
             token=decrypt_access_token(inbound.zapi_instance_token_encrypted),
             client_token=_zapi_client_token(inbound),
             to=inbound.contact_phone_number,
             text=text,
+            **({"omni": True} if inbound.omni else {}),
         )
         return
     await send_text_message(
@@ -98,6 +106,25 @@ async def _send_text(inbound: InboundContext, text: str) -> None:
 
 
 async def _send_list(inbound: InboundContext) -> None:
+    if inbound.omni:
+        # A API oficial não tem a lista de opções da Z-API: até 3 pacotes viram
+        # botões; acima disso (ou nomes longos), lista numerada em texto.
+        packages = inbound.end_customer_packages
+        if _fits_buttons(packages):
+            await send_zapi_button_list(
+                instance_id=inbound.zapi_instance_id,
+                token=decrypt_access_token(inbound.zapi_instance_token_encrypted),
+                client_token=None,
+                to=inbound.contact_phone_number,
+                message="Escolha uma opção:",
+                buttons=[
+                    {"id": p["name"], "label": p["name"]} for p in _ordered_packages(packages)
+                ],
+                omni=True,
+            )
+        else:
+            await _send_text(inbound, _numbered_packages_text(packages))
+        return
     if inbound.whatsapp_provider == "zapi":
         await send_zapi_option_list(
             instance_id=inbound.zapi_instance_id,
@@ -243,11 +270,40 @@ async def _open_gate(
     await session.commit()
 
 
+def _ordered_packages(packages: list[dict]) -> list[dict]:
+    """Ordem exibida ao cliente (avulsos primeiro), a mesma da lista numerada."""
+    avulsos, assinaturas = _split_by_kind(packages)
+    return avulsos + assinaturas
+
+
 def _resolve_package_by_title(packages: list[dict], title: str) -> dict | None:
     for package in packages:
         if package["name"] == title:
             return package
+    # Lista numerada (Z-API Omni): o cliente responde com o número do pacote.
+    choice = title.strip().rstrip(".")
+    if choice.isdigit():
+        ordered = _ordered_packages(packages)
+        index = int(choice) - 1
+        if 0 <= index < len(ordered):
+            return ordered[index]
     return None
+
+
+def _fits_buttons(packages: list[dict]) -> bool:
+    """Botões de resposta rápida da API oficial: até 3, rótulo de até 20 caracteres."""
+    ordered = _ordered_packages(packages)
+    return 0 < len(ordered) <= MAX_BUTTONS and all(
+        len(p["name"]) <= MAX_BUTTON_LABEL for p in ordered
+    )
+
+
+def _numbered_packages_text(packages: list[dict]) -> str:
+    linhas = [
+        f"{i}. {row['title']} — {row['description']}"
+        for i, row in enumerate((_package_row(p) for p in _ordered_packages(packages)), start=1)
+    ]
+    return "Responda com o número do pacote que você quer:\n" + "\n".join(linhas)
 
 
 async def _escalate_to_human(session: AsyncSession, conversation_id: str) -> None:

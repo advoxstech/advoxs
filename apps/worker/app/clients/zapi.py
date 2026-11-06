@@ -1,22 +1,30 @@
-"""Cliente HTTP da Z-API usado direto pelo worker — só pelo billing gate
-determinístico (apps/worker/app/billing_gate.py), que precisa mandar texto
-e listas interativas SEM passar pelo agents service (é esse desvio que
-elimina o custo de LLM nesse trecho do funil). Duplicado deliberadamente de
+"""Cliente HTTP da Z-API usado direto pelo worker — billing gate determinístico
+(apps/worker/app/billing_gate.py), entregas da caixa de saída, follow-up e o
+aviso de leitura demorada. Duplicado deliberadamente de
 apps/api/app/clients/zapi.py — mesmo padrão já usado no projeto pra evitar
 acoplamento entre serviços deployados separadamente (ver
 apps/worker/app/clients/whatsapp.py, que já duplica o cliente Meta do api
-pelo mesmo motivo)."""
+pelo mesmo motivo).
+
+`omni=True`: envia pela camada de compatibilidade do Z-API Omni (WhatsApp
+oficial). Mesmos caminhos e corpos; muda o endereço base (`/channels/{canal}`)
+e a autenticação (Secret Key do workspace da Advoxs no lugar do Client-Token).
+"""
 
 import logging
 from urllib.parse import urlsplit
 
 import httpx
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.z-api.io"
 _TIMEOUT = 15
 _DEFAULT_DOCUMENT_EXTENSION = "pdf"
+# A API oficial do WhatsApp aceita no máximo 3 botões de resposta rápida.
+MAX_BUTTONS = 3
 
 
 class ZApiNetworkError(Exception):
@@ -27,14 +35,19 @@ class ZApiApiError(Exception):
     """A Z-API respondeu com erro (credenciais inválidas, instância não encontrada, etc.)."""
 
 
-def _headers(client_token: str | None) -> dict:
+def _headers(client_token: str | None, omni: bool = False) -> dict:
     headers = {"Content-Type": "application/json"}
-    if client_token:
+    if omni:
+        headers["Authorization"] = f"Bearer {settings.omni_secret_key}"
+    elif client_token:
         headers["Client-Token"] = client_token
     return headers
 
 
-def _instance_url(instance_id: str, token: str, path: str) -> str:
+def _instance_url(instance_id: str, token: str, path: str, omni: bool = False) -> str:
+    if omni:
+        base = settings.omni_compat_base_url.rstrip("/")
+        return f"{base}/channels/{instance_id}/token/{token}/{path}"
     return f"{_BASE_URL}/instances/{instance_id}/token/{token}/{path}"
 
 
@@ -58,24 +71,35 @@ def _zapi_error_message(response: httpx.Response, fallback: str) -> str:
     return fallback
 
 
+async def _post(url: str, headers: dict, payload: dict, rota: str, fallback: str) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise ZApiNetworkError(f"Falha de rede ao chamar a Z-API ({rota})") from exc
+    if response.is_error:
+        logger.warning("Z-API (%s) retornou erro | status=%s", rota, response.status_code)
+        raise ZApiApiError(_zapi_error_message(response, fallback))
+
+
 async def send_zapi_text_message(
-    instance_id: str, token: str, client_token: str | None, to: str, text: str
+    instance_id: str,
+    token: str,
+    client_token: str | None,
+    to: str,
+    text: str,
+    *,
+    omni: bool = False,
 ) -> None:
     """Envia mensagem de texto pela Z-API — equivalente a
     app.clients.whatsapp.send_text_message (Meta)."""
-    url = _instance_url(instance_id, token, "send-text")
-    payload = {"phone": to, "message": text}
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(url, headers=_headers(client_token), json=payload)
-    except httpx.HTTPError as exc:
-        raise ZApiNetworkError("Falha de rede ao enviar mensagem pela Z-API") from exc
-
-    if response.is_error:
-        logger.warning("Z-API (send-text) retornou erro | status=%s", response.status_code)
-        raise ZApiApiError(
-            _zapi_error_message(response, "Não foi possível enviar a mensagem pela Z-API")
-        )
+    await _post(
+        _instance_url(instance_id, token, "send-text", omni),
+        _headers(client_token, omni),
+        {"phone": to, "message": text},
+        "send-text",
+        "Não foi possível enviar a mensagem pela Z-API",
+    )
 
 
 async def send_zapi_document_message(
@@ -85,23 +109,20 @@ async def send_zapi_document_message(
     to: str,
     link: str,
     filename: str | None = None,
+    *,
+    omni: bool = False,
 ) -> None:
     extension = _infer_document_extension(filename, link)
-    url = _instance_url(instance_id, token, f"send-document/{extension}")
     payload: dict[str, str] = {"phone": to, "document": link}
     if filename:
         payload["fileName"] = filename
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(url, headers=_headers(client_token), json=payload)
-    except httpx.HTTPError as exc:
-        raise ZApiNetworkError("Falha de rede ao enviar documento pela Z-API") from exc
-
-    if response.is_error:
-        logger.warning("Z-API (send-document) retornou erro | status=%s", response.status_code)
-        raise ZApiApiError(
-            _zapi_error_message(response, "Não foi possível enviar o documento pela Z-API")
-        )
+    await _post(
+        _instance_url(instance_id, token, f"send-document/{extension}", omni),
+        _headers(client_token, omni),
+        payload,
+        "send-document",
+        "Não foi possível enviar o documento pela Z-API",
+    )
 
 
 async def send_zapi_option_list(
@@ -118,21 +139,38 @@ async def send_zapi_option_list(
     a app.clients.whatsapp.send_interactive_list_message (Meta), mas sem o
     conceito de seções nomeadas: `options` é uma lista flat, cada item
     `{"id": str, "title": str, "description": str}` (mesmo formato de linha
-    já usado pra Meta)."""
-    url = _instance_url(instance_id, token, "send-option-list")
-    payload = {
-        "phone": to,
-        "message": message,
-        "optionList": {"title": title, "buttonLabel": button_label, "options": options},
-    }
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(url, headers=_headers(client_token), json=payload)
-    except httpx.HTTPError as exc:
-        raise ZApiNetworkError("Falha de rede ao enviar lista pela Z-API") from exc
+    já usado pra Meta). Não existe no Z-API Omni (ver send_zapi_button_list)."""
+    await _post(
+        _instance_url(instance_id, token, "send-option-list"),
+        _headers(client_token),
+        {
+            "phone": to,
+            "message": message,
+            "optionList": {"title": title, "buttonLabel": button_label, "options": options},
+        },
+        "send-option-list",
+        "Não foi possível enviar a lista pela Z-API",
+    )
 
-    if response.is_error:
-        logger.warning("Z-API (send-option-list) retornou erro | status=%s", response.status_code)
-        raise ZApiApiError(
-            _zapi_error_message(response, "Não foi possível enviar a lista pela Z-API")
-        )
+
+async def send_zapi_button_list(
+    instance_id: str,
+    token: str,
+    client_token: str | None,
+    to: str,
+    message: str,
+    buttons: list[dict],
+    *,
+    omni: bool = False,
+) -> None:
+    """Envia texto com botões de resposta rápida (`send-button-list`), até 3.
+
+    `buttons`: `[{"id": str, "label": str}]`. A escolha volta no webhook como
+    `buttonsResponseMessage.message` (o rótulo do botão)."""
+    await _post(
+        _instance_url(instance_id, token, "send-button-list", omni),
+        _headers(client_token, omni),
+        {"phone": to, "message": message, "buttonList": {"buttons": buttons[:MAX_BUTTONS]}},
+        "send-button-list",
+        "Não foi possível enviar os botões pela Z-API",
+    )
