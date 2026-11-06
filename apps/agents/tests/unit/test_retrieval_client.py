@@ -106,6 +106,18 @@ async def test_retrieval_escritorio_diferencia_resultado_vazio_de_falha(monkeypa
     assert results == []
 
 
+async def test_retrieval_usuario_levanta_erro_tipado_quando_rag_falha(monkeypatch) -> None:
+    client = AsyncMock()
+    client.post.side_effect = httpx.ConnectError("sem conexão")
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(retrieval_module.httpx, "AsyncClient", MagicMock(return_value=cm))
+
+    with pytest.raises(RetrievalUnavailableError):
+        await retrieval_usuario("tenant-1:5511999998888", "meu contrato")
+
+
 async def test_retrieval_escritorio_levanta_erro_tipado_quando_rag_falha(monkeypatch) -> None:
     client = AsyncMock()
     request = httpx.Request("POST", "http://rag/retrieval/users")

@@ -138,30 +138,69 @@ async def test_buscar_agente_com_falha_tecnica_orienta_resposta_nativa_sem_alega
 # ──────────────────────────────────────────────
 
 
+def test_descricao_da_base_usuario_incentiva_o_uso_quando_ha_documento():
+    descricao = bucar_base_conhecimento_usuario.description
+    assert "não use por padrão" not in descricao.lower()
+    assert "apenas quando o usuário indicar" not in descricao.lower()
+    assert "antes de dizer que não encontrou" in descricao
+    assert "Não peça de novo um arquivo que o cliente já enviou" in descricao
+
+
 @pytest.mark.asyncio
-async def test_buscar_base_usuario_chama_retrieval_usuario():
-    mock_retrieval = AsyncMock(return_value="doc do usuário")
+async def test_buscar_base_usuario_com_resultado_devolve_trechos():
+    trechos = [{"text": "a multa é de 9%"}]
+    mock_retrieval = AsyncMock(return_value=trechos)
     with patch("agents.tools.retrieval_usuario", new=mock_retrieval) as mock_fn:
         result = await bucar_base_conhecimento_usuario.ainvoke(
-            {
-                "query": "meu contrato",
-                "conversation_id": "conv-99",
-            }
+            {"query": "multa", "conversation_id": "conv-99", "has_contact_documents": True}
         )
-        mock_fn.assert_called_once_with("conv-99", "meu contrato")
-        assert result == "doc do usuário"
+
+    mock_fn.assert_called_once_with("conv-99", "multa")
+    assert result["status"] == "found"
+    assert result["results"] == trechos
 
 
 @pytest.mark.asyncio
 async def test_buscar_base_usuario_repassa_conversation_id():
-    with patch("agents.tools.retrieval_usuario", new=AsyncMock(return_value="")) as mock_fn:
+    with patch("agents.tools.retrieval_usuario", new=AsyncMock(return_value=[])) as mock_fn:
         await bucar_base_conhecimento_usuario.ainvoke(
-            {
-                "query": "busca",
-                "conversation_id": "conv-especifica-123",
-            }
+            {"query": "busca", "conversation_id": "conv-especifica-123"}
         )
         assert mock_fn.call_args[0][0] == "conv-especifica-123"
+
+
+@pytest.mark.asyncio
+async def test_buscar_base_usuario_sem_resultado_nao_manda_pedir_o_arquivo():
+    with patch("agents.tools.retrieval_usuario", new=AsyncMock(return_value=[])):
+        result = await bucar_base_conhecimento_usuario.ainvoke(
+            {"query": "foro", "conversation_id": "conv-99", "has_contact_documents": True}
+        )
+
+    assert result["status"] == "empty"
+    assert "sem pedir o arquivo de novo" in result["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_buscar_base_usuario_sem_documento_nao_chama_retrieval():
+    with patch("agents.tools.retrieval_usuario", new=AsyncMock()) as mock_fn:
+        result = await bucar_base_conhecimento_usuario.ainvoke(
+            {"query": "multa", "conversation_id": "conv-99", "has_contact_documents": False}
+        )
+
+    mock_fn.assert_not_called()
+    assert result["status"] == "no_documents"
+
+
+@pytest.mark.asyncio
+async def test_buscar_base_usuario_com_falha_tecnica_nao_diz_que_nao_consta():
+    retrieval = AsyncMock(side_effect=RetrievalUnavailableError("unavailable"))
+    with patch("agents.tools.retrieval_usuario", new=retrieval):
+        result = await bucar_base_conhecimento_usuario.ainvoke(
+            {"query": "multa", "conversation_id": "conv-99", "has_contact_documents": True}
+        )
+
+    assert result["status"] == "unavailable"
+    assert "nem que a informação não consta" in result["guidance"]
 
 
 # ──────────────────────────────────────────────

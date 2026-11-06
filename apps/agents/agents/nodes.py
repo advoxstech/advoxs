@@ -360,6 +360,8 @@ async def tool_node(state: dict) -> dict:
         args = dict(tool_call["args"])
         if tool_call["name"] in STATE_SCOPED_TOOLS:
             args["conversation_id"] = state["conversation_id"]
+        if tool_call["name"] == "bucar_base_conhecimento_usuario":
+            args["has_contact_documents"] = _contact_sent_document(state["messages"])
         if tool_call["name"] == "buscar_base_conhecimento_agente":
             current = agents_by_id.get(state.get("current_agent_id"))
             args["knowledge_base_file_ids"] = (current or {}).get("knowledge_base_file_ids", [])

@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END
 
 import agents.tools as tools_module
@@ -578,7 +578,7 @@ async def test_tool_node_injeta_conversation_id_do_estado(monkeypatch) -> None:
         ],
     )
     state = {
-        "messages": [message],
+        "messages": [HumanMessage(content=NOTA_DOCUMENTO), message],
         "conversation_id": "tenant-real:5511999998888",
         "agents": base_state()["agents"],
     }
@@ -586,6 +586,36 @@ async def test_tool_node_injeta_conversation_id_do_estado(monkeypatch) -> None:
     await tool_node(state)
 
     retrieval.assert_awaited_once_with("tenant-real:5511999998888", "meu contrato")
+
+
+@pytest.mark.asyncio
+async def test_tool_node_sem_documento_do_contato_nao_consulta_o_rag(monkeypatch) -> None:
+    from agents.nodes import tool_node
+
+    retrieval = AsyncMock(return_value=[])
+    monkeypatch.setattr(tools_module, "retrieval_usuario", retrieval)
+
+    message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "bucar_base_conhecimento_usuario",
+                # O LLM tentou dizer que há documento — deve ser ignorado.
+                "args": {"query": "multa", "has_contact_documents": True},
+                "id": "call-1",
+            }
+        ],
+    )
+    state = {
+        "messages": [HumanMessage(content="qual a multa?"), message],
+        "conversation_id": "tenant-real:5511999998888",
+        "agents": base_state()["agents"],
+    }
+
+    result = await tool_node(state)
+
+    retrieval.assert_not_awaited()
+    assert "no_documents" in result["messages"][0].content
 
 
 @pytest.mark.asyncio

@@ -530,7 +530,7 @@ Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
 |----------------------------------------------------------------|--------|------------------------------------------------------------------------|
 | `transfer_to_agent(agent_id, valid_agent_ids)`                  | sync   | Retorna `Command` que seta `current_agent_id` e `receptive_message_specialist=True` — só se `agent_id` estiver em `valid_agent_ids` (injetado pelo `tool_node`). |
 | `buscar_base_conhecimento_agente(query, conversation_id, knowledge_base_file_ids)` | async | RAG restrito aos arquivos de KB anexados ao agente ativo (injetados pelo `tool_node`), via `/retrieval/users` com `conversation_id="kb"` + `doc_ids`. A base pode ter contratos e documentos de clientes, não só material institucional: o agente busca nela antes de pedir um documento ao cliente (`_KNOWLEDGE_BASE_RULE` em `agents/nodes.py`). Sem arquivo ou resultado, usa seu conhecimento nativo. |
-| `bucar_base_conhecimento_usuario(query, conversation_id)`       | async  | RAG na base de documentos privados do usuário — inalterada.            |
+| `bucar_base_conhecimento_usuario(query, conversation_id, has_contact_documents)` | async | RAG nos documentos que o próprio contato enviou na conversa (base pessoal, por `conversation_id`). A descrição manda usar sempre que houver documento do contato e a pergunta puder estar nele, antes de dizer que não encontrou ou de pedir o arquivo. `has_contact_documents` é injetado pelo `tool_node` (nota `[Documento recebido e processado` no histórico): sem documento, devolve `no_documents` sem chamar o `api_rag`. Devolve `{status, results, guidance}` com `found`, `empty`, `no_documents` ou `unavailable`, como a busca do escritório. |
 | `sinalizar_urgencia(motivo)`                                    | sync   | Vinculada a todos os agentes, inclusive o ponto de entrada. Retorna `Command` que acumula `{"reason"}` em `urgency_flags` (reducer `operator.add`); `run_agent` fatia só os desta execução e devolve o último motivo como `urgency`. |
 | `fazer_contrato`/`fazer_multa`/`fazer_advertencia`/`fazer_oficio`/`enviar_edital_convocacao`/`enviar_aviso` | async | Geram um documento (draft LLM -> LaTeX -> PDF, ver `clients/document_generation.py`) e entregam via `Command` que atualiza `generated_documents` no estado — quem de fato envia pelo WhatsApp/Z-API é `api/routes.py`. O PDF fica em volume privado e o link exige token temporário. Custo fixo de `DOCUMENT_GENERATION_CREDIT_COST` créditos cada. |
 
@@ -552,7 +552,8 @@ agentes da plataforma.
 
 Para `bucar_base_conhecimento_usuario`, `buscar_base_conhecimento_agente` e
 `transfer_to_agent`, os campos que o LLM "preenche" na chamada
-(`conversation_id`, `knowledge_base_file_ids`, `valid_agent_ids`) existem na
+(`conversation_id`, `has_contact_documents`, `knowledge_base_file_ids`,
+`valid_agent_ids`) existem na
 assinatura só para permitir a injeção — o `tool_node` **sempre** sobrescreve
 esses valores a partir do estado real antes de invocar (ver §5.4). Isso é o
 que garante isolamento de tenant/agente: o LLM nunca controla de fato qual
@@ -565,12 +566,12 @@ destino válido de transferência.
 
 ### RAG externo (`clients/retrieval.py`)
 
-Fazem `POST` para uma API externa e retornam a lista `data["results"]`. No
-retrieval do escritório, uma lista vazia significa que a consulta terminou sem
-conteúdo relevante; falhas HTTP ou de conexão levantam
-`RetrievalUnavailableError`, que a tool converte em uma instrução segura de
-continuidade com conhecimento nativo. Os clients legados de sistema e de
-documentos do usuário ainda mantêm o fallback `[]` em caso de erro.
+Fazem `POST` para uma API externa e retornam a lista `data["results"]`. Nos
+retrievals do escritório e dos documentos do contato, uma lista vazia significa
+que a consulta terminou sem conteúdo relevante; falhas HTTP ou de conexão
+levantam `RetrievalUnavailableError`, que a tool converte em uma instrução
+segura (no do contato: não dizer que a informação não consta no documento). Só o
+client legado de sistema ainda mantém o fallback `[]` em caso de erro.
 
 | Função               | Endpoint                          | Payload                                        |
 |----------------------|-----------------------------------|------------------------------------------------|

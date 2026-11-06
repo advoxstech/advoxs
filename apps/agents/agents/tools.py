@@ -97,20 +97,61 @@ async def buscar_base_conhecimento_agente(
 
 
 @tool("bucar_base_conhecimento_usuario")
-async def bucar_base_conhecimento_usuario(query: str, conversation_id: str) -> str:
-    """Busca na base de documentos pessoais enviados pelo próprio usuário.
+async def bucar_base_conhecimento_usuario(
+    query: str,
+    conversation_id: str,
+    has_contact_documents: bool = True,
+) -> dict:
+    """Busca nos documentos que o próprio cliente enviou nesta conversa.
 
-    Use esta ferramenta apenas quando o usuário indicar explicitamente que quer
-    verificar algo nos documentos que ele mesmo enviou — por exemplo: "você tem
-    meu contrato?", "busca no que te mandei", "verifica nos meus documentos",
-    "analisa o arquivo que te enviei". Não use por padrão; espere uma indicação
-    clara de que a busca deve ser feita na base pessoal do usuário.
+    Todo PDF, DOCX ou TXT que o cliente envia é lido e fica disponível aqui. Use
+    sempre que o cliente tiver enviado um documento nesta conversa e a pergunta
+    puder estar nele — contrato, cláusula, prazo, valor, data, pessoa, processo
+    ou página —, antes de dizer que não encontrou a informação e antes de pedir
+    um documento. Não peça de novo um arquivo que o cliente já enviou. Quando a
+    base do escritório também for relevante, consulte as duas e diga de qual
+    documento veio cada informação.
 
     Args:
-        query: Trecho ou tema a ser localizado nos documentos do usuário.
-        conversation_id: ID da conversa/usuário.
+        query: Pergunta ou tema a ser localizado nos documentos do cliente.
+        conversation_id: preenchido automaticamente pelo sistema.
+        has_contact_documents: preenchido automaticamente pelo sistema.
     """
-    return await retrieval_usuario(conversation_id, query)
+    # Sem documento do cliente, a busca não teria o que achar e ainda gastaria
+    # de 10 a 15 s (o api_rag reescreve a pergunta com um LLM antes de buscar).
+    if not has_contact_documents:
+        return {
+            "status": "no_documents",
+            "results": [],
+            "guidance": "O cliente não enviou documentos nesta conversa. Se a resposta "
+            "depende de um documento dele, peça que envie em PDF, DOCX ou TXT.",
+        }
+    try:
+        results = await retrieval_usuario(conversation_id, query)
+    except RetrievalUnavailableError:
+        return {
+            "status": "unavailable",
+            "results": [],
+            "guidance": "A busca nos documentos do cliente está temporariamente "
+            "indisponível. Não diga que consultou o documento nem que a informação não "
+            "consta nele: explique que não conseguiu verificar agora e peça que o cliente "
+            "tente de novo em instantes ou cole o trecho na conversa.",
+        }
+    if not results:
+        return {
+            "status": "empty",
+            "results": [],
+            "guidance": "Não há trecho sobre isso nos documentos que o cliente enviou. "
+            "Diga que não encontrou no documento dele, sem pedir o arquivo de novo; se "
+            "ajudar, pergunte a página ou o trecho. Se a nota do documento avisou de "
+            "leitura parcial, siga esse aviso.",
+        }
+    return {
+        "status": "found",
+        "results": results,
+        "guidance": "Use os trechos relevantes dos documentos que o cliente enviou e "
+        "deixe claro que a informação veio do documento dele.",
+    }
 
 
 @tool("transfer_to_agent")
