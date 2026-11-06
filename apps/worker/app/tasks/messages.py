@@ -179,7 +179,7 @@ async def _send_reading_notice(
             return False
     delivery_status = "sent"
     try:
-        if inbound.whatsapp_provider == "zapi":
+        if inbound.usa_api_zapi:
             await send_zapi_text_message(
                 instance_id=inbound.zapi_instance_id,
                 token=decrypt_access_token(inbound.zapi_instance_token_encrypted),
@@ -190,6 +190,7 @@ async def _send_reading_notice(
                 ),
                 to=inbound.contact_phone_number,
                 text=READING_NOTICE,
+                omni=inbound.omni,
             )
         else:
             await send_text_message(
@@ -691,7 +692,7 @@ async def _process_inbound_message(
 
     meta_access_token: str | None = None
     zapi_client_token: str | None = None
-    if inbound.whatsapp_provider == "zapi":
+    if inbound.usa_api_zapi:
         zapi_client_token = (
             decrypt_access_token(inbound.zapi_client_token_encrypted)
             if inbound.zapi_client_token_encrypted
@@ -1103,6 +1104,8 @@ async def _load_context(
                 tables.whatsapp_numbers.c.zapi_instance_id,
                 tables.whatsapp_numbers.c.zapi_instance_token_encrypted,
                 tables.whatsapp_numbers.c.zapi_client_token_encrypted,
+                tables.whatsapp_numbers.c.omni_channel_id,
+                tables.whatsapp_numbers.c.omni_channel_token_encrypted,
             ).where(
                 tables.whatsapp_numbers.c.tenant_id == uuid.UUID(tenant_id),
                 tables.whatsapp_numbers.c.status == "connected",
@@ -1112,6 +1115,16 @@ async def _load_context(
     if number is None:
         logger.warning("Tenant sem número WhatsApp conectado | tenant=%s", tenant_id)
         return None
+    # Omni usa a API de envio da Z-API: canal e token entram nos campos Z-API.
+    instance_id, instance_token, client_token = (
+        (number.omni_channel_id, number.omni_channel_token_encrypted, None)
+        if number.provider == "omni"
+        else (
+            number.zapi_instance_id,
+            number.zapi_instance_token_encrypted,
+            number.zapi_client_token_encrypted,
+        )
+    )
 
     credit_balance = (
         await session.execute(
@@ -1201,9 +1214,9 @@ async def _load_context(
         whatsapp_provider=number.provider,
         phone_number_id=number.phone_number_id,
         access_token_encrypted=number.access_token_encrypted,
-        zapi_instance_id=number.zapi_instance_id,
-        zapi_instance_token_encrypted=number.zapi_instance_token_encrypted,
-        zapi_client_token_encrypted=number.zapi_client_token_encrypted,
+        zapi_instance_id=instance_id,
+        zapi_instance_token_encrypted=instance_token,
+        zapi_client_token_encrypted=client_token,
         credit_balance=credit_balance,
         end_customer_billing_enabled=end_customer_billing_enabled,
         end_customer_balance=end_customer_balance,

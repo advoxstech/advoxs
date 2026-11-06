@@ -39,6 +39,9 @@ class ProductionConfigTests(unittest.TestCase):
             "STRIPE_WEBHOOK_SECRET": "whsec_" + "k" * 32,
             "STRIPE_CONNECT_SECRET_KEY": "rk_live_" + "l" * 32,
             "STRIPE_CONNECT_WEBHOOK_SECRET": "whsec_" + "m" * 32,
+            # O Omni vem desligado por padrão; ligado aqui para cobrir a chave.
+            "OMNI_ENABLED": "true",
+            "OMNI_SECRET_KEY": "n" * 48,
         }
 
     def test_valid_config_all_services(self):
@@ -49,10 +52,12 @@ class ProductionConfigTests(unittest.TestCase):
         for service in SERVICES:
             policy = load_policy(service)
             required = list(policy.REQUIRED[service])
-            if service == "api":
-                required += [
-                    key for keys in policy.INTEGRATIONS.values() for key in keys
-                ]
+            required += [
+                key
+                for name, keys in policy.INTEGRATIONS.items()
+                if service in policy.INTEGRATION_SERVICES.get(name, ("api",))
+                for key in keys
+            ]
             for key in required:
                 for bad in (None, "", "  ", "changeme", "changeme-platform"):
                     values = {**self.values, key: bad}
@@ -84,6 +89,20 @@ class ProductionConfigTests(unittest.TestCase):
             values[flag] = "true"
             with self.assertRaises(RuntimeError):
                 policy.validate_config(values, "api")
+
+    def test_omni_desligado_por_padrao_nao_exige_chave(self):
+        values = {**self.values}
+        del values["OMNI_ENABLED"], values["OMNI_SECRET_KEY"]
+        for service in ("api", "worker"):
+            load_policy(service).validate_config(values, service)
+
+    def test_omni_ligado_exige_chave_no_api_e_no_worker(self):
+        values = {**self.values, "OMNI_SECRET_KEY": ""}
+        for service in ("api", "worker"):
+            with self.assertRaisesRegex(RuntimeError, "OMNI_SECRET_KEY"):
+                load_policy(service).validate_config(values, service)
+        for service in ("agents", "api_rag"):
+            load_policy(service).validate_config(values, service)
 
     def test_meta_nao_exige_credencial_global(self):
         """A escolha Meta/Z-API é feita pelo tenant; uma integração não

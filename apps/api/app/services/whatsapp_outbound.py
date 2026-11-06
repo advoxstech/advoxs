@@ -27,7 +27,20 @@ async def send_text_to_contact(number: WhatsAppNumber, to: str, text: str) -> No
     """Envia `text` pro contato `to`, usando as credenciais de `number` —
     ramifica por `number.provider`. Levanta `WhatsAppSendError` em qualquer
     falha, seja da Graph API (Meta) ou da Z-API."""
-    if number.provider == "zapi":
+    if number.provider == "omni":
+        # Z-API Omni: mesma API de envio da Z-API, pelo canal do escritório.
+        try:
+            await send_zapi_text_message(
+                instance_id=number.omni_channel_id,
+                token=decrypt_access_token(number.omni_channel_token_encrypted),
+                client_token=None,
+                to=to,
+                text=text,
+                omni=True,
+            )
+        except (ZApiNetworkError, ZApiApiError) as exc:
+            raise WhatsAppSendError(str(exc)) from exc
+    elif number.provider == "zapi":
         token = decrypt_access_token(number.zapi_instance_token_encrypted)
         client_token = (
             decrypt_access_token(number.zapi_client_token_encrypted)

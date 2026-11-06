@@ -26,6 +26,7 @@ from app.api.v1.team import public_router as team_public_router
 from app.api.v1.team import router as team_router
 from app.api.v1.test_conversations import router as test_conversations_router
 from app.api.v1.urgency_keywords import router as urgency_keywords_router
+from app.api.v1.webhooks.omni import router as omni_webhook_router
 from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.stripe_connect import router as stripe_connect_webhook_router
 from app.api.v1.webhooks.stripe_tenant import router as stripe_tenant_webhook_router
@@ -68,6 +69,7 @@ api_router.include_router(
 api_router.include_router(stripe_tenant_webhook_router)
 api_router.include_router(whatsapp_webhook_router, dependencies=[Depends(require_meta)])
 api_router.include_router(zapi_webhook_router)
+api_router.include_router(omni_webhook_router)
 api_router.include_router(whatsapp_router, dependencies=[Depends(require_admin)])
 
 

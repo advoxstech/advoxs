@@ -50,6 +50,14 @@ ou `1/0`. Em produção, integrações habilitadas exigem:
 | --- | --- |
 | `STRIPE_ENABLED` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` |
 | `STRIPE_CONNECT_ENABLED` | `STRIPE_CONNECT_SECRET_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET` |
+| `OMNI_ENABLED` | `OMNI_SECRET_KEY` (API e worker) |
+
+`OMNI_ENABLED` é `false` por padrão. Com ela ligada, o painel `/admin` aceita
+o cadastro de canais da Z-API Omni (WhatsApp oficial no workspace da Advoxs).
+`OMNI_SECRET_KEY` é a Secret Key do workspace. `OMNI_COMPAT_BASE_URL` e
+`OMNI_API_BASE_URL` já têm os endereços da Z-API como padrão. Desligar a opção
+só bloqueia novos cadastros: números Omni já conectados continuam dependendo da
+Secret Key para enviar mensagens.
 
 Meta não é pré-requisito global do deploy: o provedor de WhatsApp é escolhido
 por escritório, e tenants Z-API podem operar sem uma configuração Meta na

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { AdminTenantWhatsAppOmni } from "@/components/AdminTenantWhatsAppOmni";
 import { AdminTenantWhatsAppZApi } from "@/components/AdminTenantWhatsAppZApi";
 import { adminBackendFetch } from "@/lib/admin-client-api";
 import { formatCredits } from "@/lib/format";
@@ -33,6 +34,7 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
   const [loaded, setLoaded] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState(false);
+  const [whatsappVersion, setWhatsappVersion] = useState(0);
 
   useEffect(() => {
     async function load() {
@@ -74,7 +76,13 @@ export function AdminTenantDetail({ tenantId }: { tenantId: string }) {
         </p>
       </div>
 
-      <AdminTenantWhatsAppZApi tenantId={tenantId} />
+      {/* A chave recarrega o resumo da conexão depois de cadastrar um canal Omni. */}
+      <AdminTenantWhatsAppZApi key={whatsappVersion} tenantId={tenantId} />
+
+      <AdminTenantWhatsAppOmni
+        tenantId={tenantId}
+        onConnected={() => setWhatsappVersion((v) => v + 1)}
+      />
 
       <div>
         <h2 className="font-display text-lg font-semibold text-ink">Transações recentes</h2>

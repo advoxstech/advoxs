@@ -13,6 +13,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_tenant_session
+from app.clients.omni import OmniApiError, OmniNetworkError, list_waba_templates
 from app.clients.whatsapp import WhatsAppApiError, WhatsAppNetworkError, fetch_message_templates
 from app.core.crypto import decrypt_access_token
 from app.core.queue import get_arq_pool
@@ -56,6 +57,20 @@ async def _connected_number(session: AsyncSession, tenant_id: uuid.UUID) -> What
 
 
 async def _meta_templates(number: WhatsAppNumber) -> list[dict]:
+    """Modelos aprovados da conta de WhatsApp Business (Meta direta ou Omni).
+
+    O Omni devolve os modelos no mesmo formato da Graph API."""
+    if number.provider == "omni":
+        if not number.waba_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Peça à Advoxs para informar o WABA ID deste número para usar os modelos.",
+            )
+        try:
+            raw = await list_waba_templates(number.waba_id)
+        except (OmniApiError, OmniNetworkError) as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        return [parse_template(item) for item in raw]
     if not number.waba_id or not number.access_token_encrypted:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -78,7 +93,7 @@ async def list_templates(
     number = await _connected_number(session, ctx.tenant_id)
     if number.provider == "zapi":
         return FollowUpTemplatesOut(provider="zapi", templates=[])
-    return FollowUpTemplatesOut(provider="meta", templates=await _meta_templates(number))
+    return FollowUpTemplatesOut(provider=number.provider, templates=await _meta_templates(number))
 
 
 async def _resolve_template(number: WhatsAppNumber, body: FollowUpCreate) -> dict:

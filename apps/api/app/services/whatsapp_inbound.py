@@ -5,7 +5,9 @@ por wa_message_id) -> enfileira o job no Arq. O worker decide entre agente
 e humano (estado da conversa) e chama o agents service.
 """
 
+import gzip
 import hmac
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -14,6 +16,8 @@ from arq.connections import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.omni import valid_webhook_signature
+from app.core.crypto import decrypt_access_token
 from app.core.safe_logging import safe_error, safe_identifier
 from app.models import Conversation, InboundMessageJob, Message, WhatsAppNumber
 from app.schemas.whatsapp import extract_inbound_messages, extract_inbound_zapi_message
@@ -99,6 +103,79 @@ async def handle_zapi_webhook(
         )
         return {"received": 0}
 
+    return await _store_zapi_format_message(number, inbound, session, arq)
+
+
+async def handle_omni_webhook(
+    raw_body: bytes,
+    path_secret: str,
+    signature: str | None,
+    idempotency_key: str | None,
+    content_encoding: str | None,
+    session: AsyncSession,
+    arq: ArqRedis,
+) -> dict:
+    """Webhook do Z-API Omni (WhatsApp oficial), no formato Z-API.
+
+    O número é resolvido pelo segredo da URL e a requisição só é aceita com a
+    assinatura HMAC válida. Mensagens seguem o mesmo caminho da Z-API; eventos
+    de conexão atualizam o status do número.
+    """
+    number = await session.scalar(
+        select(WhatsAppNumber).where(
+            WhatsAppNumber.provider == "omni",
+            WhatsAppNumber.omni_webhook_path_secret == path_secret,
+        )
+    )
+    if number is None or not number.omni_webhook_signing_secret_encrypted:
+        logger.warning("Webhook Omni com segredo de URL desconhecido")
+        raise WebhookRejected()
+    signing_secret = decrypt_access_token(number.omni_webhook_signing_secret_encrypted)
+    if not valid_webhook_signature(
+        signing_secret, raw_body, signature, idempotency_key, content_encoding
+    ):
+        logger.warning(
+            "Webhook Omni com assinatura inválida | provider_ref=%s",
+            safe_identifier(number.omni_channel_id or ""),
+        )
+        raise WebhookRejected()
+
+    body = gzip.decompress(raw_body) if content_encoding == "gzip" else raw_body
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {"received": 0}
+    if not isinstance(payload, dict):
+        return {"received": 0}
+
+    event = payload.get("type")
+    if event in ("ConnectedCallback", "DisconnectedCallback"):
+        number.status = "connected" if event == "ConnectedCallback" else "disconnected"
+        await session.commit()
+        logger.info(
+            "Conexão do canal Omni atualizada | provider_ref=%s status=%s",
+            safe_identifier(number.omni_channel_id or ""),
+            number.status,
+        )
+        return {"received": 0}
+
+    # O número já foi resolvido pelo segredo da URL; o canal entra como
+    # instância caso o corpo não traga o campo.
+    payload.setdefault("instanceId", number.omni_channel_id)
+    inbound = extract_inbound_zapi_message(payload)
+    if inbound is None:
+        return {"received": 0}
+    return await _store_zapi_format_message(number, inbound, session, arq)
+
+
+class WebhookRejected(Exception):
+    """Webhook sem autenticação válida (segredo da URL ou assinatura)."""
+
+
+async def _store_zapi_format_message(
+    number: WhatsAppNumber, inbound, session: AsyncSession, arq: ArqRedis
+) -> dict:
+    """Grava a mensagem (formato Z-API) e enfileira o turno — Z-API e Omni."""
     result = await _persist_inbound_message(
         number,
         contact_phone_number=inbound.contact_phone_number,

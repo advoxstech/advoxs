@@ -54,6 +54,7 @@ from app.services.email_notifications import (
     send_zapi_request_cancelled_notification,
     send_zapi_request_notification,
 )
+from app.services.omni_connection import clear_omni_fields, remove_omni_webhook
 from app.services.zapi_connection import provision_zapi_connection, to_connection_out
 from app.services.zapi_provisioning_requests import (
     cancel_pending_request,
@@ -109,6 +110,9 @@ async def connect(
     now = datetime.now(UTC)
 
     if existing is not None:
+        if existing.provider == "omni":
+            await remove_omni_webhook(existing)
+        clear_omni_fields(existing)
         existing.provider = "meta"
         existing.phone_number_id = body.phone_number_id
         existing.waba_id = body.waba_id
@@ -408,6 +412,11 @@ async def disconnect(
             logger.warning(
                 "Falha ao desconectar na Z-API (best-effort) | error_type=%s", safe_error(exc)
             )
+    elif number.provider == "omni":
+        # Para de receber mensagens do canal; o número continua conectado à
+        # Meta no workspace da Advoxs (reconectar = novo cadastro pelo admin).
+        await remove_omni_webhook(number)
+        number.omni_webhook_id = None
 
     # Só notifica numa desconexão de verdade — clicar em "Desconectar" de
     # novo numa instância já desconectada não deve gerar aviso repetido.

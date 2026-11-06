@@ -46,6 +46,18 @@ async def download_contact_media(ref: str, provider: str, token: str) -> bytes:
                 url = response.json().get("url", "")
                 if not trusted_url(url, ("fbsbx.com", "fbcdn.net", "whatsapp.net")):
                     raise ContactMediaError("Origem da mídia não permitida")
+            elif provider == "omni":
+                # Z-API Omni: URL pronta no webhook (formato Z-API). Domínio a
+                # confirmar no primeiro teste real; a Secret Key só vai para o
+                # próprio Omni, nunca para armazenamento de terceiros.
+                url = ref
+                if not trusted_url(url, ("z-api.io", "storage.googleapis.com")):
+                    raise ContactMediaError("Origem da mídia não permitida")
+                headers = (
+                    {"Authorization": f"Bearer {settings.omni_secret_key}"}
+                    if trusted_url(url, ("omni.z-api.io",))
+                    else {}
+                )
             else:
                 url = ref
                 if not trusted_url(url, ("z-api.io", "storage.googleapis.com")):

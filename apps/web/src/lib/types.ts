@@ -162,7 +162,7 @@ export interface FollowUpTemplate {
 }
 
 export interface FollowUpTemplates {
-  provider: "meta" | "zapi";
+  provider: "meta" | "zapi" | "omni";
   templates: FollowUpTemplate[];
 }
 
@@ -170,7 +170,7 @@ export interface FollowUpBatch {
   id: string;
   created_at: string;
   created_by_name: string;
-  provider: "meta" | "zapi";
+  provider: "meta" | "zapi" | "omni";
   template_name: string | null;
   text: string | null;
   total: number;

@@ -22,8 +22,19 @@ class ConnectZApiRequest(BaseModel):
     client_token: str = Field(min_length=1)
 
 
+class ConnectOmniRequest(BaseModel):
+    """Canal do Z-API Omni (WhatsApp oficial) cadastrado pelo admin da Advoxs."""
+
+    channel_id: str = Field(min_length=1)
+    channel_token: str = Field(min_length=1)
+    # Opcionais: usados quando a conta do Omni não tem a função ENTERPRISE
+    # (sem ela, não dá para consultar número e WABA do canal pela API).
+    display_phone_number: str | None = Field(default=None, max_length=32)
+    waba_id: str | None = Field(default=None, max_length=64)
+
+
 class WhatsAppConnectionOut(BaseModel):
-    provider: Literal["meta", "zapi"]
+    provider: Literal["meta", "zapi", "omni"]
     display_phone_number: str
     status: Literal["connected", "disconnected"]
     connected_at: datetime

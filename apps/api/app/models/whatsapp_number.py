@@ -19,7 +19,10 @@ class WhatsAppNumber(Base):
             "(provider = 'meta' AND phone_number_id IS NOT NULL AND waba_id IS NOT NULL "
             "AND access_token_encrypted IS NOT NULL) "
             "OR (provider = 'zapi' AND zapi_instance_id IS NOT NULL "
-            "AND zapi_instance_token_encrypted IS NOT NULL AND zapi_webhook_secret IS NOT NULL)",
+            "AND zapi_instance_token_encrypted IS NOT NULL AND zapi_webhook_secret IS NOT NULL) "
+            "OR (provider = 'omni' AND omni_channel_id IS NOT NULL "
+            "AND omni_channel_token_encrypted IS NOT NULL "
+            "AND omni_webhook_path_secret IS NOT NULL)",
             name="ck_whatsapp_numbers_provider_fields",
         ),
     )
@@ -59,6 +62,16 @@ class WhatsAppNumber(Base):
     zapi_managed_by_advoxs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Z-API Omni (WhatsApp oficial) — nullable, só preenchido quando
+    # provider="omni". O workspace é da Advoxs (Secret Key no .env); por número
+    # guardamos o canal, o token do canal e o webhook que criamos nele.
+    omni_channel_id: Mapped[str | None] = mapped_column(String, unique=True)
+    omni_channel_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    omni_webhook_id: Mapped[str | None] = mapped_column(String)
+    # Segredo HMAC devolvido pelo Omni na criação do webhook (só aparece uma vez).
+    omni_webhook_signing_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    # Segredo nosso na URL do webhook; resolve o número sem confiar no corpo.
+    omni_webhook_path_secret: Mapped[str | None] = mapped_column(String, unique=True)
     display_phone_number: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'connected'"))
     connected_at: Mapped[datetime] = mapped_column(

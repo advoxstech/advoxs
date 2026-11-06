@@ -23,7 +23,7 @@ class FollowUpTemplateOut(BaseModel):
 
 
 class FollowUpTemplatesOut(BaseModel):
-    provider: Literal["meta", "zapi"]
+    provider: Literal["meta", "zapi", "omni"]
     templates: list[FollowUpTemplateOut]
 
 

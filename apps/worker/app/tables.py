@@ -203,6 +203,8 @@ whatsapp_numbers = Table(
     Column("zapi_instance_id", String),
     Column("zapi_instance_token_encrypted", Text),
     Column("zapi_client_token_encrypted", Text),
+    Column("omni_channel_id", String),
+    Column("omni_channel_token_encrypted", Text),
     Column("status", String),
 )
 
