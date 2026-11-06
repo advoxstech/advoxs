@@ -2,6 +2,7 @@
 
 import { ResponseSources } from "@/components/ResponseSources";
 import { ContactAttachment } from "./ContactAttachment";
+import { MediaTranscript } from "./MediaTranscript";
 
 import { useTeamSession } from "./TeamSession";
 import { AttendancePanel } from "./AttendancePanel";
@@ -618,10 +619,13 @@ function MessageBubble({
           </span>
         ) : null}
         {message.media_url && fromContact ? (
-          <ContactAttachment
-            conversationId={conversationId}
-            message={message}
-          />
+          <>
+            <ContactAttachment
+              conversationId={conversationId}
+              message={message}
+            />
+            {message.media ? <MediaTranscript media={message.media} /> : null}
+          </>
         ) : message.media_url ? (
           <a
             href={message.media_url}

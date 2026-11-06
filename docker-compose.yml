@@ -164,6 +164,11 @@ services:
       - redis
       - api_rag
     logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
 
   postgres:
     image: postgres:16

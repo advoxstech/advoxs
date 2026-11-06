@@ -61,5 +61,26 @@ class Settings(BaseSettings):
     gmail_smtp_app_password: str = ""
     admin_notification_email: str = ""
 
+    # Transcrição de áudio do contato (ver app/tasks/media.py). Desligada,
+    # o áudio segue o comportamento anterior (nota "formato não suportado").
+    audio_transcription_enabled: bool = False
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    transcription_model: str = "gpt-4o-transcribe"
+    transcription_timeout_seconds: float = 120
+    transcription_max_concurrency: int = 2
+    transcription_uncertain_threshold: float = 0.5
+    transcription_usd_per_minute: float = 0.006
+    audio_max_duration_seconds: int = 600
+    # Teto do arquivo enviado à OpenAI (a API recusa acima de 25 MB), menor
+    # que attachment_max_bytes (60 MB, documentos).
+    audio_max_bytes: int = 25 * 1024 * 1024
+    media_max_attempts: int = 3
+
+
+def validate_transcription_config(s: Settings) -> None:
+    if s.audio_transcription_enabled and not s.openai_api_key.strip():
+        raise RuntimeError("AUDIO_TRANSCRIPTION_ENABLED=true exige OPENAI_API_KEY")
+
 
 settings = Settings()

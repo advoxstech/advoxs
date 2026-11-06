@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "cryptography>=44.0.0",
     "httpx>=0.28.1",
+    "mutagen>=1.47.0",
     "pydantic-settings>=2.14.2",
     "redis>=5.3.1",
     "sqlalchemy[asyncio]>=2.0.51",

@@ -150,3 +150,32 @@ async def test_cliente_final_cobra_so_ate_o_saldo_disponivel() -> None:
 
     assert cobrado == Decimal("0.75")
     assert session.insert_params()["amount_credits"] == Decimal("-0.75")
+
+
+async def test_descricao_customizada_vai_para_o_ledger() -> None:
+    from app.tasks import wallet
+
+    session = FakeSession()
+    await wallet._debitar_creditos(
+        session, TENANT_ID, MESSAGE_ID, 0, Decimal("2"), description="Transcrição de áudio"
+    )
+    assert any(p.get("description") == "Transcrição de áudio" for p in session.executed)
+
+    session = FakeSession()
+    await wallet._debitar_creditos_cliente_final(
+        session,
+        TENANT_ID,
+        CONTACT,
+        MESSAGE_ID,
+        0,
+        Decimal("2"),
+        description="Transcrição de áudio",
+    )
+    assert any(p.get("description") == "Transcrição de áudio" for p in session.executed)
+
+
+def test_messages_reexporta_os_debitos() -> None:
+    from app.tasks import wallet
+
+    assert messages_task._debitar_creditos is wallet._debitar_creditos
+    assert messages_task._debitar_creditos_cliente_final is wallet._debitar_creditos_cliente_final

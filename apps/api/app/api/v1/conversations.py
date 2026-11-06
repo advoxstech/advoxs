@@ -40,6 +40,7 @@ from app.models import (
     EndCustomerCreditTransaction,
     InboundMessageJob,
     Message,
+    MessageMedia,
     OfficeMembership,
     OutboundMessageJob,
     Tenant,
@@ -54,6 +55,7 @@ from app.schemas.conversations import (
     ConversationOut,
     ConversationStateUpdate,
     ConversationUsageOut,
+    MessageMediaOut,
     MessageOut,
     SendMessageRequest,
     UrgencyUpdate,
@@ -264,7 +266,21 @@ async def list_messages(
         .limit(limit)
         .offset(offset)
     )
-    return [MessageOut.model_validate(m) for m in result.scalars().all()]
+    messages = result.scalars().all()
+    media_by_message: dict[uuid.UUID, MessageMedia] = {}
+    with_media = [m.id for m in messages if m.media_url]
+    if with_media:
+        media_rows = await session.execute(
+            select(MessageMedia).where(MessageMedia.message_id.in_(with_media))
+        )
+        media_by_message = {row.message_id: row for row in media_rows.scalars().all()}
+    out = []
+    for m in messages:
+        item = MessageOut.model_validate(m)
+        if m.id in media_by_message:
+            item.media = MessageMediaOut.model_validate(media_by_message[m.id])
+        out.append(item)
+    return out
 
 
 @router.get("/{conversation_id}/messages/{message_id}/attachment")

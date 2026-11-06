@@ -60,6 +60,15 @@ class ResponseSources(BaseModel):
     search_failed: bool = False
 
 
+class MessageMediaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: Literal["audio", "document", "image"]
+    status: Literal["pending", "processing", "done", "failed", "skipped"]
+    error_code: str | None = None
+    text: str | None = None
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -70,6 +79,7 @@ class MessageOut(BaseModel):
     content: str
     media_url: str | None
     media_type: str | None
+    media: MessageMediaOut | None = None
     response_sources: ResponseSources | None = None
     delivery_status: Literal["pending", "sent", "failed", "cancelled"] | None
     created_at: datetime

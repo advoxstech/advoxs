@@ -152,3 +152,63 @@ class TestGetTenantSessionSobreviveCommit:
 
         assert conversation.state == "agent"
         await engine.dispose()
+
+
+class TestMessageMediaRLS:
+    async def test_message_media_isolada_por_tenant(self, seeded_tenants) -> None:
+        owner = create_async_engine(settings.database_url)
+        message_id = uuid.uuid4()
+        async with owner.begin() as conn:
+            conversation_id = (
+                await conn.execute(
+                    text("SELECT id FROM conversations WHERE tenant_id = :a"), {"a": TENANT_A}
+                )
+            ).scalar_one()
+            await conn.execute(
+                text(
+                    "INSERT INTO messages (id, conversation_id, tenant_id, sender_type, content) "
+                    "VALUES (:m, :c, :a, 'contact', '')"
+                ),
+                {"m": message_id, "c": conversation_id, "a": TENANT_A},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO message_media (message_id, tenant_id, kind, status) "
+                    "VALUES (:m, :a, 'audio', 'done')"
+                ),
+                {"m": message_id, "a": TENANT_A},
+            )
+        try:
+            app_engine = create_async_engine(settings.app_database_url)
+            async with app_engine.begin() as conn:
+                await conn.execute(
+                    text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT_B)}
+                )
+                visible_to_b = (
+                    await conn.execute(text("SELECT count(*) FROM message_media"))
+                ).scalar_one()
+            async with app_engine.begin() as conn:
+                await conn.execute(
+                    text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(TENANT_A)}
+                )
+                visible_to_a = (
+                    await conn.execute(
+                        text("SELECT count(*) FROM message_media WHERE message_id = :m"),
+                        {"m": message_id},
+                    )
+                ).scalar_one()
+            await app_engine.dispose()
+            assert visible_to_b == 0
+            assert visible_to_a == 1
+        finally:
+            async with owner.begin() as conn:
+                # message_media sai em cascata com a mensagem.
+                await conn.execute(text("DELETE FROM messages WHERE id = :m"), {"m": message_id})
+                remaining = (
+                    await conn.execute(
+                        text("SELECT count(*) FROM message_media WHERE message_id = :m"),
+                        {"m": message_id},
+                    )
+                ).scalar_one()
+            await owner.dispose()
+        assert remaining == 0

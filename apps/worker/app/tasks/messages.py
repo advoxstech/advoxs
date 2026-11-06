@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
+from app.audio_validation import is_audio
 from app.billing_gate import handle_billing_gate, maybe_enter_gate
 from app.clients.agents import (
     replace_context_to_agents,
@@ -20,6 +21,7 @@ from app.clients.agents import (
 )
 from app.clients.whatsapp import send_text_message
 from app.clients.zapi import send_zapi_text_message
+from app.config import settings
 from app.crypto import decrypt_access_token
 from app.db import open_system_session, open_tenant_session
 from app.email_notifications import send_tenant_out_of_credits_notification
@@ -35,7 +37,15 @@ from app.tasks.attachments import (
     process_inbound_attachment,
 )
 from app.tasks.inbound_context import InboundContext
+from app.tasks.media import (
+    TRANSIENT_ERRORS,
+    failure_note,
+    prepare_media,
+    record_media_skipped,
+    transcript_note,
+)
 from app.tasks.outbound_outbox import enqueue_outbound_message_jobs
+from app.tasks.wallet import _debitar_creditos, _debitar_creditos_cliente_final
 
 logger = logging.getLogger(__name__)
 
@@ -486,6 +496,23 @@ async def _conversation_allows_automation(
     return row is not None and row.state == "agent" and row.deletion_requested_at is None
 
 
+def _content_with_media_note(row) -> str:
+    """Mesma composição do turno: legenda + nota do áudio (transcrição ou falha)."""
+    if row.sender_type != "contact":
+        return row.content
+    note = None
+    if row.media_status == "done":
+        note = transcript_note(row.media_text or "", bool(row.media_uncertain_spans))
+    elif row.media_status == "failed" and (
+        row.media_error_code not in TRANSIENT_ERRORS
+        or (row.media_attempts or 0) >= settings.media_max_attempts
+    ):
+        note = failure_note(row.media_error_code)
+    if note is None:
+        return row.content
+    return f"{row.content}\n{note}".strip()
+
+
 async def _restore_agent_context_before_stale_response(
     session: AsyncSession,
     http: httpx.AsyncClient,
@@ -506,7 +533,21 @@ async def _restore_agent_context_before_stale_response(
         raise RuntimeError("mensagem de referência não encontrada para restaurar contexto")
     rows = (
         await session.execute(
-            select(tables.messages.c.sender_type, tables.messages.c.content)
+            select(
+                tables.messages.c.sender_type,
+                tables.messages.c.content,
+                tables.message_media.c.status.label("media_status"),
+                tables.message_media.c.text.label("media_text"),
+                tables.message_media.c.uncertain_spans.label("media_uncertain_spans"),
+                tables.message_media.c.error_code.label("media_error_code"),
+                tables.message_media.c.attempts.label("media_attempts"),
+            )
+            .select_from(
+                tables.messages.outerjoin(
+                    tables.message_media,
+                    tables.message_media.c.message_id == tables.messages.c.id,
+                )
+            )
             .where(
                 tables.messages.c.conversation_id == uuid.UUID(conversation_id),
                 tables.messages.c.created_at <= marker,
@@ -518,7 +559,7 @@ async def _restore_agent_context_before_stale_response(
     history = [
         {
             "role": "contact" if row.sender_type == "contact" else "attendant",
-            "content": row.content,
+            "content": _content_with_media_note(row),
         }
         for row in rows
     ]
@@ -607,12 +648,27 @@ async def _process_inbound_message(
         return
 
     if inbound.human_only:
-        # Registered human-only contacts never enter billing or agent generation.
+        # Registered human-only contacts never enter billing or agent generation,
+        # but the audio is still transcribed for the panel (spec §3).
+        await prepare_media(
+            ctx,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            inbound=inbound,
+        )
         return
 
     async with open_tenant_session(session_factory, tenant_id) as session:
         entrou_no_gate = await maybe_enter_gate(session, tenant_id, conversation_id, inbound)
     if entrou_no_gate:
+        await record_media_skipped(
+            ctx,
+            tenant_id=tenant_id,
+            message_id=message_id,
+            inbound=inbound,
+            error_code="billing_gate",
+        )
         try:
             async with open_tenant_session(session_factory, tenant_id) as session:
                 await handle_billing_gate(session, tenant_id, conversation_id, inbound)
@@ -649,6 +705,17 @@ async def _process_inbound_message(
                 await session.commit()
         return
 
+    media_note = await prepare_media(
+        ctx,
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        message_id=message_id,
+        inbound=inbound,
+    )
+    message_content = inbound.message_content
+    if media_note:
+        message_content = f"{message_content}\n{media_note}".strip()
+
     if inbound.conversation_state != "agent":
         # O takeover persiste até o atendente devolver a conversa à IA.
         logger.info(
@@ -657,7 +724,7 @@ async def _process_inbound_message(
             conversation_id,
             inbound.conversation_state,
         )
-        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
         return
 
     # Moeda única: turno custeado pelo cliente final (cobrança habilitada e
@@ -680,7 +747,7 @@ async def _process_inbound_message(
             conversation_id,
             inbound.credit_balance,
         )
-        await _sync_context(http, tenant_id, inbound.contact_phone_number, inbound.message_content)
+        await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
         async with open_tenant_session(session_factory, tenant_id) as session:
             await session.execute(
                 update(tables.conversations)
@@ -722,19 +789,23 @@ async def _process_inbound_message(
             session_factory, tenant_id, conversation_id, inbound
         )
 
-    attachment_note = await process_inbound_attachment(
-        rag_http,
-        tenant_id=tenant_id,
-        conversation_id=inbound.contact_phone_number,
-        message_id=message_id,
-        media_ref=inbound.media_url,
-        media_type=inbound.media_type,
-        whatsapp_provider=inbound.whatsapp_provider,
-        access_token=meta_access_token,
-        zapi_client_token=zapi_client_token,
-        on_slow_reading=notify_slow_reading,
-    )
-    message_content = inbound.message_content
+    # Áudio é tratado por prepare_media (transcrição) quando o recurso está
+    # ligado; o caminho de anexo só cuida de documentos.
+    audio_handled = settings.audio_transcription_enabled and is_audio(inbound.media_type)
+    attachment_note = None
+    if not audio_handled:
+        attachment_note = await process_inbound_attachment(
+            rag_http,
+            tenant_id=tenant_id,
+            conversation_id=inbound.contact_phone_number,
+            message_id=message_id,
+            media_ref=inbound.media_url,
+            media_type=inbound.media_type,
+            whatsapp_provider=inbound.whatsapp_provider,
+            access_token=meta_access_token,
+            zapi_client_token=zapi_client_token,
+            on_slow_reading=notify_slow_reading,
+        )
     if attachment_note:
         message_content = f"{message_content}\n{attachment_note}".strip()
     if reading_notice_sent:
@@ -1351,112 +1422,3 @@ async def _persist_agent_responses(
             .values(last_message_at=now)
         )
     return first_message_id, outbound_job_ids
-
-
-async def _debitar_creditos(
-    session: AsyncSession,
-    tenant_id: str,
-    message_id: uuid.UUID,
-    tokens_used: int,
-    credits: Decimal,
-    tokens_input: int = 0,
-    tokens_output: int = 0,
-    pricing_config_id: uuid.UUID | None = None,
-) -> tuple[bool, Decimal]:
-    """Lança o consumo no ledger e atualiza o cache de saldo do tenant.
-
-    O SELECT ... FOR UPDATE serializa débitos concorrentes do mesmo tenant
-    (várias mensagens simultâneas) — o update relativo em seguida nunca perde
-    escrita nem lê saldo obsoleto.
-
-    Devolve se este débito zerou o saldo e quanto foi efetivamente cobrado.
-    O valor cobrado nunca ultrapassa o saldo travado, portanto concorrência
-    não produz saldo negativo.
-
-    True representa a transição de positivo para zero — usado pra notificar
-    a Advoxs uma única vez por
-    "episódio" de saldo esgotado, nunca a cada mensagem enquanto já
-    está zerado (ver send_tenant_out_of_credits_notification)."""
-    saldo_antes = (
-        await session.execute(
-            select(tables.tenants.c.credit_balance)
-            .where(tables.tenants.c.id == uuid.UUID(tenant_id))
-            .with_for_update()
-        )
-    ).scalar_one()
-    saldo_disponivel = max(Decimal(0), saldo_antes)
-    credits_cobrados = min(saldo_disponivel, credits)
-    if credits_cobrados:
-        await session.execute(
-            insert(tables.credit_transactions).values(
-                tenant_id=uuid.UUID(tenant_id),
-                type="consumption",
-                amount_credits=-credits_cobrados,
-                related_message_id=message_id,
-                tokens_input=tokens_input or None,
-                tokens_output=tokens_output or None,
-                pricing_config_id=pricing_config_id,
-                description="Consumo do agente",
-                created_at=datetime.now(UTC),
-            )
-        )
-        await session.execute(
-            update(tables.tenants)
-            .where(tables.tenants.c.id == uuid.UUID(tenant_id))
-            .values(credit_balance=tables.tenants.c.credit_balance - credits_cobrados)
-        )
-    return saldo_antes > 0 and credits_cobrados == saldo_disponivel, credits_cobrados
-
-
-async def _debitar_creditos_cliente_final(
-    session: AsyncSession,
-    tenant_id: str,
-    contact_phone_number: str,
-    message_id: uuid.UUID,
-    tokens_used: int,
-    credits: Decimal,
-    tokens_input: int = 0,
-    tokens_output: int = 0,
-    pricing_config_id: uuid.UUID | None = None,
-) -> Decimal:
-    """Débito do saldo do CLIENTE FINAL com o tenant — moeda única: quando o
-    turno é custeado pelo cliente, SÓ esta wallet é debitada (o estoque do
-    tenant já foi debitado na revenda). FOR UPDATE serializa débitos
-    concorrentes do mesmo contato."""
-    saldo_antes = (
-        await session.execute(
-            select(tables.end_customer_balances.c.credit_balance)
-            .where(
-                tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
-                tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
-            )
-            .with_for_update()
-        )
-    ).scalar_one()
-    saldo_disponivel = max(Decimal(0), saldo_antes)
-    credits_cobrados = min(saldo_disponivel, credits)
-    if not credits_cobrados:
-        return Decimal(0)
-    await session.execute(
-        insert(tables.end_customer_credit_transactions).values(
-            tenant_id=uuid.UUID(tenant_id),
-            contact_phone_number=contact_phone_number,
-            type="consumption",
-            amount_credits=-credits_cobrados,
-            related_message_id=message_id,
-            tokens_input=tokens_input or None,
-            tokens_output=tokens_output or None,
-            pricing_config_id=pricing_config_id,
-            description="Consumo do agente",
-            created_at=datetime.now(UTC),
-        )
-    )
-    await session.execute(
-        update(tables.end_customer_balances)
-        .where(
-            tables.end_customer_balances.c.tenant_id == uuid.UUID(tenant_id),
-            tables.end_customer_balances.c.contact_phone_number == contact_phone_number,
-        )
-        .values(credit_balance=tables.end_customer_balances.c.credit_balance - credits_cobrados)
-    )
-    return credits_cobrados

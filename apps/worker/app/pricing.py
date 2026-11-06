@@ -31,6 +31,7 @@ async def get_current_pricing_config(session: AsyncSession):
                 tables.pricing_configs.c.tokens_per_credit,
                 tables.pricing_configs.c.input_weight,
                 tables.pricing_configs.c.output_weight,
+                tables.pricing_configs.c.transcription_credits_per_minute,
             )
             .where(tables.pricing_configs.c.effective_at <= datetime.now(UTC))
             .order_by(tables.pricing_configs.c.effective_at.desc())

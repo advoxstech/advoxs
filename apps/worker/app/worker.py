@@ -3,7 +3,7 @@ from arq import cron
 from arq.connections import RedisSettings
 from arq.worker import func
 
-from app.config import settings
+from app.config import settings, validate_transcription_config
 from app.db import create_engine_and_factory, create_system_engine_and_factory
 from app.tasks.conversation_cleanup import (
     process_conversation_cleanup,
@@ -30,6 +30,7 @@ TURN_JOB_TIMEOUT_SECONDS = 1800
 
 
 async def startup(ctx: dict) -> None:
+    validate_transcription_config(settings)
     engine, session_factory = create_engine_and_factory()
     ctx["engine"] = engine
     ctx["session_factory"] = session_factory

@@ -28,6 +28,7 @@ pricing_configs = Table(
     Column("tokens_per_credit", Integer),
     Column("input_weight", Numeric(6, 4)),
     Column("output_weight", Numeric(6, 4)),
+    Column("transcription_credits_per_minute", Numeric(8, 4)),
     Column("effective_at", DateTime(timezone=True)),
 )
 
@@ -95,6 +96,26 @@ messages = Table(
     Column("tokens_used", Integer),
     Column("credits_consumed", Numeric(12, 4)),
     Column("created_at", DateTime(timezone=True), server_default=text("now()")),
+)
+
+message_media = Table(
+    "message_media",
+    metadata,
+    Column("message_id", Uuid, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("kind", String),
+    Column("status", String),
+    Column("attempts", Integer),
+    Column("error_code", String),
+    Column("text", Text),
+    Column("uncertain_spans", JSONB),
+    Column("duration_seconds", Numeric(8, 2)),
+    Column("provider", String),
+    Column("cost_usd", Numeric(10, 6)),
+    Column("credits_consumed", Numeric(12, 4)),
+    Column("started_at", DateTime(timezone=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    Column("updated_at", DateTime(timezone=True)),
 )
 
 conversation_processing_locks = Table(
