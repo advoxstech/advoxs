@@ -1,3 +1,5 @@
+import asyncio
+
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -5,6 +7,7 @@ from langgraph.graph import END
 from langgraph.types import Command
 from loguru import logger
 
+from agents import auto_search
 from agents.helpers import strip_messages
 from agents.response_sources import (
     SOURCE_RULE,
@@ -86,18 +89,18 @@ def _urgency_rule() -> str:
     return _URGENCY_RULE + "\n\n---\n\n"
 
 
-# Início da nota que o worker (app/tasks/attachments.py) e as conversas de teste
-# do api (app/services/test_attachments.py) anexam à mensagem do contato quando
-# um documento dele foi lido e está na base pessoal da conversa — também na
-# versão "processado parcialmente". Mudar o texto lá exige mudar aqui.
-_CONTACT_DOCUMENT_NOTE = "[Documento recebido e processado"
+_contact_sent_document = auto_search.contact_sent_document
 
-
-def _contact_sent_document(messages: list) -> bool:
-    """O contato enviou nesta conversa algum documento que está disponível para busca."""
-    return any(
-        isinstance(m, HumanMessage) and _CONTACT_DOCUMENT_NOTE in str(m.content) for m in messages
-    )
+# Só com a busca automática ligada: diz ao modelo que os resultados já estão no
+# histórico, para ele usá-los em vez de pedir o documento ou buscar de novo à toa.
+_AUTO_SEARCH_RULE = (
+    "\n\n---\n"
+    "**Busca automática:** antes desta resposta o sistema já buscou, com a mensagem do "
+    "cliente, no documento que ele enviou (se houver) e na sua base de conhecimento (se "
+    "houver arquivos). Os resultados estão no histórico, como respostas dessas ferramentas. "
+    "Use o que for relevante e ignore os trechos sem relação com a pergunta. Se não "
+    "bastarem, busque de novo com outra pergunta antes de dizer que não encontrou."
+)
 
 
 def _searched_this_turn(messages: list, tool_name: str) -> bool:
@@ -178,7 +181,29 @@ async def agent_node(state: dict) -> Command:
         is_first_run,
     )
 
-    last_messages = strip_messages(state["messages"], state["num_before_messages"])
+    auto = auto_search.enabled()
+    if auto:
+        calls = auto_search.plan(state["messages"], current)
+        if calls:
+            logger.info(
+                "Busca automática | agent_id={} | ferramentas={}",
+                current["id"],
+                ",".join(c["name"] for c in calls),
+            )
+            # Sem chamar o modelo: o tool_node executa as buscas e o agent_node
+            # volta já com os resultados. A flag de primeira resposta fica para a
+            # chamada seguinte, que é a que responde.
+            return Command(
+                update={
+                    "messages": [auto_search.search_message(calls)],
+                    "current_agent_id": current["id"],
+                },
+                goto="tool_node",
+            )
+
+    last_messages = strip_messages(
+        auto_search.drop_previous_turns(state["messages"]), state["num_before_messages"]
+    )
 
     tools_for_agent = [
         transfer_to_agent,
@@ -212,13 +237,17 @@ async def agent_node(state: dict) -> Command:
     # 2026-11-06: 46 de 175 respostas). Ele vem primeiro: a pergunta costuma ser
     # sobre o documento que acabou de chegar. Depois dele, a base do escritório.
     messages = state["messages"]
+    # Com a busca automática ligada, as buscas já aconteceram acima; a forçada
+    # fica só para AGENTS_AUTO_SEARCH=false.
     force_contact_search = (
-        is_first_run
+        not auto
+        and is_first_run
         and _contact_sent_document(messages)
         and not _searched_this_turn(messages, "bucar_base_conhecimento_usuario")
     )
     force_kb_search = (
-        is_first_run
+        not auto
+        and is_first_run
         and not force_contact_search
         and bool(current.get("knowledge_base_file_ids"))
         and not state.get("source_searches", {}).get(current["id"])
@@ -246,6 +275,7 @@ async def agent_node(state: dict) -> Command:
         + current["instructions"]
         + _CONTINUITY_RULE
         + _KNOWLEDGE_BASE_RULE
+        + (_AUTO_SEARCH_RULE if auto else "")
         + SOURCE_RULE
     )
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
@@ -342,14 +372,10 @@ async def tool_node(state: dict) -> dict:
     messages = []
     state_updates = {}
 
+    prepared = []
     for tool_call in tool_calls:
         if tool_call["name"] == "responder_com_fontes":
-            messages.append(
-                ToolMessage(
-                    content="Finalize chamando responder_com_fontes sozinha, com answer não vazio.",
-                    tool_call_id=tool_call["id"],
-                )
-            )
+            prepared.append((tool_call, None, None))
             continue
         tool = tools_by_name.get(tool_call["name"])
 
@@ -369,14 +395,31 @@ async def tool_node(state: dict) -> dict:
             args["valid_agent_ids"] = list(agents_by_id.keys())
 
         logger.info("Executando ferramenta | tool={} | argumentos={}", tool_call["name"], len(args))
-        observation = await tool.ainvoke(args)
+        prepared.append((tool_call, tool, args))
+
+    observations = iter(
+        await asyncio.gather(*(tool.ainvoke(args) for _, tool, args in prepared if tool))
+    )
+
+    for tool_call, tool, _args in prepared:
+        if tool is None:
+            messages.append(
+                ToolMessage(
+                    content="Finalize chamando responder_com_fontes sozinha, com answer não vazio.",
+                    tool_call_id=tool_call["id"],
+                )
+            )
+            continue
+        observation = next(observations)
         logger.info("Ferramenta concluída | tool={}", tool_call["name"])
 
-        if tool_call["name"] == "buscar_base_conhecimento_agente" and current:
-            observation, evidence_updates = collect_search(
-                observation, {**state, **state_updates}, current
-            )
-            state_updates.update(evidence_updates)
+        if tool_call["name"] == "buscar_base_conhecimento_agente":
+            current = agents_by_id.get(state.get("current_agent_id"))
+            if current:
+                observation, evidence_updates = collect_search(
+                    observation, {**state, **state_updates}, current
+                )
+                state_updates.update(evidence_updates)
 
         if isinstance(observation, Command):
             if observation.update:

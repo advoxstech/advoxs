@@ -511,6 +511,32 @@ START → agent_node (ponto de entrada) → (transfer_to_agent) → tool_node
   vazia.
 - Caso contrário, emite uma `ToolMessage` com o resultado stringificado.
 
+- As chamadas da mesma rodada rodam ao mesmo tempo (`asyncio.gather`); o
+  pós-processamento (fontes, `Command`, `ToolMessage`) segue a ordem das chamadas.
+
+### 5.4.1 Busca automática (`agents/auto_search.py`)
+
+Com `AGENTS_AUTO_SEARCH=true` (padrão), a cada mensagem do cliente com conteúdo
+o `agent_node` monta ele mesmo, sem chamar o modelo, as buscas que faltam no turno
+e manda para o `tool_node`; na volta, o modelo responde já com os resultados no
+histórico (`_AUTO_SEARCH_RULE` no prompt).
+
+- **Texto da busca:** o que o cliente escreveu desde a última resposta do agente
+  (mensagens em rajada e o pedido feito junto com um documento de leitura demorada),
+  sem as notas do sistema entre colchetes. Até 1.500 caracteres.
+- **Quando não busca:** mensagem trivial (até 3 palavras, sem `?` e sem número, como
+  "ok" ou "obrigado").
+- **Documento do cliente:** uma vez por mensagem do cliente, se há a nota
+  `[Documento recebido e processado` no histórico; depois de uma transferência, o
+  especialista usa o resultado da recepção (a pergunta é a mesma).
+- **Base do agente:** uma vez por agente no turno, se ele tem arquivos; a busca da
+  recepção não vale pelo especialista.
+- As chamadas montadas pelo código têm id `auto-search-…`; as de turnos anteriores
+  saem do contexto (`drop_previous_turns`), para não ocupar a janela de
+  `num_before_messages` nem gastar tokens.
+- Com `AGENTS_AUTO_SEARCH=false`, volta a busca forçada (`tool_choice`) só na
+  primeira resposta do especialista.
+
 ### 5.5 `strip_messages` (`agents/helpers.py`)
 
 Sanitiza e recorta o histórico antes de mandar ao LLM. Responsabilidades:
@@ -659,6 +685,9 @@ OPENAI_API_KEY=
 
 # Auth interna (chamadas do `api` → este serviço)
 AGENTS_API_KEY=
+
+# Busca automática nas bases antes de a IA responder (padrão true, ver §5.4.1)
+AGENTS_AUTO_SEARCH=true
 
 # WhatsApp Cloud API (credenciais por tenant chegam em cada request)
 GRAPH_API_BASE_URL=https://graph.facebook.com
