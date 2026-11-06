@@ -44,7 +44,9 @@ retrofit já concluído.
 
 **Stack:** Python 3.13 · FastAPI · SQLAlchemy (async / asyncpg) · Alembic ·
 Qdrant (`qdrant-client` async) · LangChain + `langchain-openai` · `chonkie`
-(chunking) · `pdfplumber` / `python-docx` (extração de texto) · `loguru`.
+(chunking) · `pypdfium2` / `python-docx` (extração de texto, em lotes de páginas —
+ver `services/documents/main.py`) · Tesseract (OCR das páginas escaneadas ou com texto
+embaralhado, instalado no `Dockerfile`; `OCR_*` em `constants.py`) · `loguru`.
 
 ### Fluxo de ingestão
 1. Recebe arquivo (`pdf`, `docx` ou `txt`) via `multipart/form-data`.
@@ -149,8 +151,17 @@ curl -X POST http://localhost:8000/documents/users/insert \
 
 **Resposta `200`:**
 ```json
-{ "mensagem": "Documentos inseridos com sucesso" }
+{
+  "mensagem": "Documentos inseridos com sucesso",
+  "leitura": { "paginas": 50, "ocr": 50, "paginas_parciais": [12, 18] }
+}
 ```
+
+`leitura.paginas` é `null` para DOCX/TXT. `paginas_parciais` lista as páginas sem texto
+mesmo com OCR ou com leitura fraca (confiança média do Tesseract abaixo de
+`OCR_MIN_CONFIDENCE`). Quando há páginas parciais, todos os trechos do documento recebem
+`partial_pages` e `pages_total` no payload do Qdrant; cada trecho de PDF já traz
+`page_start`/`page_end`.
 
 **Erros:** `400` (validação / formato não suportado) · `403` (auth) · `500` (falha interna).
 

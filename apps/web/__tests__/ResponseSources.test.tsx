@@ -69,6 +69,17 @@ it("offers a new attempt after a network failure", async () => {
   expect(screen.getByRole("button")).not.toBeDisabled();
 });
 
+it("shows the page range and warns about partial reading", () => {
+  render(<ResponseSources message={message({
+    status: "referenced",
+    sources: [{ ...source, page: 12, page_end: 13, partial_pages: [4, 9] }],
+    search_failed: false,
+  })} />);
+  fireEvent.click(screen.getByText("Fontes da resposta · 1 documento"));
+  expect(screen.getByText("Páginas 12–13")).toBeInTheDocument();
+  expect(screen.getByText(/Leitura parcial do documento: as páginas 4, 9/)).toBeInTheDocument();
+});
+
 it("does not add source controls to human or contact messages", () => {
   const { container } = render(<ResponseSources message={{ ...message(), sender_type: "human" }} />);
   expect(container).toBeEmptyDOMElement();

@@ -1,15 +1,15 @@
 """Media processing state (audio transcription, OCR) and transcription pricing.
 
-Revision ID: 0049
-Revises: 0048
+Revision ID: 0052
+Revises: 0051
 """
 
 from pathlib import Path
 
 from alembic import op
 
-revision = "0049"
-down_revision = "0048"
+revision = "0052"
+down_revision = "0051"
 branch_labels = None
 depends_on = None
 

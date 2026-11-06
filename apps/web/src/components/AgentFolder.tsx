@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { formatPages } from "@/lib/format";
 import { KB_CATEGORIES, kbCategoryLabel } from "@/lib/kb-categories";
 import type { Agent } from "@/lib/types";
 
@@ -18,7 +19,23 @@ export type KbFile = {
   drive_file_id?: string | null;
   imported_at?: string | null;
   replaces_file_id?: string | null;
+  pages_total?: number | null;
+  partial_pages?: number[];
 };
+
+/** Aviso de leitura parcial (páginas sem texto ou com OCR ruim); null se completa. */
+export function partialReadingText(file: KbFile): string | null {
+  const pages = file.partial_pages ?? [];
+  if (file.status !== "ready" || pages.length === 0) return null;
+  const one = pages.length === 1;
+  const total = file.pages_total ? ` de ${file.pages_total}` : "";
+  return (
+    `${one ? "1 página" : `${pages.length} páginas`}${total} ` +
+    `${one ? "não foi lida ou ficou" : "não foram lidas ou ficaram"} com leitura ruim ` +
+    `(p. ${formatPages(pages)}). Envie uma digitalização mais nítida dessas páginas ` +
+    "para o agente consultá-las."
+  );
+}
 
 const ACCEPTED = ".pdf,.docx,.txt";
 const UNCATEGORIZED_KEY = "__sem_categoria__";
@@ -217,6 +234,7 @@ function CategoryGroup({
             const availableToAttach = allAgents.filter(
               (a) => a.id !== agent.id && !file.agent_ids.includes(a.id),
             );
+            const partial = partialReadingText(file);
             return (
               <li
                 key={file.id}
@@ -235,12 +253,18 @@ function CategoryGroup({
                   {file.status === "error" && file.error_message && (
                     <p className="mt-1 text-xs text-danger">{file.error_message}</p>
                   )}
+                  {partial && <p className="mt-1 text-xs text-brass-ink">{partial}</p>}
                 </div>
                 <span
                   className={`rounded-full px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] ${STATUS_CLASS[file.status]}`}
                 >
                   {STATUS_LABEL[file.status]}
                 </span>
+                {partial && (
+                  <span className="rounded-full bg-brass-soft px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] text-brass-ink">
+                    leitura parcial
+                  </span>
+                )}
                 <select
                   value={file.category ?? ""}
                   disabled={!!file.replaces_file_id}

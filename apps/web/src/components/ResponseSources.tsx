@@ -3,6 +3,7 @@ import { backendFetch } from "@/lib/client-api";
 
 import { useState } from "react";
 
+import { formatPages } from "@/lib/format";
 import type { Message, ResponseSource } from "@/lib/types";
 
 const STATUS_TEXT = {
@@ -75,7 +76,19 @@ export function ResponseSources({ message }: { message: Message }) {
         {evidence?.sources.map((source) => (
           <article key={`${source.document_id}:${source.chunk_id}`} className="min-w-0 rounded-sm border border-line bg-surface p-3">
             <p className="break-words font-medium text-ink">{source.filename}</p>
-            {source.page ? <p className="mt-1 text-muted">Página {source.page}</p> : null}
+            {source.page ? (
+              <p className="mt-1 text-muted">
+                {source.page_end && source.page_end > source.page
+                  ? `Páginas ${source.page}–${source.page_end}`
+                  : `Página ${source.page}`}
+              </p>
+            ) : null}
+            {source.partial_pages?.length ? (
+              <p className="mt-1 text-xs text-brass-ink">
+                Leitura parcial do documento: as páginas {formatPages(source.partial_pages)} não
+                foram lidas ou ficaram com leitura ruim.
+              </p>
+            ) : null}
             <blockquote className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-l-2 border-line pl-3 leading-relaxed text-ink">
               {source.excerpt}
             </blockquote>

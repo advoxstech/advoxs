@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.rag import RagApiError, delete_documents, read_office_document
 from app.core.config import settings
-from app.core.queue import get_arq_pool
+from app.core.queue import INGESTION_QUEUE, get_arq_pool
 from app.core.safe_logging import safe_error
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 from app.schemas.knowledge_base import (
@@ -244,6 +244,7 @@ async def upload_file(
         "ingest_knowledge_base_file",
         tenant_id=str(ctx.tenant_id),
         file_id=str(record.id),
+        _queue_name=INGESTION_QUEUE,
     )
     return KnowledgeBaseFileOut(
         id=record.id,
@@ -304,6 +305,8 @@ async def list_files(
             drive_file_id=getattr(f, "drive_file_id", None),
             imported_at=getattr(f, "imported_at", None),
             replaces_file_id=getattr(f, "replaces_file_id", None),
+            pages_total=getattr(f, "pages_total", None),
+            partial_pages=getattr(f, "partial_pages", None) or [],
         )
         for f in files
     ]
@@ -467,4 +470,5 @@ async def reprocess_file(
         tenant_id=str(ctx.tenant_id),
         file_id=str(file_id),
         **({"_job_id": f"kb:{file_id}"} if getattr(record, "drive_file_id", None) else {}),
+        _queue_name=INGESTION_QUEUE,
     )

@@ -46,13 +46,24 @@ _CONTINUITY_RULE = (
     "use o que já foi contado."
 )
 
+# Vale para todo agente, inclusive os com prompt editado pelo escritório. Sem ela,
+# o especialista recém-transferido pedia ao cliente o contrato que já estava na
+# base (experimento de 2026-11-05: 18% de acerto nas perguntas transferidas
+# contra 57% nas respondidas pela recepção) — os prompts padrão descrevem a base
+# como "materiais institucionais" e mandam "pedir o documento necessário".
 _KNOWLEDGE_BASE_RULE = (
     "\n\n---\n"
-    "**Regra da base de conhecimento:** a base é opcional e complementa seu conhecimento. "
-    "Quando a busca trouxer conteúdo relevante, priorize as informações do escritório. "
-    "Quando não houver documentos ou resultados relevantes, responda normalmente usando seu "
-    "conhecimento nativo. Se a busca estiver indisponível, você também pode responder com seu "
-    "conhecimento nativo, mas nunca afirme que consultou ou encontrou algo nos documentos."
+    "**Regra da base de conhecimento:** a base do escritório pode conter qualquer documento "
+    "que ele cadastrou — inclusive contratos, processos e documentos de clientes, não só "
+    "materiais institucionais. Antes de pedir um documento ao cliente, de dizer que não tem a "
+    "informação ou de responder sobre um contrato, cláusula, prazo, valor, data, pessoa ou "
+    "processo específico, consulte buscar_base_conhecimento_agente; se o cliente enviou "
+    "arquivo nesta conversa, consulte também bucar_base_conhecimento_usuario. Só peça o "
+    "documento ao cliente quando as buscas não trouxerem a informação. Quando a busca trouxer "
+    "conteúdo relevante, priorize as informações do escritório. Quando não houver documentos "
+    "ou resultados relevantes, responda normalmente usando seu conhecimento nativo. Se a busca "
+    "estiver indisponível, você também pode responder com seu conhecimento nativo, mas nunca "
+    "afirme que consultou ou encontrou algo nos documentos."
 )
 
 # Injetada em todo prompt, igual à de continuidade: a IA sinaliza e continua
@@ -73,6 +84,22 @@ _URGENCY_RULE = (
 
 def _urgency_rule() -> str:
     return _URGENCY_RULE + "\n\n---\n\n"
+
+
+def _log_final_sources(via_tool: bool, reference_ids, evidence: dict) -> None:
+    """Registra como a resposta final citou fontes — só contagens, nunca conteúdo.
+
+    Distingue o modelo que ignora responder_com_fontes (via_ferramenta=nao) do que
+    a usa sem citar (ids_enviados=0) ou com IDs inválidos (ids_validos < ids_enviados).
+    """
+    sent = len(reference_ids) if isinstance(reference_ids, list) else 0
+    logger.info(
+        "Resposta final | via_ferramenta={} | ids_enviados={} | ids_validos={} | status={}",
+        "sim" if via_tool else "nao",
+        sent,
+        len(evidence["sources"]),
+        evidence["status"],
+    )
 
 
 # Tools cujo conversation_id vem SEMPRE do estado do grafo, nunca do LLM —
@@ -141,7 +168,26 @@ async def agent_node(state: dict) -> Command:
             enviar_edital_convocacao,
             enviar_aviso,
         ]
-    model_with_tools = model.bind_tools(tools_for_agent)
+    # Na chegada de um especialista com base própria, a busca é obrigatória antes
+    # do parecer: só a instrução não bastava (o gpt-5-mini respondia "me manda o
+    # contrato" sem buscar, mesmo com o documento na base — produção, 2026-11-05).
+    # source_searches é zerado a cada mensagem do cliente (services/call_agent.py),
+    # então "ainda não buscou" vale para o turno atual.
+    last = state["messages"][-1] if state["messages"] else None
+    just_searched = isinstance(last, ToolMessage) and last.name == "buscar_base_conhecimento_agente"
+    force_kb_search = (
+        is_first_run
+        and bool(current.get("knowledge_base_file_ids"))
+        and not state.get("source_searches", {}).get(current["id"])
+        and not just_searched
+    )
+    if force_kb_search:
+        logger.info("Busca na base forçada na chegada do especialista | agent_id={}", current["id"])
+        model_with_tools = model.bind_tools(
+            tools_for_agent, tool_choice="buscar_base_conhecimento_agente"
+        )
+    else:
+        model_with_tools = model.bind_tools(tools_for_agent)
 
     # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
     prompt = (
@@ -168,6 +214,9 @@ async def agent_node(state: dict) -> Command:
             "### Se Apresente, diga sua especialidade e diga que dali para frente é "
             "responsável pelo atendimento. "
             "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
+            "Se a pergunta depende de um documento (contrato, cláusula, prazo, valor, nome), "
+            "consulte a base de conhecimento antes de dar o parecer — não peça o documento ao "
+            "cliente sem buscar primeiro. "
         )
 
     response = await model_with_tools.ainvoke(
@@ -184,7 +233,9 @@ async def agent_node(state: dict) -> Command:
         args = final_calls[0]["args"]
         answer = args.get("answer")
         if isinstance(answer, str) and answer.strip():
-            evidence = response_evidence(state, current, args.get("reference_ids", []))
+            reference_ids = args.get("reference_ids", [])
+            evidence = response_evidence(state, current, reference_ids)
+            _log_final_sources(True, reference_ids, evidence)
             # Preserve usage and identity, but never persist internal tool arguments in
             # the customer-facing message or leave an unanswered tool call in memory.
             response = response.model_copy(
@@ -196,10 +247,15 @@ async def agent_node(state: dict) -> Command:
                 }
             )
     if not final_calls:
-        response.additional_kwargs["response_sources"] = response_evidence(state, current)
+        evidence = response_evidence(state, current)
+        response.additional_kwargs["response_sources"] = evidence
+        if not response.tool_calls:
+            _log_final_sources(False, [], evidence)
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
-    if is_first_run:
+    if is_first_run and not force_kb_search:
+        # Com a busca forçada, a "primeira resposta" (apresentação + parecer) é a
+        # chamada seguinte, já com o resultado da busca no histórico.
         update["receptive_message_specialist"] = False
 
     if response.tool_calls:
@@ -282,7 +338,9 @@ async def tool_node(state: dict) -> dict:
         else:
             content = str(observation)
 
-        messages.append(ToolMessage(content=content, tool_call_id=tool_call["id"]))
+        messages.append(
+            ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
+        )
 
     logger.info("tool_node finalizado | mensagens_geradas={}", len(messages))
     return {"messages": messages, **state_updates}

@@ -63,6 +63,48 @@ def test_only_authorized_hits_are_exposed_and_referenced():
     assert response_evidence({"source_candidates": {}}, agent, [ref])["sources"] == []
 
 
+def test_page_range_comes_from_the_indexed_chunk():
+    state, agent = evidence_state()
+    result, _ = collect_search(
+        {"status": "found", "results": [hit(page_start=12, page_end=13)]}, state, agent
+    )
+    source = result["results"][0]
+    assert (source["page"], source["page_end"]) == (12, 13)
+
+
+def test_invalid_pages_are_dropped():
+    state, agent = evidence_state()
+    result, _ = collect_search(
+        {"status": "found", "results": [hit(page_start="3", page_end=1)]}, state, agent
+    )
+    source = result["results"][0]
+    assert (source["page"], source["page_end"]) == (None, None)
+
+
+def test_partial_reading_is_explained_to_the_agent():
+    state, agent = evidence_state()
+    result, _ = collect_search(
+        {
+            "status": "found",
+            "results": [hit(page_start=1, page_end=1, partial_pages=[7, 3, "x"])],
+            "guidance": "Priorize os trechos relevantes.",
+        },
+        state,
+        agent,
+    )
+    assert result["results"][0]["partial_pages"] == [3, 7]
+    assert result["guidance"].startswith("Priorize os trechos relevantes.")
+    assert "Atendimento.pdf: páginas 3, 7" in result["guidance"]
+    assert "Não invente" in result["guidance"]
+
+
+def test_complete_reading_has_no_partial_warning():
+    state, agent = evidence_state()
+    result, _ = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    assert result["results"][0]["partial_pages"] == []
+    assert "Leitura parcial" not in result["guidance"]
+
+
 @pytest.mark.parametrize(
     ("events", "expected"),
     [
@@ -92,7 +134,9 @@ def test_no_documents_and_invalid_results_are_not_empty_searches():
 
 async def test_structured_final_is_clean_and_keeps_tokens(monkeypatch):
     state, agent = evidence_state()
-    result, updates = collect_search({"status": "found", "results": [hit(page=3)]}, state, agent)
+    result, updates = collect_search(
+        {"status": "found", "results": [hit(page_start=3, page_end=3)]}, state, agent
+    )
     state.update(updates)
     ref = result["results"][0]["reference_id"]
     reply = ai_with_tool_call(
@@ -111,6 +155,69 @@ async def test_structured_final_is_clean_and_keeps_tokens(monkeypatch):
     assert message.tool_calls == []
     assert message.usage_metadata["total_tokens"] == 15
     assert message.additional_kwargs["response_sources"]["sources"][0]["page"] == 3
+
+
+@pytest.fixture
+def final_logs():
+    from loguru import logger
+
+    lines = []
+    sink = logger.add(lambda m: lines.append(m.record["message"]), level="INFO")
+    yield lambda: [line for line in lines if line.startswith("Resposta final")]
+    logger.remove(sink)
+
+
+async def test_final_log_counts_sent_and_valid_ids(monkeypatch, final_logs):
+    state, agent = evidence_state()
+    result, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    ref = result["results"][0]["reference_id"]
+    reply = ai_with_tool_call(
+        "responder_com_fontes",
+        {"answer": "A consulta dura 45 minutos.", "reference_ids": [ref, "invented"]},
+    )
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=sim | ids_enviados=2 | ids_validos=1 | status=referenced"
+    ]
+
+
+async def test_final_log_when_tool_is_used_without_ids(monkeypatch, final_logs):
+    state, agent = evidence_state()
+    _, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    reply = ai_with_tool_call(
+        "responder_com_fontes", {"answer": "A consulta dura 45 minutos.", "reference_ids": []}
+    )
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=sim | ids_enviados=0 | ids_validos=0 | status=not_used"
+    ]
+
+
+async def test_final_log_when_tool_is_ignored(monkeypatch, final_logs):
+    from langchain_core.messages import AIMessage
+
+    state, agent = evidence_state()
+    _, updates = collect_search({"status": "found", "results": [hit()]}, state, agent)
+    state.update(updates)
+    monkeypatch.setattr(
+        "agents.nodes.model", mock_model(AIMessage(content="A consulta dura 45 minutos."))
+    )
+    await agent_node(state)
+    assert final_logs() == [
+        "Resposta final | via_ferramenta=nao | ids_enviados=0 | ids_validos=0 | status=not_used"
+    ]
+
+
+async def test_no_final_log_while_calling_other_tools(monkeypatch, final_logs):
+    state, _ = evidence_state()
+    reply = ai_with_tool_call("buscar_base_conhecimento_agente", {"query": "duração"})
+    monkeypatch.setattr("agents.nodes.model", mock_model(reply))
+    await agent_node(state)
+    assert final_logs() == []
 
 
 async def test_final_cannot_be_combined_with_a_transfer(monkeypatch):

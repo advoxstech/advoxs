@@ -2,6 +2,11 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+# OCR de PDFs escaneados: Tesseract com português e detecção de orientação (osd).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-por tesseract-ocr-osd \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install uv
 
 COPY pyproject.toml uv.lock ./

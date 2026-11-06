@@ -45,8 +45,13 @@ class Settings(BaseSettings):
     # Anexo (PDF/DOCX/TXT) recebido do contato via WhatsApp e ingerido na
     # base de conhecimento pessoal dele — mesmo teto já usado na base de
     # conhecimento do escritório (ver apps/api/app/core/config.py,
-    # kb_max_file_size_bytes).
-    attachment_max_bytes: int = 20 * 1024 * 1024
+    # kb_max_file_size_bytes). Env: ATTACHMENT_MAX_BYTES.
+    attachment_max_bytes: int = 60 * 1024 * 1024
+
+    # WhatsApp oficial via Z-API Omni (workspace da Advoxs; mesma chave do api).
+    omni_secret_key: str = ""
+    omni_compat_base_url: str = "https://zapi.omni.z-api.io"
+    omni_api_base_url: str = "https://api.omni.z-api.io"
 
     # Notificação por e-mail (Gmail SMTP) quando o saldo de créditos de um
     # tenant zera — ver app/email_notifications.py. Mesmas 3 variáveis já
@@ -67,6 +72,9 @@ class Settings(BaseSettings):
     transcription_uncertain_threshold: float = 0.5
     transcription_usd_per_minute: float = 0.006
     audio_max_duration_seconds: int = 600
+    # Teto do arquivo enviado à OpenAI (a API recusa acima de 25 MB), menor
+    # que attachment_max_bytes (60 MB, documentos).
+    audio_max_bytes: int = 25 * 1024 * 1024
     media_max_attempts: int = 3
 
 

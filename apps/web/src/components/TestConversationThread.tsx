@@ -23,6 +23,19 @@ interface TestConversationThreadProps {
 
 const ACCEPTED_ATTACHMENT = ".pdf,.docx,.txt";
 
+// Início do aviso gravado pelo api quando um documento grande ainda está sendo
+// lido (READING_NOTICE em apps/api/app/services/test_conversations.py).
+const READING_NOTICE_PREFIX = "Recebi seu documento.";
+
+/** O último aviso é o de leitura e o agente ainda não respondeu depois dele. */
+export function isAwaitingReading(messages: Message[]): boolean {
+  const last = messages[messages.length - 1];
+  return (
+    last?.sender_type === "system" &&
+    last.content.startsWith(READING_NOTICE_PREFIX)
+  );
+}
+
 export function TestConversationThread({
   conversation,
   onDeleted,
@@ -52,11 +65,15 @@ export function TestConversationThread({
   const [error, setError] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Derivado das mensagens (e não de um estado local) para continuar valendo
+  // depois de recarregar a página; a atualização periódica traz a resposta.
+  const reading = isAwaitingReading(messages);
+  const blocked = sending || reading;
 
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     const content = draft.trim();
-    if ((!content && !attachment) || sending) {
+    if ((!content && !attachment) || blocked) {
       return;
     }
     setSending(true);
@@ -195,6 +212,12 @@ export function TestConversationThread({
               digitando…
             </span>
           </li>
+        ) : reading ? (
+          <li className="flex items-start" role="status">
+            <span className="rounded-md border border-line bg-surface px-3.5 py-2.5 text-sm text-muted">
+              Lendo documento… a resposta aparece aqui quando a leitura terminar.
+            </span>
+          </li>
         ) : null}
       </ul>
 
@@ -244,7 +267,7 @@ export function TestConversationThread({
         ) : null}
         <form onSubmit={sendMessage} className="flex min-w-0 items-end gap-2 sm:gap-3">
           <label
-            className={`cursor-pointer rounded-sm border border-line bg-ground px-3 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent ${sending ? "pointer-events-none opacity-60" : ""}`}
+            className={`cursor-pointer rounded-sm border border-line bg-ground px-3 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent ${blocked ? "pointer-events-none opacity-60" : ""}`}
             title="Anexar arquivo (PDF, DOCX ou TXT)"
           >
             📎
@@ -261,17 +284,17 @@ export function TestConversationThread({
             type="text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            disabled={sending}
+            disabled={blocked}
             placeholder="Escreva como se fosse o cliente…"
             aria-label="Mensagem de teste"
             className="min-w-0 flex-1 rounded-sm border border-line bg-ground px-3 py-2.5 text-sm placeholder:text-muted disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={sending || (!draft.trim() && !attachment)}
+            disabled={blocked || (!draft.trim() && !attachment)}
             className="shrink-0 rounded-sm bg-accent px-4 py-2.5 text-sm font-medium text-surface transition-colors hover:bg-ink disabled:opacity-50"
           >
-            {sending ? "Enviando…" : "Enviar"}
+            {sending ? "Enviando…" : reading ? "Lendo documento…" : "Enviar"}
           </button>
         </form>
         <p className="mt-2 text-xs text-muted">
@@ -298,7 +321,11 @@ function TestMessageBubble({ message }: { message: Message }) {
             fromContact ? "text-brass-ink" : "text-accent"
           }`}
         >
-          {fromContact ? "Você (cliente)" : "Agente"}
+          {fromContact
+            ? "Você (cliente)"
+            : message.sender_type === "system"
+              ? "Aviso automático"
+              : "Agente"}
         </span>
         {message.media_url ? (
           <a

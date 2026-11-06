@@ -39,6 +39,11 @@ export function formatCredits(value: number): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
 
+/** Lista de páginas ("3, 7, 12"), com reticências depois das 20 primeiras. */
+export function formatPages(pages: number[]): string {
+  return pages.slice(0, 20).join(", ") + (pages.length > 20 ? "…" : "");
+}
+
 /** Valor em reais — pt-BR, sempre 2 casas decimais. */
 export function formatBRL(value: number): string {
   return value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -6,6 +6,7 @@ import httpx
 import pytest
 from arq.worker import Retry
 
+from app.clients.rag import reading_summary
 from app.config import settings
 from app.tasks import knowledge_base as kb_task
 from app.tasks.knowledge_base import ingest_knowledge_base_file
@@ -45,7 +46,7 @@ def temp_file(tmp_path, monkeypatch):
 def patched(monkeypatch):
     mocks = {
         "load": AsyncMock(return_value=_row()),
-        "ingest": AsyncMock(),
+        "ingest": AsyncMock(return_value={}),
         "set_status": AsyncMock(),
     }
     monkeypatch.setattr(kb_task, "_load_file", mocks["load"])
@@ -143,6 +144,38 @@ async def test_erro_definitivo_4xx_marca_error(patched, temp_file) -> None:
     assert "400" in args[3]
 
 
+async def test_recusa_do_rag_mostra_o_motivo_no_painel(patched, temp_file) -> None:
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "http://rag"),
+        json={"detail": "O PDF está protegido por senha. Envie uma versão sem senha."},
+    )
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "400", request=response.request, response=response
+    )
+
+    await ingest_knowledge_base_file(_ctx(job_try=1), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[3] == (
+        "O PDF está protegido por senha. Envie uma versão sem senha."
+    )
+
+
+async def test_erro_interno_do_rag_nao_vaza_detalhe(patched, temp_file) -> None:
+    response = httpx.Response(
+        500,
+        request=httpx.Request("POST", "http://rag"),
+        json={"detail": "Falha ao indexar documento no Qdrant: timeout em 10.0.0.5"},
+    )
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "500", request=response.request, response=response
+    )
+
+    await ingest_knowledge_base_file(_ctx(job_try=5), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[3] == "Falha na ingestão (HTTP 500)"
+
+
 async def test_load_file_session_tem_tenant_id_setado(patched, temp_file) -> None:
     ctx = _ctx()
 
@@ -154,6 +187,38 @@ async def test_load_file_session_tem_tenant_id_setado(patched, temp_file) -> Non
         if len(call.args) > 1 and call.args[1] == {"tenant_id": TENANT_ID}
     ]
     assert len(set_config_calls) >= 1
+
+
+async def test_leitura_parcial_grava_as_paginas(patched, temp_file) -> None:
+    patched["ingest"].return_value = {"pages_total": 50, "partial_pages": [3, 7]}
+
+    await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[5] == {
+        "pages_total": 50,
+        "partial_pages": [3, 7],
+    }
+
+
+async def test_leitura_completa_limpa_paginas_parciais(patched, temp_file) -> None:
+    patched["ingest"].return_value = {"pages_total": 10, "partial_pages": []}
+
+    await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
+
+    assert patched["set_status"].await_args.args[5] == {
+        "pages_total": 10,
+        "partial_pages": None,
+    }
+
+
+def test_resumo_da_leitura_normaliza_resposta_do_rag() -> None:
+    resposta = httpx.Response(
+        200,
+        json={"leitura": {"paginas": 50, "ocr": 50, "paginas_parciais": [7, 3, 3, "x", 0]}},
+    )
+    assert reading_summary(resposta) == {"pages_total": 50, "partial_pages": [3, 7]}
+    assert reading_summary(httpx.Response(200, json={"mensagem": "ok"})) == {}
+    assert reading_summary(httpx.Response(200, text="não é json")) == {}
 
 
 async def test_set_status_recebe_tenant_id(patched, temp_file) -> None:
@@ -170,7 +235,7 @@ async def test_replacement_published_only_after_success(patched, temp_file, monk
     await ingest_knowledge_base_file(_ctx(), TENANT_ID, FILE_ID)
     patched["ingest"].assert_awaited_once()
     publish.assert_awaited_once()
-    assert publish.await_args.args[1:] == (TENANT_ID, FILE_ID, previous_id)
+    assert publish.await_args.args[1:4] == (TENANT_ID, FILE_ID, previous_id)
     patched["set_status"].assert_not_awaited()
 
 
@@ -229,5 +294,9 @@ async def test_recovery_deduplicates_jobs_without_google_credentials():
     ctx["_session"].execute.return_value = result
     await kb_task.recover_drive_imports(ctx)
     ctx["redis"].enqueue_job.assert_awaited_once_with(
-        "ingest_knowledge_base_file", tenant_id=TENANT_ID, file_id=FILE_ID, _job_id=f"kb:{FILE_ID}"
+        "ingest_knowledge_base_file",
+        tenant_id=TENANT_ID,
+        file_id=FILE_ID,
+        _job_id=f"kb:{FILE_ID}",
+        _queue_name=kb_task.INGESTION_QUEUE,
     )

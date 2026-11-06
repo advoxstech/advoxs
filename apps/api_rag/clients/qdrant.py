@@ -206,6 +206,19 @@ class QdrantClient:
             with_vectors=False,
         )
 
+    async def set_payload_by_filter(
+        self, collection_name: str, tenant_id: str, field: str, value: str, payload: dict
+    ):
+        """Acrescenta campos ao payload de todos os pontos que casam com o filtro."""
+        payload_filter = _tenant_filter(tenant_id, {field: value})
+        return await self._safe_call(
+            "set_payload_by_filter",
+            self._client.set_payload,
+            collection_name=collection_name,
+            payload=payload,
+            points=payload_filter,
+        )
+
     async def delete_points_by_filter(
         self, collection_name: str, tenant_id: str, field: str, value: str
     ):

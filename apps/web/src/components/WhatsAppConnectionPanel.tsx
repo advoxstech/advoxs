@@ -8,7 +8,8 @@ import { backendFetch } from "@/lib/client-api";
 type Provider = "meta" | "zapi";
 
 type Connection = {
-  provider: Provider;
+  // "omni": WhatsApp oficial via Z-API Omni, sempre cadastrado pela Advoxs.
+  provider: Provider | "omni";
   display_phone_number: string;
   status: "connected" | "disconnected";
   connected_at: string;
@@ -60,9 +61,10 @@ const STATUS_CLASS: Record<Connection["status"], string> = {
   disconnected: "bg-brass-soft text-brass-ink",
 };
 
-const PROVIDER_LABEL: Record<Provider, string> = {
+const PROVIDER_LABEL: Record<Connection["provider"], string> = {
   meta: "WhatsApp Business oficial",
   zapi: "Z-API",
+  omni: "WhatsApp oficial gerenciado pela Advoxs",
 };
 
 export function WhatsAppConnectionPanel() {
@@ -330,7 +332,11 @@ export function WhatsAppConnectionPanel() {
   const pendingManagedRequest = !connection && pendingRequest?.status === "pending";
   const activeProvider = providerChoice ?? connection?.provider ?? null;
   const isManagedZapi = connection?.provider === "zapi" && connection.managed_by_advoxs;
-  const showMetaInstructions = webhookConfig && activeProvider !== "zapi";
+  // WhatsApp oficial via Z-API Omni: cadastrado e mantido pela Advoxs; o
+  // escritório não troca nem reconecta o número por aqui.
+  const isOmni = connection?.provider === "omni";
+  const showMetaInstructions =
+    webhookConfig && activeProvider !== "zapi" && activeProvider !== "omni";
   // Instância provisionada pela Advoxs: não há nenhum passo manual pro
   // tenant (nem credenciais, nem webhook) — as instruções de self-service
   // não se aplicam.
@@ -382,8 +388,13 @@ export function WhatsAppConnectionPanel() {
               Conectado via {PROVIDER_LABEL[connection.provider]} · Vinculado em{" "}
               {new Date(connection.connected_at).toLocaleDateString("pt-BR")}
             </p>
+            {isOmni && (
+              <p className="mt-2 text-xs text-muted">
+                Para trocar, desconectar ou reconectar este número, fale com a Advoxs.
+              </p>
+            )}
             <div className="mt-4 flex gap-4">
-              {connection.status === "connected" && (
+              {connection.status === "connected" && !isOmni && (
                 <button
                   type="button"
                   onClick={() => void handleDisconnect()}
@@ -392,7 +403,7 @@ export function WhatsAppConnectionPanel() {
                   Desconectar
                 </button>
               )}
-              {!isManagedZapi && (
+              {!isManagedZapi && !isOmni && (
                 <button
                   type="button"
                   onClick={startReconnect}

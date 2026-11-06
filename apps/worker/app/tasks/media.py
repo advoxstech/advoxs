@@ -1,7 +1,7 @@
 """Processamento de mídia recebida do contato antes do turno do agente.
 
 Hoje: transcrição de áudio. Estado e resultado em `message_media` (migration
-0049), que é também o contrato do OCR (kind=document|image). Idempotente por
+0052), que é também o contrato do OCR (kind=document|image). Idempotente por
 message_id: `done` nunca é refeito nem cobrado de novo; `processing` órfão
 (worker morto) conta como nova tentativa. Ver
 docs/superpowers/specs/2026-11-04-midia-audio-transcricao-design.md."""
@@ -55,7 +55,7 @@ def _failure_reasons() -> dict[str, str]:
         "timeout": "o serviço de transcrição demorou demais para responder",
         "provider_unavailable": "o serviço de transcrição está indisponível",
         "invalid_format": "formato de áudio não suportado",
-        "too_large": "o arquivo passa de 20 MB",
+        "too_large": f"o arquivo passa de {settings.audio_max_bytes // (1024 * 1024)} MB",
         "too_long": f"o áudio passa de {minutes} minutos",
         "silence": "sem fala detectada",
     }
@@ -167,17 +167,23 @@ async def record_media_skipped(
 
 
 async def _download(inbound: InboundContext) -> bytes:
+    if inbound.omni:
+        # Z-API Omni: a Secret Key da plataforma autentica o download
+        # (app/clients/media.py), sem token por escritório.
+        return await download_zapi_media(
+            inbound.media_url, None, settings.audio_max_bytes, omni=True
+        )
     if inbound.whatsapp_provider == "zapi":
         token = (
             decrypt_access_token(inbound.zapi_client_token_encrypted)
             if inbound.zapi_client_token_encrypted
             else None
         )
-        return await download_zapi_media(inbound.media_url, token, settings.attachment_max_bytes)
+        return await download_zapi_media(inbound.media_url, token, settings.audio_max_bytes)
     return await download_meta_media(
         inbound.media_url,
         decrypt_access_token(inbound.access_token_encrypted),
-        settings.attachment_max_bytes,
+        settings.audio_max_bytes,
     )
 
 

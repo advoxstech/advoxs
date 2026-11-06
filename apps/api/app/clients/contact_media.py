@@ -6,7 +6,9 @@ import httpx
 
 from app.core.config import settings
 
-MAX_MEDIA_BYTES = 20 * 1024 * 1024
+# Mesmo teto do anexo processado pela IA (worker: ATTACHMENT_MAX_BYTES), para o
+# atendente conseguir baixar qualquer documento que a IA conseguiu ler.
+MAX_MEDIA_BYTES = 60 * 1024 * 1024
 
 
 class ContactMediaError(Exception):
@@ -44,6 +46,18 @@ async def download_contact_media(ref: str, provider: str, token: str) -> bytes:
                 url = response.json().get("url", "")
                 if not trusted_url(url, ("fbsbx.com", "fbcdn.net", "whatsapp.net")):
                     raise ContactMediaError("Origem da mídia não permitida")
+            elif provider == "omni":
+                # Z-API Omni: URL pronta no webhook (formato Z-API). Domínio a
+                # confirmar no primeiro teste real; a Secret Key só vai para o
+                # próprio Omni, nunca para armazenamento de terceiros.
+                url = ref
+                if not trusted_url(url, ("z-api.io", "storage.googleapis.com")):
+                    raise ContactMediaError("Origem da mídia não permitida")
+                headers = (
+                    {"Authorization": f"Bearer {settings.omni_secret_key}"}
+                    if trusted_url(url, ("omni.z-api.io",))
+                    else {}
+                )
             else:
                 url = ref
                 if not trusted_url(url, ("z-api.io", "storage.googleapis.com")):

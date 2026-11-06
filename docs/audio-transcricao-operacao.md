@@ -7,8 +7,8 @@ WhatsApp (Meta/Z-API) → api (webhook, persiste `messages`, `inbound_message_jo
 
 ## Publicação
 1. Backup (o `-T` desliga o TTY, sem ele o binário sai corrompido no arquivo do host):
-   `docker compose exec -T postgres pg_dump -U advoxs -Fc advoxs > backup-pre-0049.dump`.
-2. Deploy normal (`deploy.yml` roda `docker compose run --rm api uv run alembic upgrade head`, aplica a 0049).
+   `docker compose exec -T postgres pg_dump -U advoxs -Fc advoxs > backup-pre-0052.dump`.
+2. Deploy normal (`deploy.yml` roda `docker compose run --rm api uv run alembic upgrade head`, aplica a 0052).
 3. Conferir (após o upgrade; ver nota de execução das queries em "Métricas"):
    `SELECT count(*) FROM message_media;` (0) e
    `SELECT transcription_credits_per_minute FROM pricing_configs ORDER BY effective_at DESC LIMIT 1;` (1.0000).
@@ -19,19 +19,19 @@ WhatsApp (Meta/Z-API) → api (webhook, persiste `messages`, `inbound_message_jo
 - Sem perda de dados: `AUDIO_TRANSCRIPTION_ENABLED=false` + `docker compose up -d worker`
   (o áudio volta ao comportamento anterior).
 - Schema: `docker compose stop worker api`, depois
-  `docker compose run --rm api uv run alembic downgrade 0048`, depois `docker compose up -d api worker`.
+  `docker compose run --rm api uv run alembic downgrade 0051`, depois `docker compose up -d api worker`.
   O downgrade apaga a tabela `message_media` **e** a coluna `pricing_configs.transcription_credits_per_minute`.
   A linha inserida em `pricing_configs` permanece, mas perde esse valor: a query de conferência da Publicação
   só se aplica depois do upgrade.
 - Restauração completa (com dados): a restauração exige parar a aplicação, pois o `--clean` derruba objetos em uso.
   1. `docker compose stop api worker`
-  2. `docker compose exec -T postgres pg_restore -U advoxs -d advoxs --clean --if-exists < backup-pre-0049.dump`
+  2. `docker compose exec -T postgres pg_restore -U advoxs -d advoxs --clean --if-exists < backup-pre-0052.dump`
   3. `docker compose up -d api worker`
 
   O `-T` aqui também é obrigatório, e o `<` lê o dump do host pela entrada padrão do container.
 
 ## Teste de migration com backup (registrar resultado)
-dump → `upgrade head` → `downgrade 0048` → `upgrade head` → `pg_restore` num banco descartável.
+dump → `upgrade head` → `downgrade 0051` → `upgrade head` → `pg_restore` num banco descartável.
 
 | Data | Passo | Resultado |
 |---|---|---|
@@ -40,7 +40,7 @@ dump → `upgrade head` → `downgrade 0048` → `upgrade head` → `pg_restore`
 | Item | Valor | Variável |
 |---|---|---|
 | Duração | 600 s | AUDIO_MAX_DURATION_SECONDS |
-| Tamanho | 20 MB | (attachment_max_bytes) |
+| Tamanho | 25 MB (limite da OpenAI) | AUDIO_MAX_BYTES |
 | Tentativas | 3 | MEDIA_MAX_ATTEMPTS |
 | Concorrência por processo | 2 | TRANSCRIPTION_MAX_CONCURRENCY |
 | Worker (compose) | 1 CPU / 768 MB | docker-compose.yml |

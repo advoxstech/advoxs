@@ -46,6 +46,10 @@ class ResponseSource(BaseModel):
     chunk_id: str
     excerpt: str
     page: int | None = None
+    # Última página do trecho, quando ele cruza páginas (senão igual a page).
+    page_end: int | None = None
+    # Páginas do documento com leitura parcial (sem texto ou OCR fraco).
+    partial_pages: list[int] = Field(default_factory=list)
 
 
 class ResponseSources(BaseModel):
@@ -104,6 +108,8 @@ class SendMessageRequest(BaseModel):
 class TestMessagesOut(BaseModel):
     messages: list[MessageOut]
     grouped: bool
+    # Documento grande ainda em leitura: a resposta do agente chega depois.
+    reading: bool = False
 
 
 class ConversationUsageOut(BaseModel):

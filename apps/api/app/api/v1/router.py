@@ -9,6 +9,7 @@ from app.api.v1.conversations import router as conversations_router
 from app.api.v1.credit_packages import router as credit_packages_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.end_customer_billing import router as end_customer_billing_router
+from app.api.v1.follow_ups import router as follow_ups_router
 from app.api.v1.google_drive import router as google_drive_router
 from app.api.v1.internal.end_customer_billing import router as internal_end_customer_billing_router
 from app.api.v1.knowledge_base import router as knowledge_base_router
@@ -25,6 +26,7 @@ from app.api.v1.team import public_router as team_public_router
 from app.api.v1.team import router as team_router
 from app.api.v1.test_conversations import router as test_conversations_router
 from app.api.v1.urgency_keywords import router as urgency_keywords_router
+from app.api.v1.webhooks.omni import router as omni_webhook_router
 from app.api.v1.webhooks.stripe import router as stripe_webhook_router
 from app.api.v1.webhooks.stripe_connect import router as stripe_connect_webhook_router
 from app.api.v1.webhooks.stripe_tenant import router as stripe_tenant_webhook_router
@@ -43,6 +45,7 @@ api_router.include_router(team_public_router)
 api_router.include_router(billing_router, dependencies=[Depends(require_admin)])
 api_router.include_router(conversations_router)
 api_router.include_router(contacts_router)
+api_router.include_router(follow_ups_router)
 api_router.include_router(credit_packages_router)
 api_router.include_router(dashboard_router, dependencies=[Depends(require_admin)])
 api_router.include_router(end_customer_billing_router, dependencies=[Depends(require_admin)])
@@ -66,6 +69,7 @@ api_router.include_router(
 api_router.include_router(stripe_tenant_webhook_router)
 api_router.include_router(whatsapp_webhook_router, dependencies=[Depends(require_meta)])
 api_router.include_router(zapi_webhook_router)
+api_router.include_router(omni_webhook_router)
 api_router.include_router(whatsapp_router, dependencies=[Depends(require_admin)])
 
 

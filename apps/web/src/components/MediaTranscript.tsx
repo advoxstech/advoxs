@@ -5,7 +5,7 @@ const REASONS: Record<string, string> = {
   timeout: "o serviço demorou demais",
   provider_unavailable: "serviço de transcrição indisponível",
   invalid_format: "formato não suportado",
-  too_large: "arquivo maior que 20 MB",
+  too_large: "arquivo maior que 25 MB",
   too_long: "passa do limite de duração",
   silence: "sem fala detectada",
   no_credits: "sem créditos",

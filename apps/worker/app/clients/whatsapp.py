@@ -103,3 +103,73 @@ async def send_interactive_list_message(
             },
         },
     )
+
+
+class WhatsAppTemplateError(Exception):
+    """Falha ao enviar modelo; `retryable` separa instabilidade de recusa definitiva."""
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+# Códigos da Cloud API com mensagem própria no painel do escritório.
+_TEMPLATE_ERRORS = {
+    130429: "Limite de envio da Meta atingido.",
+    131026: "O número não pode receber mensagens (sem WhatsApp ou fora dos termos).",
+    131049: "A Meta limitou mensagens de marketing para este contato.",
+    131050: "O contato optou por não receber mensagens de marketing.",
+    131056: "Muitas mensagens para este contato em pouco tempo.",
+    132001: "O modelo não existe mais na Meta.",
+    132015: "O modelo foi pausado pela Meta.",
+    132016: "O modelo foi desativado pela Meta.",
+}
+_RETRYABLE_CODES = {130429, 131056}
+
+
+async def send_template_message(
+    phone_number_id: str,
+    access_token: str,
+    to: str,
+    name: str,
+    language: str,
+    components: list[dict],
+) -> None:
+    template: dict = {"name": name, "language": {"code": language}}
+    if components:
+        template["components"] = components
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                _url(phone_number_id),
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "recipient_type": "individual",
+                    "to": to,
+                    "type": "template",
+                    "template": template,
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise WhatsAppTemplateError("Falha de rede ao chamar a Meta.", retryable=True) from exc
+
+    if not response.is_error:
+        return
+    try:
+        error = response.json().get("error") or {}
+    except ValueError:
+        error = {}
+    code = error.get("code")
+    logger.warning(
+        "Graph API (template) retornou erro | status=%s code=%s", response.status_code, code
+    )
+    message = (
+        _TEMPLATE_ERRORS.get(code)
+        or error.get("message")
+        or (f"A Meta recusou o envio (HTTP {response.status_code}).")
+    )
+    retryable = (
+        response.status_code >= 500 or response.status_code == 429 or code in _RETRYABLE_CODES
+    )
+    raise WhatsAppTemplateError(str(message)[:500], retryable=retryable)

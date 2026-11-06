@@ -119,7 +119,7 @@ async def test_sucesso_grava_done_cobra_tenant_e_devolve_nota(patched) -> None:
 
     assert note == transcript_note(SECRET_TEXT, uncertain=False)
     patched["download_meta"].assert_awaited_once_with(
-        "media-id-1", "token-claro", settings.attachment_max_bytes
+        "media-id-1", "token-claro", settings.audio_max_bytes
     )
     patched["transcribe"].assert_awaited_once()
     assert patched["transcribe"].await_args.args[1] == f"audio-{MESSAGE_ID}.ogg"
@@ -143,8 +143,26 @@ async def test_zapi_usa_client_token(patched) -> None:
     )
     await _run(inbound)
     patched["download_zapi"].assert_awaited_once_with(
-        "https://zapi/x.ogg", "token-claro", settings.attachment_max_bytes
+        "https://zapi/x.ogg", "token-claro", settings.audio_max_bytes
     )
+
+
+async def test_omni_baixa_com_secret_key_da_plataforma(patched) -> None:
+    inbound = _inbound(
+        whatsapp_provider="omni",
+        media_url="https://media.omni.z-api.io/x.ogg",
+        access_token_encrypted=None,
+    )
+    await _run(inbound)
+    patched["download_zapi"].assert_awaited_once_with(
+        "https://media.omni.z-api.io/x.ogg", None, settings.audio_max_bytes, omni=True
+    )
+    patched["decrypt"].assert_not_called()
+
+
+def test_teto_de_audio_respeita_limite_da_openai() -> None:
+    assert settings.audio_max_bytes <= 25 * 1024 * 1024
+    assert "25 MB" in failure_note("too_large")
 
 
 async def test_turno_custeado_pelo_cliente_final_debita_cliente(patched) -> None:

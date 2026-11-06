@@ -39,8 +39,10 @@ async def insert_user_document(
     doc_id: str,
     filename: str,
     file_bytes: bytes,
-) -> None:
-    """Ingere um documento na base pessoal de um contato. `conversation_id`
+    timeout: float = 60,
+) -> list[int]:
+    """Ingere um documento na base pessoal de um contato e devolve as páginas com
+    leitura parcial (sem texto ou leitura fraca mesmo com OCR; vazia se completa). `conversation_id`
     precisa ser só o contact_phone_number — NUNCA o thread_id composto
     "{tenant_id}:{contact_phone_number}" do checkpoint do agents, que
     `clients/retrieval.py::retrieval_usuario` (apps/agents) divide em
@@ -51,7 +53,7 @@ async def insert_user_document(
     apps/worker/app/tasks/attachments.py, o caminho equivalente pra
     conversas reais via WhatsApp)."""
     try:
-        async with httpx.AsyncClient(base_url=settings.rag_api_url, timeout=60) as client:
+        async with httpx.AsyncClient(base_url=settings.rag_api_url, timeout=timeout) as client:
             response = await client.post(
                 "/documents/users/insert",
                 data={
@@ -66,6 +68,14 @@ async def insert_user_document(
         raise RagApiError(f"api_rag indisponível: {exc}") from exc
     if response.status_code >= 400:
         raise RagApiError(f"api_rag retornou HTTP {response.status_code}")
+    try:
+        leitura = response.json().get("leitura") or {}
+        parciais = leitura.get("paginas_parciais") or []
+    except (ValueError, AttributeError):
+        return []
+    if not isinstance(parciais, list):
+        return []
+    return sorted({p for p in parciais if type(p) is int and p > 0})
 
 
 async def delete_documents(tenant_id: str, doc_ids: list[str]) -> None:

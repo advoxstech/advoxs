@@ -5,6 +5,10 @@ from app.core.config import settings
 
 _pool: ArqRedis | None = None
 
+# Fila da base de conhecimento, consumida pelo container worker-ingestion um
+# arquivo por vez. Espelhado em apps/worker/app/tasks/knowledge_base.py.
+INGESTION_QUEUE = "arq:ingestion"
+
 
 async def get_arq_pool() -> ArqRedis:
     global _pool

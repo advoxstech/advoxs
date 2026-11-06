@@ -45,13 +45,24 @@ class Settings(BaseSettings):
     # (mesma chave usada pelo worker para descriptografar).
     whatsapp_token_encryption_key: str = ""
 
+    # WhatsApp oficial via Z-API Omni. O workspace é da Advoxs: uma Secret Key
+    # só (header Authorization), cada escritório é um canal. Desligado por padrão.
+    omni_enabled: bool = False
+    omni_secret_key: str = ""
+    # Camada de compatibilidade Z-API (envio) e API própria (webhooks, canais, modelos).
+    omni_compat_base_url: str = "https://zapi.omni.z-api.io"
+    omni_api_base_url: str = "https://api.omni.z-api.io"
+
     # Graph API da Meta (envio de mensagem no takeover humano)
     graph_api_base_url: str = "https://graph.facebook.com"
     graph_api_version: str = "v23.0"
 
     # Base de conhecimento (upload → volume compartilhado → ingestão no api_rag)
     kb_upload_dir: str = "/data/kb_uploads"
-    kb_max_file_size_bytes: int = 20 * 1024 * 1024
+    # 60 MB cobre um escaneado de ~300 páginas; o teto prático é 100 MB (limite de
+    # envio da Cloudflare e de documento do WhatsApp). Também vale para anexo da
+    # aba Testes e importação do Drive.
+    kb_max_file_size_bytes: int = 60 * 1024 * 1024
     # Configuração pública do seletor; OAuth temporário, sem refresh token armazenado.
     google_drive_enabled: bool = False
     google_drive_client_id: str = ""

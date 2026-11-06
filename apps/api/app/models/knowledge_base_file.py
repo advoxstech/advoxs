@@ -7,11 +7,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -72,6 +74,10 @@ class KnowledgeBaseFile(Base):
     # busca do agente. NULL = "sem categoria" (arquivos legados ou upload sem
     # categoria escolhida).
     category: Mapped[str | None] = mapped_column(String)
+    # Leitura parcial (preenchidas pelo worker após a ingestão, só PDF): total de
+    # páginas e as que ficaram sem texto ou com leitura fraca mesmo com OCR.
+    pages_total: Mapped[int | None] = mapped_column(Integer)
+    partial_pages: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

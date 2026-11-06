@@ -259,3 +259,36 @@ describe("TestConversationThread", () => {
     expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled();
   });
 });
+
+describe("TestConversationThread — documento grande em leitura", () => {
+  const notice =
+    "Recebi seu documento. Ele é grande e vou levar alguns minutos para ler; assim que terminar, respondo sua mensagem.";
+
+  it("mostra a leitura em andamento e bloqueia o envio", async () => {
+    backendFetchMock.mockResolvedValue(
+      jsonResponse([message("m1", "contact", "📎 livro.pdf"), message("m2", "system", notice)]),
+    );
+
+    render(<TestConversationThread conversation={conversation} onDeleted={() => {}} pollMs={0} />);
+
+    expect(await screen.findByText(/Lendo documento… a resposta aparece aqui/)).toBeInTheDocument();
+    expect(screen.getByText("Aviso automático")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mensagem de teste")).toBeDisabled();
+  });
+
+  it("libera o envio quando o agente responde depois do aviso", async () => {
+    backendFetchMock.mockResolvedValue(
+      jsonResponse([
+        message("m1", "contact", "📎 livro.pdf"),
+        message("m2", "system", notice),
+        message("m3", "agent", "O prazo é de 82 dias."),
+      ]),
+    );
+
+    render(<TestConversationThread conversation={conversation} onDeleted={() => {}} pollMs={0} />);
+
+    expect(await screen.findByText("O prazo é de 82 dias.")).toBeInTheDocument();
+    expect(screen.queryByText(/Lendo documento…/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Mensagem de teste")).not.toBeDisabled();
+  });
+});

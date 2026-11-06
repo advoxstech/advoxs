@@ -22,7 +22,7 @@ def _upload_file(filename: str, content: bytes = b"conteudo") -> UploadFile:
 
 @pytest.fixture
 def ingest_mock(monkeypatch):
-    mock = AsyncMock()
+    mock = AsyncMock(return_value=[])
     monkeypatch.setattr(test_attachments_module, "insert_user_document", mock)
     return mock
 
@@ -57,6 +57,20 @@ async def test_pdf_ingere_com_sucesso(ingest_mock) -> None:
     assert "disponível para busca" in result
 
 
+async def test_pdf_com_leitura_parcial_avisa_o_agente(ingest_mock) -> None:
+    ingest_mock.return_value = [4, 9]
+
+    result = await process_test_attachment(
+        _upload_file("laudo.pdf", b"%PDF-1.4"),
+        tenant_id=TENANT_ID,
+        conversation_id=CONVERSATION_ID,
+        message_id=MESSAGE_ID,
+    )
+
+    assert "processado parcialmente" in result
+    assert "páginas 4, 9" in result
+
+
 async def test_docx_e_txt_sao_suportados(ingest_mock) -> None:
     for filename in ["contrato.docx", "notas.txt"]:
         result = await process_test_attachment(
@@ -78,7 +92,7 @@ async def test_arquivo_grande_demais_nao_ingere(ingest_mock, monkeypatch) -> Non
         message_id=MESSAGE_ID,
     )
 
-    assert "20 mb" in result.lower()
+    assert "excede o limite" in result.lower()
     ingest_mock.assert_not_awaited()
 
 

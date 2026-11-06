@@ -11,7 +11,7 @@ from app.models.base import Base
 
 
 class MessageMedia(Base):
-    """Estado do processamento de mídia de uma mensagem (migration 0049).
+    """Estado do processamento de mídia de uma mensagem (migration 0052).
 
     Escrita só pelo worker (transcrição de áudio; OCR na frente do PDF).
     O painel apenas lê `kind`/`status`/`error_code`/`text`."""

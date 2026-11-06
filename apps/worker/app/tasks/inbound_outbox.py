@@ -6,10 +6,10 @@ from sqlalchemy import delete, or_, select, update
 
 from app import tables
 from app.db import open_system_session
+from app.tasks.messages import PROCESSING_LEASE  # mesmo prazo do turno
 
 RECOVERY_BATCH_SIZE = 100
 REENQUEUE_AFTER = timedelta(minutes=1)
-PROCESSING_LEASE = timedelta(minutes=15)
 
 
 async def recover_inbound_message_jobs(ctx: dict) -> None:
