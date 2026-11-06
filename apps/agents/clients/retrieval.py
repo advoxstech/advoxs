@@ -91,15 +91,17 @@ async def retrieval_usuario(conversation_id: str, message: str) -> list[dict]:
             )
             return results
 
+    # Falha técnica levanta, como no retrieval do escritório: lista vazia faria o
+    # agente dizer ao cliente que a informação não está no documento dele.
     except httpx.HTTPStatusError as exc:
         logger.error(
             "Erro HTTP no retrieval usuário | status={}",
             exc.response.status_code,
         )
-        return []
+        raise RetrievalUnavailableError("contact documents search unavailable") from exc
     except Exception as exc:
         logger.error("Erro ao consultar retrieval usuário | error_type={}", safe_error(exc))
-        return []
+        raise RetrievalUnavailableError("contact documents search unavailable") from exc
 
 
 # conversation_id reservado da base de conhecimento do escritório —
