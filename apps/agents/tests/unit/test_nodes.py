@@ -312,6 +312,163 @@ async def test_busca_ja_feita_no_turno_nao_e_forcada_de_novo():
     assert "tool_choice" not in model.bind_tools.call_args.kwargs
 
 
+NOTA_DOCUMENTO = (
+    "qual a multa?\n[Documento recebido e processado: anexo-1.pdf — disponível para busca.]"
+)
+
+
+def _estado_com_documento_do_contato(**overrides) -> dict:
+    from langchain_core.messages import HumanMessage
+
+    messages = overrides.pop("messages", [HumanMessage(content=NOTA_DOCUMENTO)])
+    return base_state(
+        messages=messages,
+        current_agent_id="other-1",
+        receptive_message_specialist=True,
+        **overrides,
+    )
+
+
+@pytest.mark.asyncio
+async def test_especialista_busca_primeiro_no_documento_do_contato():
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_with_tool_call("bucar_base_conhecimento_usuario", {"query": "multa"}))
+    with patch("agents.nodes.model", model):
+        result = await agent_node(_estado_com_documento_do_contato())
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "bucar_base_conhecimento_usuario"
+    assert "receptive_message_specialist" not in result.update
+    assert result.goto == "tool_node"
+
+
+@pytest.mark.asyncio
+async def test_nota_de_leitura_parcial_tambem_conta_como_documento_do_contato():
+    from langchain_core.messages import HumanMessage
+
+    from agents.nodes import agent_node
+
+    nota = "[Documento recebido e processado parcialmente: anexo-1.pdf — disponível para busca]"
+    model = mock_model(ai_with_tool_call("bucar_base_conhecimento_usuario", {"query": "x"}))
+    with patch("agents.nodes.model", model):
+        await agent_node(_estado_com_documento_do_contato(messages=[HumanMessage(content=nota)]))
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "bucar_base_conhecimento_usuario"
+
+
+@pytest.mark.asyncio
+async def test_depois_do_documento_do_contato_busca_na_base_do_escritorio():
+    from langchain_core.messages import ToolMessage
+
+    from agents.nodes import agent_node
+
+    state = _estado_com_documento_do_contato()
+    state["messages"].append(
+        ToolMessage(content="trechos", tool_call_id="c1", name="bucar_base_conhecimento_usuario")
+    )
+    model = mock_model(ai_with_tool_call("buscar_base_conhecimento_agente", {"query": "multa"}))
+    with patch("agents.nodes.model", model):
+        result = await agent_node(state)
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "buscar_base_conhecimento_agente"
+    assert "receptive_message_specialist" not in result.update
+
+
+@pytest.mark.asyncio
+async def test_documento_do_contato_sem_base_do_escritorio_responde_depois_da_busca():
+    from langchain_core.messages import ToolMessage
+
+    from agents.nodes import agent_node
+
+    state = _estado_com_documento_do_contato()
+    state["agents"][1]["knowledge_base_file_ids"] = []
+    state["messages"].append(
+        ToolMessage(content="trechos", tool_call_id="c1", name="bucar_base_conhecimento_usuario")
+    )
+    model = mock_model(ai_response("Sou o Dr. X. A multa é de 15%."))
+    with patch("agents.nodes.model", model):
+        result = await agent_node(state)
+
+    assert "tool_choice" not in model.bind_tools.call_args.kwargs
+    assert result.update.get("receptive_message_specialist") is False
+    prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
+    assert "nunca peça de novo um arquivo que ele já mandou" in prompt
+
+
+@pytest.mark.asyncio
+async def test_busca_no_documento_de_turno_anterior_nao_conta_para_o_turno_atual():
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from agents.nodes import agent_node
+
+    state = _estado_com_documento_do_contato()
+    state["messages"] += [
+        ToolMessage(content="trechos", tool_call_id="c1", name="bucar_base_conhecimento_usuario"),
+        HumanMessage(content="e o foro?"),
+    ]
+    model = mock_model(ai_with_tool_call("bucar_base_conhecimento_usuario", {"query": "foro"}))
+    with patch("agents.nodes.model", model):
+        await agent_node(state)
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "bucar_base_conhecimento_usuario"
+
+
+@pytest.mark.asyncio
+async def test_busca_da_recepcao_antes_de_transferir_nao_dispensa_a_do_especialista():
+    from langchain_core.messages import ToolMessage
+
+    from agents.nodes import agent_node
+
+    state = _estado_com_documento_do_contato()
+    state["messages"] += [
+        ToolMessage(content="trechos", tool_call_id="c1", name="bucar_base_conhecimento_usuario"),
+        ToolMessage(content="", tool_call_id="c2", name="transfer_to_agent"),
+    ]
+    model = mock_model(ai_with_tool_call("bucar_base_conhecimento_usuario", {"query": "multa"}))
+    with patch("agents.nodes.model", model):
+        await agent_node(state)
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "bucar_base_conhecimento_usuario"
+
+
+@pytest.mark.asyncio
+async def test_busca_da_recepcao_na_base_antes_de_transferir_nao_dispensa_a_do_especialista():
+    from langchain_core.messages import ToolMessage
+
+    from agents.nodes import agent_node
+
+    state = base_state(current_agent_id="other-1", receptive_message_specialist=True)
+    state["messages"] += [
+        ToolMessage(content="{}", tool_call_id="c1", name="buscar_base_conhecimento_agente"),
+        ToolMessage(content="", tool_call_id="c2", name="transfer_to_agent"),
+    ]
+    model = mock_model(ai_with_tool_call("buscar_base_conhecimento_agente", {"query": "multa"}))
+    with patch("agents.nodes.model", model):
+        await agent_node(state)
+
+    assert model.bind_tools.call_args.kwargs["tool_choice"] == "buscar_base_conhecimento_agente"
+
+
+@pytest.mark.asyncio
+async def test_documento_do_contato_nao_forca_busca_na_recepcao_nem_em_turnos_seguintes():
+    from langchain_core.messages import HumanMessage
+
+    from agents.nodes import agent_node
+
+    mensagens = [HumanMessage(content=NOTA_DOCUMENTO)]
+    model = mock_model(ai_response("oi"))
+    with patch("agents.nodes.model", model):
+        await agent_node(base_state(messages=mensagens, receptive_message_specialist=True))
+        await agent_node(
+            base_state(
+                messages=mensagens, current_agent_id="other-1", receptive_message_specialist=False
+            )
+        )
+
+    for call in model.bind_tools.call_args_list:
+        assert "tool_choice" not in call.kwargs
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("first_run", [False, True])
 async def test_ponto_de_entrada_e_turnos_seguintes_nao_forcam_busca(first_run):

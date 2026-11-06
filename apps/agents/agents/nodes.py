@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END
 from langgraph.types import Command
@@ -84,6 +84,38 @@ _URGENCY_RULE = (
 
 def _urgency_rule() -> str:
     return _URGENCY_RULE + "\n\n---\n\n"
+
+
+# Início da nota que o worker (app/tasks/attachments.py) e as conversas de teste
+# do api (app/services/test_attachments.py) anexam à mensagem do contato quando
+# um documento dele foi lido e está na base pessoal da conversa — também na
+# versão "processado parcialmente". Mudar o texto lá exige mudar aqui.
+_CONTACT_DOCUMENT_NOTE = "[Documento recebido e processado"
+
+
+def _contact_sent_document(messages: list) -> bool:
+    """O contato enviou nesta conversa algum documento que está disponível para busca."""
+    return any(
+        isinstance(m, HumanMessage) and _CONTACT_DOCUMENT_NOTE in str(m.content) for m in messages
+    )
+
+
+def _searched_this_turn(messages: list, tool_name: str) -> bool:
+    """O agente atual já rodou a ferramenta neste turno.
+
+    Olha só o que veio depois da última mensagem do contato e da última
+    transferência: uma busca da recepção antes de transferir não conta como a do
+    especialista, que precisa buscar ele mesmo para dar o parecer.
+    """
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return False
+        if isinstance(message, ToolMessage):
+            if message.name == tool_name:
+                return True
+            if message.name == "transfer_to_agent":
+                return False
+    return False
 
 
 def _log_final_sources(via_tool: bool, reference_ids, evidence: dict) -> None:
@@ -173,15 +205,34 @@ async def agent_node(state: dict) -> Command:
     # contrato" sem buscar, mesmo com o documento na base — produção, 2026-11-05).
     # source_searches é zerado a cada mensagem do cliente (services/call_agent.py),
     # então "ainda não buscou" vale para o turno atual.
-    last = state["messages"][-1] if state["messages"] else None
-    just_searched = isinstance(last, ToolMessage) and last.name == "buscar_base_conhecimento_agente"
+    #
+    # O documento que o próprio contato enviou fica na base pessoal da conversa,
+    # buscada por outra ferramenta — e o especialista também não a consultava:
+    # pedia de novo o PDF que já estava na conversa (experimento de anexos,
+    # 2026-11-06: 46 de 175 respostas). Ele vem primeiro: a pergunta costuma ser
+    # sobre o documento que acabou de chegar. Depois dele, a base do escritório.
+    messages = state["messages"]
+    force_contact_search = (
+        is_first_run
+        and _contact_sent_document(messages)
+        and not _searched_this_turn(messages, "bucar_base_conhecimento_usuario")
+    )
     force_kb_search = (
         is_first_run
+        and not force_contact_search
         and bool(current.get("knowledge_base_file_ids"))
         and not state.get("source_searches", {}).get(current["id"])
-        and not just_searched
+        and not _searched_this_turn(messages, "buscar_base_conhecimento_agente")
     )
-    if force_kb_search:
+    if force_contact_search:
+        logger.info(
+            "Busca no documento do contato forçada na chegada do especialista | agent_id={}",
+            current["id"],
+        )
+        model_with_tools = model.bind_tools(
+            tools_for_agent, tool_choice="bucar_base_conhecimento_usuario"
+        )
+    elif force_kb_search:
         logger.info("Busca na base forçada na chegada do especialista | agent_id={}", current["id"])
         model_with_tools = model.bind_tools(
             tools_for_agent, tool_choice="buscar_base_conhecimento_agente"
@@ -216,7 +267,9 @@ async def agent_node(state: dict) -> Command:
             "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
             "Se a pergunta depende de um documento (contrato, cláusula, prazo, valor, nome), "
             "consulte a base de conhecimento antes de dar o parecer — não peça o documento ao "
-            "cliente sem buscar primeiro. "
+            "cliente sem buscar primeiro. Se o cliente enviou um documento nesta conversa, ele "
+            "já está disponível em bucar_base_conhecimento_usuario: use o que a busca trouxer "
+            "e nunca peça de novo um arquivo que ele já mandou. "
         )
 
     response = await model_with_tools.ainvoke(
@@ -253,7 +306,7 @@ async def agent_node(state: dict) -> Command:
             _log_final_sources(False, [], evidence)
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
-    if is_first_run and not force_kb_search:
+    if is_first_run and not (force_contact_search or force_kb_search):
         # Com a busca forçada, a "primeira resposta" (apresentação + parecer) é a
         # chamada seguinte, já com o resultado da busca no histórico.
         update["receptive_message_specialist"] = False
