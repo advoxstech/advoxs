@@ -7,6 +7,14 @@ from langgraph.graph import END
 import agents.tools as tools_module
 from tests.factories import ai_response, ai_with_tool_call, base_state, mock_model
 
+
+@pytest.fixture(autouse=True)
+def _sem_busca_automatica(monkeypatch):
+    """Estes testes cobrem o comportamento com AGENTS_AUTO_SEARCH=false (busca forçada
+    só na chegada do especialista); a busca automática tem testes em test_auto_search.py."""
+    monkeypatch.setenv("AGENTS_AUTO_SEARCH", "false")
+
+
 # ──────────────────────────────────────────────
 # agent_node — ponto de entrada (current_agent_id=None)
 # ──────────────────────────────────────────────
