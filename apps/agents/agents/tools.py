@@ -1,3 +1,5 @@
+import asyncio
+
 from langchain.tools import tool
 from langgraph.types import Command
 from loguru import logger
@@ -54,11 +56,13 @@ async def buscar_base_conhecimento_agente(
     query: str,
     conversation_id: str,
     knowledge_base_file_ids: list[str] | None = None,
+    reference_file_ids: list[str] | None = None,
 ) -> dict:
     """Busca na base de conhecimento anexada a este agente.
 
     Pode conter qualquer documento cadastrado pelo escritório: contratos,
-    processos e documentos de clientes, além de materiais institucionais. Use
+    processos e documentos de clientes, além de materiais institucionais, e
+    também a legislação e a jurisprudência da especialidade. Use
     antes de pedir um documento ao cliente e sempre que a pergunta citar um
     contrato, cláusula, prazo, valor, data, pessoa ou processo específico.
     Quando houver conteúdo relevante, priorize-o. Quando não houver arquivos
@@ -69,6 +73,7 @@ async def buscar_base_conhecimento_agente(
         query: Pergunta ou tema a ser pesquisado.
         conversation_id: preenchido automaticamente pelo sistema.
         knowledge_base_file_ids: preenchido automaticamente pelo sistema.
+        reference_file_ids: preenchido automaticamente pelo sistema.
     """
     if not knowledge_base_file_ids:
         return {
@@ -77,23 +82,45 @@ async def buscar_base_conhecimento_agente(
             "guidance": "Sem documentos. Responda com seu conhecimento nativo, "
             "sem dizer ao cliente que falta uma base de conhecimento.",
         }
-    try:
-        results = await retrieval_escritorio(
-            conversation_id, query, doc_ids=knowledge_base_file_ids
-        )
-    except RetrievalUnavailableError:
+    # Legislação e jurisprudência do pacote da especialidade são buscadas à parte:
+    # numa busca só, as leis (milhares de páginas) tomariam o lugar dos documentos
+    # do próprio escritório nos resultados.
+    reference = set(reference_file_ids or [])
+    office_ids = [doc_id for doc_id in knowledge_base_file_ids if doc_id not in reference]
+    reference_ids = [doc_id for doc_id in knowledge_base_file_ids if doc_id in reference]
+    groups = [ids for ids in (office_ids, reference_ids) if ids]
+    outcomes = await asyncio.gather(
+        *(retrieval_escritorio(conversation_id, query, doc_ids=ids) for ids in groups),
+        return_exceptions=True,
+    )
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException) and not isinstance(
+            outcome, RetrievalUnavailableError
+        ):
+            raise outcome
+    found = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    if not found:
         return {
             "status": "unavailable",
             "results": [],
             "guidance": "Base temporariamente indisponível. Use seu conhecimento nativo; "
             "não afirme que consultou os documentos.",
         }
-    return {
-        "status": "found" if results else "empty",
-        "results": results,
-        "guidance": "Priorize os trechos relevantes. Se não encontrou conteúdo relevante, "
-        "use seu conhecimento nativo e não diga que a informação veio dos documentos.",
-    }
+    if len(groups) == 1:
+        results = found[0]
+    else:
+        results = [hit for group in found for hit in group]
+    guidance = (
+        "Priorize os trechos relevantes. Se não encontrou conteúdo relevante, "
+        "use seu conhecimento nativo e não diga que a informação veio dos documentos."
+    )
+    if office_ids and reference_ids:
+        guidance += (
+            " Os documentos do escritório vêm primeiro; a legislação e a jurisprudência da "
+            "base vêm depois. Em pergunta sobre um contrato, cliente ou caso específico, "
+            "responda com os documentos do escritório e use a legislação só como apoio."
+        )
+    return {"status": "found" if results else "empty", "results": results, "guidance": guidance}
 
 
 @tool("bucar_base_conhecimento_usuario")

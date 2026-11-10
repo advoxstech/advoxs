@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.security import verify_api_key
@@ -93,6 +94,41 @@ async def inserir_documento(
     except Exception as exc:
         logger.error("Erro ao inserir documento | error_type={}", safe_error(exc))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class CopyDocumentRequest(BaseModel):
+    source_tenant_id: str
+    source_doc_id: UUID
+    tenant_id: str
+    conversation_id: str
+    doc_id: UUID
+    filename: str | None = None
+
+
+@router_doc_users.post("/copy")
+async def copiar_documento(
+    body: CopyDocumentRequest,
+    service: DocumentoService = Depends(get_service),
+    security: str = Depends(verify_api_key),
+):
+    """Copia um documento já indexado para outro escritório (pacotes de
+    especialidade), sem ler o arquivo de novo."""
+    try:
+        trechos = await service.copiar_documento_usuario(
+            source_tenant_id=body.source_tenant_id,
+            source_doc_id=str(body.source_doc_id),
+            tenant_id=body.tenant_id,
+            conversation_id=body.conversation_id,
+            doc_id=str(body.doc_id),
+            filename=body.filename,
+        )
+        return {"mensagem": "Documento copiado com sucesso", "trechos": trechos}
+    except ValueError as exc:
+        logger.warning("Erro de validação ao copiar documento | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Erro ao copiar documento | error_type={}", safe_error(exc))
+        raise HTTPException(status_code=500, detail="Falha ao copiar o documento") from exc
 
 
 @router_doc_users.delete("/delete")

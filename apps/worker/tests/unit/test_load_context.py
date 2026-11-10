@@ -172,7 +172,7 @@ async def test_carrega_agentes_do_tenant_com_arquivos_anexados() -> None:
         balance=None,
         packages=[],
         agents_rows=[agent_row, other_row],
-        agent_kb_links=[(agent_id, file_id)],
+        agent_kb_links=[(agent_id, file_id, None)],
     )
 
     context = await _load_context(session, TENANT_ID, CONVERSATION_ID, MESSAGE_ID)

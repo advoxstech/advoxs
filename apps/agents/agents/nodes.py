@@ -414,6 +414,7 @@ async def tool_node(state: dict) -> dict:
         if tool_call["name"] == "buscar_base_conhecimento_agente":
             current = agents_by_id.get(state.get("current_agent_id"))
             args["knowledge_base_file_ids"] = (current or {}).get("knowledge_base_file_ids", [])
+            args["reference_file_ids"] = (current or {}).get("reference_file_ids", [])
         if tool_call["name"] == "transfer_to_agent":
             args["valid_agent_ids"] = list(agents_by_id.keys())
 

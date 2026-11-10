@@ -118,6 +118,10 @@ async def _flag_keyword_after_transfer(
     )
 
 
+# Pasta F da base de conhecimento (espelha apps/api/app/core/knowledge_tree.py).
+UNREADABLE_CATEGORY = "nao_selecionaveis"
+
+
 async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
     """Carrega os agentes do tenant + os ids dos arquivos de KB anexados a
     cada um — nunca lido pelo agents service diretamente do Postgres
@@ -138,11 +142,27 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
         select(
             tables.agent_knowledge_base_files.c.agent_id,
             tables.agent_knowledge_base_files.c.knowledge_base_file_id,
-        ).where(tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows]))
+            tables.knowledge_base_files.c.public_document_id,
+        )
+        .join(
+            tables.knowledge_base_files,
+            tables.knowledge_base_files.c.id
+            == tables.agent_knowledge_base_files.c.knowledge_base_file_id,
+        )
+        .where(
+            tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows]),
+            # Pasta F ("não selecionáveis"): o agente não consulta.
+            tables.knowledge_base_files.c.category.is_distinct_from(UNREADABLE_CATEGORY),
+        )
     )
     kb_by_agent: dict[uuid.UUID, list[str]] = {}
-    for agent_id, file_id in links_result.all():
+    # Cópias do pacote de especialidade: buscadas à parte, para não disputar
+    # espaço com os documentos do próprio escritório.
+    reference_by_agent: dict[uuid.UUID, list[str]] = {}
+    for agent_id, file_id, public_document_id in links_result.all():
         kb_by_agent.setdefault(agent_id, []).append(str(file_id))
+        if public_document_id is not None:
+            reference_by_agent.setdefault(agent_id, []).append(str(file_id))
 
     return [
         {
@@ -151,6 +171,12 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             "instructions": row.instructions,
             "is_entry_point": row.is_entry_point,
             "knowledge_base_file_ids": kb_by_agent.get(row.id, []),
+            # Só quando há cópias de pacote (subconjunto da lista acima).
+            **(
+                {"reference_file_ids": reference_by_agent[row.id]}
+                if row.id in reference_by_agent
+                else {}
+            ),
         }
         for row in agents_rows
     ]

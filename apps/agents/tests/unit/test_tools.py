@@ -73,6 +73,73 @@ async def test_buscar_agente_chama_retrieval_com_doc_ids():
 
 
 @pytest.mark.asyncio
+async def test_buscar_agente_busca_a_legislacao_do_pacote_a_parte():
+    async def fake(conversation_id, query, doc_ids=None):
+        return [{"chunk_id": f"trecho-de-{doc_ids[0]}"}]
+
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock(side_effect=fake)) as mock_fn:
+        result = await buscar_base_conhecimento_agente.ainvoke(
+            {
+                "query": "multa do contrato",
+                "conversation_id": "tenant-1:5511999998888",
+                "knowledge_base_file_ids": ["contrato", "lei-1", "lei-2"],
+                "reference_file_ids": ["lei-1", "lei-2"],
+            }
+        )
+
+    assert [call.kwargs["doc_ids"] for call in mock_fn.await_args_list] == [
+        ["contrato"],
+        ["lei-1", "lei-2"],
+    ]
+    # Documentos do escritório primeiro, legislação depois.
+    assert [hit["chunk_id"] for hit in result["results"]] == [
+        "trecho-de-contrato",
+        "trecho-de-lei-1",
+    ]
+    assert result["status"] == "found"
+    assert "documentos do escritório vêm primeiro" in result["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_buscar_agente_so_com_pacote_faz_uma_busca():
+    mock_retrieval = AsyncMock(return_value=[{"chunk_id": "lei"}])
+    with patch("agents.tools.retrieval_escritorio", new=mock_retrieval) as mock_fn:
+        result = await buscar_base_conhecimento_agente.ainvoke(
+            {
+                "query": "prazo de prescrição",
+                "conversation_id": "tenant-1:5511999998888",
+                "knowledge_base_file_ids": ["lei-1"],
+                "reference_file_ids": ["lei-1"],
+            }
+        )
+
+    mock_fn.assert_awaited_once()
+    assert result["results"] == [{"chunk_id": "lei"}]
+    assert "vêm primeiro" not in result["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_buscar_agente_usa_o_grupo_que_respondeu_quando_o_outro_falha():
+    async def fake(conversation_id, query, doc_ids=None):
+        if doc_ids == ["lei-1"]:
+            raise RetrievalUnavailableError("fora do ar")
+        return [{"chunk_id": "contrato"}]
+
+    with patch("agents.tools.retrieval_escritorio", new=AsyncMock(side_effect=fake)):
+        result = await buscar_base_conhecimento_agente.ainvoke(
+            {
+                "query": "multa",
+                "conversation_id": "tenant-1:5511999998888",
+                "knowledge_base_file_ids": ["contrato", "lei-1"],
+                "reference_file_ids": ["lei-1"],
+            }
+        )
+
+    assert result["status"] == "found"
+    assert result["results"] == [{"chunk_id": "contrato"}]
+
+
+@pytest.mark.asyncio
 async def test_buscar_agente_sem_arquivos_nao_chama_retrieval():
     with patch("agents.tools.retrieval_escritorio", new=AsyncMock()) as mock_fn:
         result = await buscar_base_conhecimento_agente.ainvoke(

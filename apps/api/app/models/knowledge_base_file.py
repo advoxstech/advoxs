@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.knowledge_tree import KB_CATEGORIES
 from app.models.base import Base
 
 
@@ -26,11 +27,7 @@ class KnowledgeBaseFile(Base):
     __table_args__ = (
         CheckConstraint("status IN ('processing', 'ready', 'error')", name="status"),
         CheckConstraint(
-            "category IN ("
-            "'artigos_cientificos', 'materias_jornalisticas', 'decisoes_tribunais', "
-            "'livros_digitais', 'processos_judiciais', 'modelos_contratos', "
-            "'pecas_processuais', 'nao_selecionaveis'"
-            ") OR category IS NULL",
+            "category IN (" + ", ".join(f"'{c}'" for c in KB_CATEGORIES) + ") OR category IS NULL",
             name="category",
         ),
         Index(
@@ -70,10 +67,15 @@ class KnowledgeBaseFile(Base):
     replaces_file_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("knowledge_base_files.id", ondelete="RESTRICT")
     )
-    # Categoria fixa (POP GVA Digital) — só organização/visual, não afeta a
-    # busca do agente. NULL = "sem categoria" (arquivos legados ou upload sem
-    # categoria escolhida).
+    # Pasta da árvore (A–F e Z). O agente não consulta os arquivos de
+    # "nao_selecionaveis" (pasta F); as demais só organizam. NULL = "sem
+    # categoria" (arquivos legados ou upload sem pasta escolhida).
     category: Mapped[str | None] = mapped_column(String)
+    # Cópia de um documento do pacote de especialidade (base central da Advoxs):
+    # não conta no limite do plano e o conteúdo é copiado, não lido de novo.
+    public_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("public_documents.id", ondelete="SET NULL"), index=True
+    )
     # Leitura parcial (preenchidas pelo worker após a ingestão, só PDF): total de
     # páginas e as que ficaram sem texto ou com leitura fraca mesmo com OCR.
     pages_total: Mapped[int | None] = mapped_column(Integer)

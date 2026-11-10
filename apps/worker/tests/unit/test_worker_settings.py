@@ -33,7 +33,10 @@ def test_follow_up_recovery_can_reenqueue_finished_batches():
 
 
 def test_ingestion_runs_alone_in_its_own_queue():
-    assert _names(IngestionWorkerSettings.functions) == {"ingest_knowledge_base_file"}
+    assert _names(IngestionWorkerSettings.functions) == {
+        "ingest_knowledge_base_file",
+        "copy_public_document",
+    }
     assert IngestionWorkerSettings.queue_name == INGESTION_QUEUE
     assert IngestionWorkerSettings.max_jobs == 1
     assert IngestionWorkerSettings.job_timeout > WorkerSettings.job_timeout

@@ -23,6 +23,7 @@ from app.schemas.knowledge_base import (
     KnowledgeBaseFileCategoryUpdate,
     KnowledgeBaseFileOut,
 )
+from app.services.packages import enqueue_copies
 from app.services.subscriptions import get_active_subscription
 from app.services.team_access import require_admin, require_document_access
 from app.services.upload_storage import (
@@ -152,7 +153,8 @@ async def upload_file(
     await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
     used = await session.scalar(
         select(func.coalesce(func.sum(KnowledgeBaseFile.size_bytes), 0)).where(
-            KnowledgeBaseFile.tenant_id == ctx.tenant_id
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.public_document_id.is_(None),
         )
     )
     if (
@@ -172,6 +174,7 @@ async def upload_file(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
             KnowledgeBaseFile.superseded_at.is_(None),
             KnowledgeBaseFile.replaces_file_id.is_(None),
+            KnowledgeBaseFile.public_document_id.is_(None),
         )
     )
     if plan.max_knowledge_base_files is not None and file_count >= plan.max_knowledge_base_files:
@@ -307,6 +310,7 @@ async def list_files(
             replaces_file_id=getattr(f, "replaces_file_id", None),
             pages_total=getattr(f, "pages_total", None),
             partial_pages=getattr(f, "partial_pages", None) or [],
+            from_package=getattr(f, "public_document_id", None) is not None,
         )
         for f in files
     ]
@@ -350,6 +354,9 @@ async def update_file_category(
         category=record.category,
         uploaded_at=record.uploaded_at,
         agent_ids=[row for row in links_result.scalars().all()],
+        pages_total=getattr(record, "pages_total", None),
+        partial_pages=getattr(record, "partial_pages", None) or [],
+        from_package=getattr(record, "public_document_id", None) is not None,
     )
 
 
@@ -462,6 +469,9 @@ async def reprocess_file(
     record.status = "processing"
     record.error_message = None
     await session.commit()
+    if getattr(record, "public_document_id", None) is not None:
+        await enqueue_copies(arq, ctx.tenant_id, [file_id])
+        return
     # O arquivo temporário permanece no volume quando a ingestão falha (só é
     # apagado no caminho de sucesso, ver ingest_knowledge_base_file) — o
     # worker reencontra o mesmo arquivo, sem precisar de novo upload.

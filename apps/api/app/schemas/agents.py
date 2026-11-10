@@ -1,7 +1,28 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Mesmos valores de app/core/knowledge_tree.py (SPECIALTIES).
+AgentSpecialty = Literal[
+    "civel",
+    "familia_sucessoes",
+    "trabalhista",
+    "previdenciario",
+    "consumidor",
+    "tributario",
+    "empresarial",
+    "penal",
+    "imobiliario",
+    "saude",
+    "bancario_financeiro",
+    "digital_protecao_dados",
+    "administrativo_publico",
+    "condominial",
+    "contratos",
+    "ambiental",
+]
 
 
 class AgentOut(BaseModel):
@@ -11,6 +32,7 @@ class AgentOut(BaseModel):
     name: str
     instructions: str
     is_entry_point: bool
+    specialty: AgentSpecialty | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -23,6 +45,16 @@ class AgentCreate(BaseModel):
 class AgentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     instructions: str | None = Field(default=None, min_length=1)
+
+
+class AgentSpecialtyIn(BaseModel):
+    specialty: AgentSpecialty | None = None
+
+
+class AgentPackageOut(BaseModel):
+    agent: AgentOut
+    # Documentos do pacote que estão sendo copiados para o escritório agora.
+    copying: int
 
 
 class AgentKnowledgeBaseFileOut(BaseModel):
