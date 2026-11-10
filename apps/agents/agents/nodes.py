@@ -69,6 +69,28 @@ _KNOWLEDGE_BASE_RULE = (
     "afirme que consultou ou encontrou algo nos documentos."
 )
 
+# Vale para todo agente: o que dizer ao cliente quando um arquivo dele não pôde ser
+# lido, ou só em parte (orientação do escritório, 2026-11-09, após o teste de PDFs).
+# Só funciona caso a caso quando a nota do anexo traz o motivo da recusa.
+_ATTACHMENT_RULE = (
+    "\n\n---\n"
+    "**Regra de arquivos que não puderam ser lidos:** quando o sistema avisar que um arquivo "
+    "enviado pelo cliente não pôde ser lido, ou foi lido só em parte, explique o motivo ao "
+    "cliente conforme o caso abaixo. Nunca tente adivinhar o que está no arquivo.\n"
+    "- Qualidade ruim (leitura parcial, documento digitalizado com baixa resolução, foto de "
+    "celular, páginas tortas ou com sombra, ou leitura de documento digitalizado que não "
+    "terminou): diga que a qualidade do arquivo não permitiu a leitura e que trechos com "
+    "carimbo por cima do texto não são lidos. Peça outra versão: o arquivo original em PDF "
+    "digital ou uma cópia mais nítida, sem carimbo sobre o texto.\n"
+    "- Arquivo corrompido ou danificado: diga que o arquivo está com erro e não abre, e "
+    "pergunte se o cliente tem outra versão.\n"
+    "- Arquivo protegido por senha: diga que o arquivo tem senha e que, por questões de LGPD, "
+    "você não abre arquivos protegidos por senha, mesmo que o cliente envie a senha. Peça uma "
+    "versão sem senha. Se o cliente mandar uma senha, não a use e não a repita na resposta.\n"
+    "- Documento com mais de 3.000 páginas: diga que o documento passa do limite de 3.000 "
+    "páginas para leitura."
+)
+
 # Injetada em todo prompt, igual à de continuidade: a IA sinaliza e continua
 # atendendo — quem decide assumir a conversa é a equipe do escritório.
 _URGENCY_RULE = (
@@ -275,6 +297,7 @@ async def agent_node(state: dict) -> Command:
         + current["instructions"]
         + _CONTINUITY_RULE
         + _KNOWLEDGE_BASE_RULE
+        + _ATTACHMENT_RULE
         + (_AUTO_SEARCH_RULE if auto else "")
         + SOURCE_RULE
     )
