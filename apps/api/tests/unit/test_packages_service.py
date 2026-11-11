@@ -52,7 +52,7 @@ async def test_sem_especialidade_nao_faz_nada(session) -> None:
 
 
 async def test_pacote_vazio_nao_cria_nada(session) -> None:
-    session.scalars.side_effect = [_rows([])]
+    session.scalars.side_effect = [_rows([]), _rows([])]
 
     assert await packages.sync_agent_package(session, _agent()) == []
     session.add.assert_not_called()
@@ -60,7 +60,7 @@ async def test_pacote_vazio_nao_cria_nada(session) -> None:
 
 async def test_cria_a_copia_marcada_como_pacote_e_liga_ao_agente(session) -> None:
     document = _document()
-    session.scalars.side_effect = [_rows([document]), _rows([]), _rows([])]
+    session.scalars.side_effect = [_rows([document]), _rows([]), _rows([]), _rows([])]
 
     to_copy = await packages.sync_agent_package(session, _agent())
 
@@ -78,7 +78,7 @@ async def test_cria_a_copia_marcada_como_pacote_e_liga_ao_agente(session) -> Non
 
 
 async def test_nome_ja_usado_por_arquivo_do_escritorio_ganha_sufixo(session) -> None:
-    session.scalars.side_effect = [_rows([_document()]), _rows([]), _rows([])]
+    session.scalars.side_effect = [_rows([_document()]), _rows([]), _rows([]), _rows([])]
     session.scalar.return_value = uuid.uuid4()
 
     await packages.sync_agent_package(session, _agent())
@@ -95,7 +95,7 @@ async def test_copia_em_dia_de_outro_agente_so_ganha_o_vinculo(session) -> None:
         status="ready",
         content_sha256=document.content_sha256,
     )
-    session.scalars.side_effect = [_rows([document]), _rows([existing]), _rows([])]
+    session.scalars.side_effect = [_rows([document]), _rows([]), _rows([existing]), _rows([])]
 
     assert await packages.sync_agent_package(session, _agent()) == []
 
@@ -112,7 +112,12 @@ async def test_copia_ja_ligada_e_em_dia_nao_muda(session) -> None:
         status="ready",
         content_sha256=document.content_sha256,
     )
-    session.scalars.side_effect = [_rows([document]), _rows([existing]), _rows([existing.id])]
+    session.scalars.side_effect = [
+        _rows([document]),
+        _rows([]),
+        _rows([existing]),
+        _rows([existing.id]),
+    ]
 
     assert await packages.sync_agent_package(session, _agent()) == []
     session.add.assert_not_called()
@@ -130,7 +135,12 @@ async def test_copia_desatualizada_ou_incompleta_e_refeita(session, status, sha)
         content_sha256=sha,
         error_message="falhou",
     )
-    session.scalars.side_effect = [_rows([document]), _rows([existing]), _rows([existing.id])]
+    session.scalars.side_effect = [
+        _rows([document]),
+        _rows([]),
+        _rows([existing]),
+        _rows([existing.id]),
+    ]
 
     assert await packages.sync_agent_package(session, _agent()) == [existing.id]
 
@@ -190,3 +200,29 @@ async def test_enfileira_uma_copia_por_arquivo_na_fila_de_ingestao() -> None:
         "_job_id": f"kb-copy:{file_ids[0]}",
         "_queue_name": "arq:ingestion",
     }
+
+
+async def test_documento_que_saiu_do_pacote_sai_do_agente(session, monkeypatch) -> None:
+    document = _document()
+    removed = SimpleNamespace(id=uuid.uuid4())
+    existing = SimpleNamespace(
+        id=uuid.uuid4(),
+        public_document_id=document.id,
+        status="ready",
+        content_sha256=document.content_sha256,
+    )
+    delete_documents = AsyncMock()
+    monkeypatch.setattr(packages, "delete_documents", delete_documents)
+    # documentos do pacote, cópias fora do pacote, ainda ligadas, cópias do pacote, ligadas
+    session.scalars.side_effect = [
+        _rows([document]),
+        _rows([removed]),
+        _rows([]),
+        _rows([existing]),
+        _rows([existing.id]),
+    ]
+
+    assert await packages.sync_agent_package(session, _agent()) == []
+
+    delete_documents.assert_awaited_once_with(str(TENANT_ID), [str(removed.id)])
+    session.delete.assert_awaited_once_with(removed)

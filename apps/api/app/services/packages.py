@@ -76,6 +76,8 @@ async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.U
             .order_by(PublicDocument.code)
         )
     ).all()
+    # Documentos que saíram do pacote saem também do agente.
+    await detach_agent_package(session, agent, keep={d.id for d in documents})
     if not documents:
         return []
 
@@ -150,23 +152,30 @@ async def count_package_files(session: AsyncSession, agent: Agent) -> int:
     )
 
 
-async def detach_agent_package(session: AsyncSession, agent: Agent) -> None:
+async def detach_agent_package(
+    session: AsyncSession, agent: Agent, keep: set[uuid.UUID] | None = None
+) -> None:
     """Tira do agente as cópias de pacote (troca ou remoção da especialidade) e
-    exclui as que não ficaram ligadas a nenhum outro agente. Não faz commit."""
-    package_files = (
-        await session.scalars(
-            select(KnowledgeBaseFile)
-            .join(
-                AgentKnowledgeBaseFile,
-                AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
-            )
-            .where(
-                AgentKnowledgeBaseFile.agent_id == agent.id,
-                KnowledgeBaseFile.tenant_id == agent.tenant_id,
-                KnowledgeBaseFile.public_document_id.is_not(None),
-            )
+    exclui as que não ficaram ligadas a nenhum outro agente. Não faz commit.
+
+    Com `keep`, só tira as cópias de documentos fora desse conjunto: as que
+    saíram do pacote da especialidade.
+    """
+    query = (
+        select(KnowledgeBaseFile)
+        .join(
+            AgentKnowledgeBaseFile,
+            AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
         )
-    ).all()
+        .where(
+            AgentKnowledgeBaseFile.agent_id == agent.id,
+            KnowledgeBaseFile.tenant_id == agent.tenant_id,
+            KnowledgeBaseFile.public_document_id.is_not(None),
+        )
+    )
+    if keep:
+        query = query.where(KnowledgeBaseFile.public_document_id.not_in(keep))
+    package_files = (await session.scalars(query)).all()
     if not package_files:
         return
     ids = [record.id for record in package_files]
