@@ -95,6 +95,7 @@ Base URL padrão: `http://<host>:8000`
 |--------|-----------------------------|------|---------------------|----------------------------------------|
 | GET    | `/health`                   | não  | —                   | Health check                           |
 | POST   | `/documents/users/insert`   | sim  | `multipart/form-data` | Ingestão de documento do **usuário**   |
+| POST   | `/documents/users/copy`     | sim  | `application/json`   | Copia um documento já indexado para outro escritório |
 | DELETE | `/documents/users/delete`   | sim  | query string        | Deleta documento(s) do **usuário**     |
 | POST   | `/documents/system/insert`  | sim  | `multipart/form-data` | Ingestão de documento do **sistema**   |
 | DELETE | `/documents/system/delete`  | sim  | query string        | Deleta documento(s) do **sistema**     |
@@ -186,6 +187,33 @@ curl -X DELETE "http://localhost:8000/documents/users/delete?tenant_id=<uuid>&do
 ```
 
 **Erros:** `400` (tenant_id ausente/inválido) · `403` (auth) · `500`.
+
+---
+
+### 3.3.1 `POST /documents/users/copy`
+
+Copia para outro escritório um documento **já indexado**, sem ler o arquivo de novo:
+duplica os trechos no Qdrant com o `tenant_id` e o `doc_id` de destino e cria o
+registro em `documentos_usuario`. Usado pelos pacotes de especialidade (base central
+da Advoxs, tenant reservado `advoxs-public`, → escritório). Idempotente: um destino
+com o mesmo `doc_id` é substituído. Se algo falha no meio, nada fica gravado.
+
+**Corpo:**
+```json
+{
+  "source_tenant_id": "advoxs-public",
+  "source_doc_id": "<uuid do documento de origem>",
+  "tenant_id": "<uuid do escritório>",
+  "conversation_id": "kb",
+  "doc_id": "<uuid do documento de destino>",
+  "filename": "1.01_Codigo_Civil.pdf"
+}
+```
+
+**Resposta `200`:** `{ "mensagem": "Documento copiado com sucesso", "trechos": 812 }`
+
+**Erros:** `400` (origem inexistente ou de outro tenant, origem sem trechos, `doc_id`
+de outro escritório, origem e destino iguais) · `403` (auth) · `500`.
 
 ---
 
