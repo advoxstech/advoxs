@@ -264,7 +264,7 @@ async def upload_file(
 
 @router.get("/files", dependencies=[Depends(require_admin)])
 async def list_files(
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=500, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     ctx: TenantContext = Depends(get_current_tenant),
     session: AsyncSession = Depends(get_tenant_session),

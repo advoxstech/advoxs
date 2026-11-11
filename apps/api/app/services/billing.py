@@ -32,6 +32,7 @@ from app.schemas.billing import (
 from app.services.default_agents import build_default_agents
 from app.services.default_subscription import build_default_subscription
 from app.services.email_notifications import send_new_tenant_notification
+from app.services.packages import provision_packages
 from app.services.signup_tokens import store_login_token
 from app.services.urgency import build_default_urgency_keywords
 
@@ -313,6 +314,18 @@ async def _process_signup(
     # Best-effort — a conta já foi criada, uma falha aqui nunca deve
     # atrapalhar o cadastro do escritório.
     await send_new_tenant_notification(tenant.name, package.name, datetime.now(UTC))
+
+    # Pacotes de especialidade dos agentes padrão (legislação e jurisprudência):
+    # melhor esforço — o escritório pode usar "Restaurar pacote" depois.
+    try:
+        await provision_packages(session, default_agents)
+    except Exception as exc:
+        await session.rollback()
+        logger.warning(
+            "Falha ao entregar os pacotes de especialidade | tenant=%s error_type=%s",
+            tenant.id,
+            safe_error(exc),
+        )
 
     # Auto-login pós-pagamento: token one-time, best-effort — se o Redis
     # falhar, a conta já existe e o usuário entra pelo /login normal.

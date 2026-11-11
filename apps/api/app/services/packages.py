@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rag import RagApiError, delete_documents
-from app.core.queue import INGESTION_QUEUE
+from app.core.queue import INGESTION_QUEUE, get_arq_pool
 from app.core.safe_logging import safe_error
 from app.models import (
     Agent,
@@ -185,6 +185,21 @@ async def detach_agent_package(session: AsyncSession, agent: Agent) -> None:
         )
     for record in orphans:
         await session.delete(record)
+
+
+async def provision_packages(session: AsyncSession, agents: list[Agent]) -> None:
+    """Entrega o pacote de cada agente com especialidade (escritório recém-criado).
+
+    Faz commit e enfileira as cópias. Quem chama trata como melhor esforço: o
+    escritório sempre pode usar "Restaurar pacote" depois.
+    """
+    for agent in agents:
+        if not agent.specialty:
+            continue
+        to_copy = await sync_agent_package(session, agent)
+        await session.commit()
+        if to_copy:
+            await enqueue_copies(await get_arq_pool(), agent.tenant_id, to_copy)
 
 
 async def enqueue_copies(arq: ArqRedis, tenant_id: uuid.UUID, file_ids: list[uuid.UUID]) -> None:
