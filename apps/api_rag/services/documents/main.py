@@ -73,7 +73,16 @@ _CONTROLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 class DocumentoIlegivel(ValueError):
-    """Arquivo que não dá para ler: senha, corrompido, sem texto ou páginas demais."""
+    """Arquivo que não dá para ler: senha, corrompido, sem texto ou páginas demais.
+
+    `motivo` é o código devolvido a quem chamou (`api`/`worker`), que monta a
+    orientação ao agente: senha | corrompido | paginas_demais |
+    escaneadas_demais | sem_texto.
+    """
+
+    def __init__(self, mensagem: str, motivo: str):
+        super().__init__(mensagem)
+        self.motivo = motivo
 
 
 @dataclass
@@ -113,17 +122,18 @@ def _abrir_pdf(document_bytes: bytes) -> pdfium.PdfDocument:
     except pdfium.PdfiumError as exc:
         if "password" in str(exc).lower():
             raise DocumentoIlegivel(
-                "O PDF está protegido por senha. Envie uma versão sem senha."
+                "O PDF está protegido por senha. Envie uma versão sem senha.", "senha"
             ) from exc
         raise DocumentoIlegivel(
-            "Não foi possível abrir o PDF: o arquivo parece corrompido."
+            "Não foi possível abrir o PDF: o arquivo parece corrompido.", "corrompido"
         ) from exc
     total = len(pdf)
     if total > MAX_PDF_PAGES:
         pdf.close()
         raise DocumentoIlegivel(
             f"O PDF tem {total} páginas e o limite é {MAX_PDF_PAGES}. "
-            "Divida o arquivo em partes menores."
+            "Divida o arquivo em partes menores.",
+            "paginas_demais",
         )
     return pdf
 
@@ -400,7 +410,8 @@ class DocumentoService:
                     if escaneadas > MAX_OCR_PAGES:
                         raise DocumentoIlegivel(
                             f"O PDF tem {escaneadas} páginas escaneadas e o limite de leitura "
-                            f"por OCR é {MAX_OCR_PAGES}. Divida o arquivo em partes menores."
+                            f"por OCR é {MAX_OCR_PAGES}. Divida o arquivo em partes menores.",
+                            "escaneadas_demais",
                         )
                 for inicio in range(0, total, INGEST_PAGE_BATCH):
                     fim = min(inicio + INGEST_PAGE_BATCH, total)
@@ -513,13 +524,15 @@ class DocumentoService:
             if leitura.get("ocr"):
                 raise DocumentoIlegivel(
                     "Não foi possível ler texto no arquivo, nem com OCR. "
-                    "Verifique a qualidade da digitalização."
+                    "Verifique a qualidade da digitalização.",
+                    "sem_texto",
                 )
             raise DocumentoIlegivel(
                 "Não há texto legível no arquivo."
                 if OCR_ENABLED
                 else "Não há texto legível no arquivo. Se for um PDF escaneado, "
-                "a leitura por OCR está desativada."
+                "a leitura por OCR está desativada.",
+                "sem_texto",
             )
         resumo = resumo_leitura(leitura)
         if resumo["paginas_parciais"]:

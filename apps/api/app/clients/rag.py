@@ -6,7 +6,16 @@ from app.core.config import settings
 
 
 class RagApiError(Exception):
-    """Falha de comunicação ou resposta de erro do api_rag."""
+    """Falha de comunicação ou resposta de erro do api_rag.
+
+    `motivo`: por que o documento não pôde ser lido, quando se sabe — senha |
+    corrompido | paginas_demais | escaneadas_demais | sem_texto (recusa do
+    api_rag) ou leitura_demorada (passou do prazo).
+    """
+
+    def __init__(self, message: str = "", motivo: str | None = None):
+        super().__init__(message)
+        self.motivo = motivo
 
 
 async def read_office_document(tenant_id: str, document_id: str) -> bytes | None:
@@ -32,7 +41,7 @@ async def read_office_document(tenant_id: str, document_id: str) -> bytes | None
         raise RagApiError("Falha ao consultar o documento original") from exc
 
 
-async def insert_user_document(
+async def insert_user_document_reading(
     *,
     tenant_id: str,
     conversation_id: str,
@@ -40,7 +49,7 @@ async def insert_user_document(
     filename: str,
     file_bytes: bytes,
     timeout: float = 60,
-) -> list[int]:
+) -> dict:
     """Ingere um documento na base pessoal de um contato e devolve as páginas com
     leitura parcial (sem texto ou leitura fraca mesmo com OCR; vazia se completa). `conversation_id`
     precisa ser só o contact_phone_number — NUNCA o thread_id composto
@@ -64,18 +73,41 @@ async def insert_user_document(
                 files={"file": (filename, file_bytes, "application/octet-stream")},
                 headers={"Authorization": settings.rag_api_key},
             )
+    except httpx.TimeoutException as exc:
+        raise RagApiError("Leitura passou do prazo", motivo="leitura_demorada") from exc
     except httpx.HTTPError as exc:
         raise RagApiError(f"api_rag indisponível: {exc}") from exc
     if response.status_code >= 400:
-        raise RagApiError(f"api_rag retornou HTTP {response.status_code}")
+        motivo = None
+        if response.status_code == 400:
+            try:
+                motivo = response.json().get("motivo")
+            except (ValueError, AttributeError):
+                motivo = None
+        raise RagApiError(
+            f"api_rag retornou HTTP {response.status_code}",
+            motivo=motivo if isinstance(motivo, str) else None,
+        )
     try:
         leitura = response.json().get("leitura") or {}
-        parciais = leitura.get("paginas_parciais") or []
     except (ValueError, AttributeError):
-        return []
-    if not isinstance(parciais, list):
-        return []
-    return sorted({p for p in parciais if type(p) is int and p > 0})
+        leitura = {}
+    if not isinstance(leitura, dict):
+        leitura = {}
+    parciais = leitura.get("paginas_parciais")
+    ocr = leitura.get("ocr")
+    return {
+        "partial_pages": sorted({p for p in parciais if type(p) is int and p > 0})
+        if isinstance(parciais, list)
+        else [],
+        # Páginas lidas como imagem (OCR): documento digitalizado ou foto.
+        "ocr_pages": ocr if type(ocr) is int and ocr > 0 else 0,
+    }
+
+
+async def insert_user_document(**kwargs) -> list[int]:
+    """Como insert_user_document_reading, devolvendo só as páginas com leitura parcial."""
+    return (await insert_user_document_reading(**kwargs))["partial_pages"]
 
 
 async def delete_documents(tenant_id: str, doc_ids: list[str]) -> None:

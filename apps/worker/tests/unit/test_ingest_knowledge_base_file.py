@@ -216,7 +216,11 @@ def test_resumo_da_leitura_normaliza_resposta_do_rag() -> None:
         200,
         json={"leitura": {"paginas": 50, "ocr": 50, "paginas_parciais": [7, 3, 3, "x", 0]}},
     )
-    assert reading_summary(resposta) == {"pages_total": 50, "partial_pages": [3, 7]}
+    assert reading_summary(resposta) == {
+        "pages_total": 50,
+        "ocr_pages": 50,
+        "partial_pages": [3, 7],
+    }
     assert reading_summary(httpx.Response(200, json={"mensagem": "ok"})) == {}
     assert reading_summary(httpx.Response(200, text="não é json")) == {}
 

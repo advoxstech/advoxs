@@ -22,8 +22,8 @@ def _upload_file(filename: str, content: bytes = b"conteudo") -> UploadFile:
 
 @pytest.fixture
 def ingest_mock(monkeypatch):
-    mock = AsyncMock(return_value=[])
-    monkeypatch.setattr(test_attachments_module, "insert_user_document", mock)
+    mock = AsyncMock(return_value={"partial_pages": [], "ocr_pages": 0})
+    monkeypatch.setattr(test_attachments_module, "insert_user_document_reading", mock)
     return mock
 
 
@@ -58,7 +58,7 @@ async def test_pdf_ingere_com_sucesso(ingest_mock) -> None:
 
 
 async def test_pdf_com_leitura_parcial_avisa_o_agente(ingest_mock) -> None:
-    ingest_mock.return_value = [4, 9]
+    ingest_mock.return_value = {"partial_pages": [4, 9], "ocr_pages": 9}
 
     result = await process_test_attachment(
         _upload_file("laudo.pdf", b"%PDF-1.4"),
@@ -119,3 +119,38 @@ async def test_sem_filename_e_tratado_como_formato_nao_suportado(ingest_mock) ->
 
     assert "formato não suportado" in result.lower()
     ingest_mock.assert_not_awaited()
+
+
+async def _ingest(file_name: str = "contrato.pdf") -> str:
+    return await process_test_attachment(
+        _upload_file(file_name, b"%PDF-1.4 conteudo"),
+        tenant_id=TENANT_ID,
+        conversation_id=CONVERSATION_ID,
+        message_id=MESSAGE_ID,
+    )
+
+
+@pytest.mark.parametrize(
+    ("motivo", "trecho"),
+    [
+        ("senha", "protegido por senha"),
+        ("corrompido", "corrompido ou danificado"),
+        ("paginas_demais", "mais de 3.000 páginas"),
+        ("escaneadas_demais", "digitalizado"),
+        ("sem_texto", "qualidade ruim"),
+        ("leitura_demorada", "não terminou no tempo limite"),
+    ],
+)
+async def test_recusa_vira_aviso_com_o_motivo(ingest_mock, motivo, trecho) -> None:
+    ingest_mock.side_effect = RagApiError("recusado", motivo=motivo)
+
+    result = await _ingest()
+
+    assert result.startswith("[Anexo recebido mas não pôde ser lido")
+    assert trecho in result
+
+
+async def test_documento_lido_como_imagem_avisa_sobre_carimbo(ingest_mock) -> None:
+    ingest_mock.return_value = {"partial_pages": [], "ocr_pages": 4}
+
+    assert "carimbo" in await _ingest()
