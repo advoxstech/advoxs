@@ -90,7 +90,10 @@ def scan_packages(root: Path) -> list[PublicFile]:
 
     by_sha: dict[str, PublicFile] = {}
     filenames: dict[str, str] = {}
-    for package in sorted(p for p in packages.iterdir() if p.is_dir()):
+    # Pastas de controle ("_RELATORIOS") não são pacotes.
+    for package in sorted(
+        p for p in packages.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
+    ):
         match = _PACKAGE_FOLDER.match(package.name)
         number = int(match.group(1)) if match else 0
         if not 1 <= number <= len(SPECIALTIES):
