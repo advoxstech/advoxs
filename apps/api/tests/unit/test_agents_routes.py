@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.api.v1 import agents as agents_routes
+from app.core.queue import get_arq_pool
 from app.main import app
 from app.models import Agent
 from app.services.urgency import DEFAULT_URGENCY_KEYWORDS
@@ -65,6 +67,8 @@ def session():
         obj.updated_at = datetime.now(UTC)
 
     mock.refresh.side_effect = fake_refresh
+    # Agente sem cópias de pacote (detach_agent_package não encontra nada).
+    mock.scalars.return_value = SimpleNamespace(all=lambda: [])
     return mock
 
 
@@ -545,3 +549,86 @@ class TestVersions:
         assert snapshot.agent_id == AGENT_ID
         assert agent.is_entry_point is False
         assert agent.instructions == "Você é uma secretária."
+
+
+class TestSpecialty:
+    @pytest.fixture
+    def package(self, monkeypatch):
+        mocks = {
+            "detach": AsyncMock(),
+            "sync": AsyncMock(return_value=[uuid.uuid4(), uuid.uuid4()]),
+            "enqueue": AsyncMock(),
+        }
+        monkeypatch.setattr(agents_routes, "detach_agent_package", mocks["detach"])
+        monkeypatch.setattr(agents_routes, "sync_agent_package", mocks["sync"])
+        monkeypatch.setattr(agents_routes, "enqueue_copies", mocks["enqueue"])
+        monkeypatch.setattr(agents_routes, "count_package_files", AsyncMock(return_value=3))
+        arq = AsyncMock()
+        app.dependency_overrides[get_arq_pool] = lambda: arq
+        yield mocks
+        app.dependency_overrides.pop(get_arq_pool, None)
+
+    def test_define_a_especialidade_e_traz_o_pacote(self, client, session, package) -> None:
+        agent = _agent(name="Contratos", is_entry_point=False)
+        agent.specialty = None
+        session.scalar.return_value = agent
+
+        response = client.put(
+            f"/api/v1/agents/{AGENT_ID}/specialty", json={"specialty": "contratos"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["agent"]["specialty"] == "contratos"
+        assert response.json()["copying"] == 2
+        assert response.json()["documents"] == 3
+        package["detach"].assert_awaited_once()
+        package["sync"].assert_awaited_once()
+        session.commit.assert_awaited_once()
+        # Só enfileira depois do commit, com os arquivos a copiar.
+        assert package["enqueue"].await_args.args[1:] == (
+            TENANT_ID,
+            package["sync"].return_value,
+        )
+
+    def test_mesma_especialidade_nao_refaz_nada(self, client, session, package) -> None:
+        agent = _agent(name="Contratos", is_entry_point=False)
+        agent.specialty = "contratos"
+        session.scalar.return_value = agent
+
+        response = client.put(
+            f"/api/v1/agents/{AGENT_ID}/specialty", json={"specialty": "contratos"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["copying"] == 0
+        package["detach"].assert_not_awaited()
+        package["enqueue"].assert_not_awaited()
+
+    def test_especialidade_desconhecida_retorna_422(self, client, session, package) -> None:
+        response = client.put(
+            f"/api/v1/agents/{AGENT_ID}/specialty", json={"specialty": "astrologia"}
+        )
+
+        assert response.status_code == 422
+
+    def test_restaurar_pacote_refaz_a_sincronizacao(self, client, session, package) -> None:
+        agent = _agent(name="Contratos", is_entry_point=False)
+        agent.specialty = "contratos"
+        session.scalar.return_value = agent
+
+        response = client.post(f"/api/v1/agents/{AGENT_ID}/package/restore")
+
+        assert response.status_code == 200
+        assert response.json()["copying"] == 2
+        package["detach"].assert_not_awaited()
+        package["enqueue"].assert_awaited_once()
+
+    def test_restaurar_sem_especialidade_retorna_409(self, client, session, package) -> None:
+        agent = _agent(name="Recepção", is_entry_point=True)
+        agent.specialty = None
+        session.scalar.return_value = agent
+
+        response = client.post(f"/api/v1/agents/{AGENT_ID}/package/restore")
+
+        assert response.status_code == 409
+        package["sync"].assert_not_awaited()

@@ -4,20 +4,25 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-# Categorias fixas (POP GVA Digital) — só organização/visual na árvore de
-# /base-de-conhecimento, não afeta a busca do agente. Mesmos valores do CHECK
-# constraint em apps/api/app/models/knowledge_base_file.py e da migration
-# 0026 (mantidos em sincronia manualmente, mesmo padrão já usado por outros
-# enums via CHECK constraint neste projeto).
+# Pastas da árvore de /base-de-conhecimento (A–F e Z). Mesmos valores de
+# app/core/knowledge_tree.py e do CHECK constraint (migration 0053). O agente
+# não consulta os arquivos de "nao_selecionaveis"; as demais só organizam.
 KnowledgeBaseCategory = Literal[
-    "artigos_cientificos",
-    "materias_jornalisticas",
-    "decisoes_tribunais",
     "livros_digitais",
+    "artigos_cientificos",
     "processos_judiciais",
+    "materias_jornalisticas",
+    "modelos",
     "modelos_contratos",
     "pecas_processuais",
     "nao_selecionaveis",
+    "constituicao",
+    "legislacao_especifica",
+    "decisoes_tribunais",
+    "area_3",
+    "area_4",
+    "area_5",
+    "area_6",
 ]
 
 
@@ -39,6 +44,8 @@ class KnowledgeBaseFileOut(BaseModel):
     # Leitura parcial: páginas sem texto ou com leitura fraca mesmo com OCR.
     pages_total: int | None = None
     partial_pages: list[int] = Field(default_factory=list)
+    # Cópia de um documento do pacote de especialidade (base Advoxs).
+    from_package: bool = False
 
 
 class KnowledgeBaseFileCategoryUpdate(BaseModel):

@@ -59,6 +59,7 @@ async def database():
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     tenant_id UUID NOT NULL REFERENCES tenants,
                     name TEXT NOT NULL, instructions TEXT NOT NULL,
+                    specialty TEXT,
                     is_entry_point BOOLEAN NOT NULL DEFAULT false,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

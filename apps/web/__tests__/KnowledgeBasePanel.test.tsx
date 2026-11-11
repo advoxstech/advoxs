@@ -356,7 +356,7 @@ describe("KnowledgeBasePanel", () => {
     render(<KnowledgeBasePanel pollMs={0} />);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Livros Digitais/ })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /A\) Livros digitais/ })).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /Sem categoria/ })).toBeInTheDocument();
     expect(screen.getByText("regimento.pdf")).toBeInTheDocument();
@@ -402,5 +402,140 @@ describe("KnowledgeBasePanel", () => {
 
     await waitFor(() => expect(capturedPath).toBe("knowledge-base/files/f1"));
     expect(JSON.parse(capturedBody).category).toBe("artigos_cientificos");
+  });
+
+  it("mostra a árvore A a F e Z, com as pastas da área da especialidade", async () => {
+    mockedFetch.mockImplementation(async (path: string) => {
+      if (path === "agents") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ ...agents[1], is_entry_point: true, specialty: "condominial" }],
+        };
+      }
+      if (path === "knowledge-base/files") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              ...files[0],
+              id: "lei",
+              filename: "1.01_Codigo_Civil.pdf",
+              category: "legislacao_especifica",
+              agent_ids: ["a2"],
+              from_package: true,
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => null };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    await waitFor(() => expect(screen.getByText("1.01_Codigo_Civil.pdf")).toBeInTheDocument());
+    for (const pasta of [
+      /A\) Livros digitais/,
+      /E\) Modelos/,
+      /F\) Não selecionáveis.*O agente não lê os arquivos desta pasta/,
+      /Z\) Constituição \(1 documento\)/,
+      /1\) Legislação específica \(1 documento\)/,
+    ]) {
+      expect(screen.getByRole("button", { name: pasta })).toBeInTheDocument();
+    }
+    // A pasta Z abre sozinha porque tem documento; as da área vêm da especialidade.
+    expect(screen.getByRole("button", { name: /3\) Convenção condominial/ })).toBeInTheDocument();
+    expect(screen.getByText("base Advoxs")).toBeInTheDocument();
+  });
+
+  it("define a especialidade do agente e avisa que o pacote está sendo copiado", async () => {
+    let captured: { path: string; body: string } | null = null;
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (init?.method === "PUT") {
+        captured = { path, body: init.body as string };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ agent: { ...agents[0], specialty: "contratos" }, copying: 51 }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => files };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Especialidade de Secretária"), {
+      target: { value: "contratos" },
+    });
+
+    await waitFor(() => expect(captured).not.toBeNull());
+    expect(captured!.path).toBe("agents/a1/specialty");
+    expect(JSON.parse(captured!.body)).toEqual({ specialty: "contratos" });
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "51 documentos do pacote estão sendo copiados",
+    );
+    expect(
+      screen.getByRole("button", { name: "Restaurar pacote de Contratos" }),
+    ).toBeInTheDocument();
+  });
+
+  it("restaura o pacote da especialidade", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ ...agents[0], specialty: "consumidor" }],
+        };
+      }
+      if (path === "agents/a1/package/restore" && init?.method === "POST") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ agent: { ...agents[0], specialty: "consumidor" }, copying: 0 }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Restaurar pacote de Consumidor" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "O pacote já está completo e atualizado.",
+    );
+  });
+
+  it("avisa quando o pacote já estava no escritório e só foi ligado ao agente", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            agent: { ...agents[0], specialty: "condominial" },
+            copying: 0,
+            documents: 2,
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => files };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Especialidade de Secretária"), {
+      target: { value: "condominial" },
+    });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "2 documentos do pacote já estavam no escritório e foram ligados a este agente",
+    );
   });
 });

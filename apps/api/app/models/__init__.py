@@ -25,6 +25,7 @@ from app.models.office_session import OfficeSession
 from app.models.outbound_message_job import OutboundMessageJob
 from app.models.pending_signup import PendingSignup
 from app.models.platform_admin import PlatformAdmin
+from app.models.public_document import PublicDocument, SpecialtyPackageDocument
 from app.models.subscription import SubscriptionPlan, TenantSubscription
 from app.models.tenant import Tenant
 from app.models.urgency_keyword import UrgencyKeyword
@@ -62,6 +63,8 @@ __all__ = [
     "OutboundMessageJob",
     "PendingSignup",
     "PlatformAdmin",
+    "PublicDocument",
+    "SpecialtyPackageDocument",
     "PricingConfig",
     "SubscriptionPlan",
     "Tenant",

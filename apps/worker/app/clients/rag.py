@@ -45,6 +45,35 @@ async def ingest_document(
     return reading_summary(response)
 
 
+async def copy_document(
+    http: httpx.AsyncClient,
+    *,
+    source_tenant_id: str,
+    source_doc_id: str,
+    tenant_id: str,
+    doc_id: str,
+    filename: str,
+) -> None:
+    """Copia para o escritório um documento já indexado (base central da Advoxs),
+    sem ler o arquivo de novo. Idempotente: refazer substitui a cópia anterior.
+
+    Levanta httpx.HTTPStatusError em resposta de erro.
+    """
+    response = await http.post(
+        "/documents/users/copy",
+        json={
+            "source_tenant_id": source_tenant_id,
+            "source_doc_id": source_doc_id,
+            "tenant_id": tenant_id,
+            "conversation_id": KB_CONVERSATION_ID,
+            "doc_id": doc_id,
+            "filename": filename,
+        },
+        headers={"Authorization": settings.rag_api_key},
+    )
+    response.raise_for_status()
+
+
 def reading_summary(response: httpx.Response) -> dict:
     """Resumo da leitura devolvido pelo api_rag, normalizado (nunca levanta)."""
     try:

@@ -1,9 +1,21 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.knowledge_tree import SPECIALTIES
 from app.models.base import Base
 
 
@@ -19,6 +31,10 @@ class Agent(Base):
             "tenant_id",
             unique=True,
             postgresql_where=text("is_entry_point = true"),
+        ),
+        CheckConstraint(
+            "specialty IN (" + ", ".join(f"'{s}'" for s in SPECIALTIES) + ") OR specialty IS NULL",
+            name="specialty",
         ),
     )
 
@@ -36,6 +52,9 @@ class Agent(Base):
     draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     published_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     restored_from_version: Mapped[int | None] = mapped_column(Integer)
+    # Especialidade (uma das 16 áreas): define as pastas Z.3–Z.6 no painel e o
+    # pacote de documentos que o agente recebe. Não é versionada com o prompt.
+    specialty: Mapped[str | None] = mapped_column(String)
     is_entry_point: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

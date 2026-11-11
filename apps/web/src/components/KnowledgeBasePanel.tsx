@@ -6,6 +6,7 @@ import { AgentFolder } from "@/components/AgentFolder";
 import { GoogleDriveImport } from "@/components/GoogleDriveImport";
 import type { KbFile } from "@/components/AgentFolder";
 import { backendFetch } from "@/lib/client-api";
+import { specialtyLabel } from "@/lib/kb-categories";
 import type { Agent } from "@/lib/types";
 
 // Espelha KB_MAX_FILE_SIZE_BYTES do api (60 MB). Se o api mudar, o servidor
@@ -18,6 +19,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
@@ -180,6 +182,80 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
     }
   }
 
+  // Resposta de PUT /specialty e POST /package/restore: o agente atualizado e
+  // quantos documentos do pacote estão sendo copiados agora.
+  async function applyPackage(
+    response: Response,
+    fallback: string,
+    done: (copying: number, documents: number) => string,
+  ) {
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      setFeedback(body?.detail ?? fallback);
+      return;
+    }
+    const body: { agent: Agent; copying: number; documents?: number } = await response.json();
+    setAgents((current) => current.map((a) => (a.id === body.agent.id ? body.agent : a)));
+    setNotice(done(body.copying, body.documents ?? 0));
+    await load();
+  }
+
+  async function handleSpecialty(agent: Agent, specialty: string) {
+    const current = specialtyLabel(agent.specialty);
+    if (
+      current &&
+      !window.confirm(
+        `Trocar a especialidade de "${agent.name}"? Os documentos do pacote de ${current} ` +
+          "saem deste agente. Os documentos do próprio escritório não mudam.",
+      )
+    ) {
+      return;
+    }
+    setFeedback(null);
+    setNotice(null);
+    try {
+      const response = await backendFetch(`agents/${agent.id}/specialty`, {
+        method: "PUT",
+        body: JSON.stringify({ specialty: specialty || null }),
+      });
+      await applyPackage(
+        response,
+        "Falha ao definir a especialidade. Tente novamente.",
+        (copying, documents) =>
+          !specialty
+            ? "Especialidade removida."
+            : copying > 0
+              ? `Especialidade definida. ${copying} documento${copying === 1 ? "" : "s"} do pacote ` +
+                `${copying === 1 ? "está sendo copiado" : "estão sendo copiados"} para este agente.`
+              : documents > 0
+                ? `Especialidade definida. ${documents} documento${documents === 1 ? "" : "s"} do ` +
+                  `pacote já ${documents === 1 ? "estava" : "estavam"} no escritório e ` +
+                  `${documents === 1 ? "foi ligado" : "foram ligados"} a este agente.`
+                : "Especialidade definida. Este pacote ainda não tem documentos disponíveis.",
+      );
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
+  async function handleRestorePackage(agent: Agent) {
+    setFeedback(null);
+    setNotice(null);
+    try {
+      const response = await backendFetch(`agents/${agent.id}/package/restore`, {
+        method: "POST",
+      });
+      await applyPackage(response, "Falha ao restaurar o pacote. Tente novamente.", (n) =>
+        n > 0
+          ? `${n} documento${n === 1 ? "" : "s"} do pacote ` +
+            `${n === 1 ? "está sendo restaurado" : "estão sendo restaurados"}.`
+          : "O pacote já está completo e atualizado.",
+      );
+    } catch {
+      setFeedback("Falha de conexão — tente novamente.");
+    }
+  }
+
   async function handleReprocess(file: KbFile) {
     try {
       const response = await backendFetch(`knowledge-base/files/${file.id}/reprocess`, {
@@ -202,7 +278,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         <h1 className="font-display text-[26px] leading-tight font-semibold text-ink">Base de conhecimento</h1>
         <p className="text-sm text-muted">
           PDF, DOCX ou TXT, até {MAX_FILE_MB} MB por arquivo — organizada por agente e, dentro de cada
-          agente, por categoria. Selecione vários arquivos de uma vez pra enviar em lote. Um
+          agente, nas pastas A a F e Z. Selecione vários arquivos de uma vez pra enviar em lote. Um
           arquivo pode ser anexado a mais de um agente.
         </p>
       </header>
@@ -224,6 +300,12 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         </p>
       )}
 
+      {notice && (
+        <p role="status" className="border-b border-line bg-accent-soft px-8 py-3 text-sm text-ink">
+          {notice}
+        </p>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         <GoogleDriveImport agents={agents} onImported={load} />
         <div className="px-4 py-4 sm:px-8">
@@ -239,6 +321,8 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
               defaultExpanded={focusedAgentId ? agent.id === focusedAgentId : agent.is_entry_point}
               uploading={uploading}
               onUpload={handleUpload}
+              onSpecialty={handleSpecialty}
+              onRestorePackage={handleRestorePackage}
               onAttach={handleAttach}
               onDetach={handleDetach}
               onDelete={handleDelete}

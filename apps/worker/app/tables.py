@@ -244,6 +244,7 @@ knowledge_base_files = Table(
     Column("imported_at", DateTime(timezone=True)),
     Column("pages_total", Integer),
     Column("partial_pages", ARRAY(Integer)),
+    Column("public_document_id", Uuid),
 )
 
 agents = Table(

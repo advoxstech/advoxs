@@ -150,6 +150,8 @@ export interface Agent {
   name: string;
   instructions: string;
   is_entry_point: boolean;
+  /** Uma das 16 especialidades (lib/kb-categories.ts) ou null. */
+  specialty?: string | null;
   created_at: string;
   updated_at: string;
 }

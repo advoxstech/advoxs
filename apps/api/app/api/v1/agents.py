@@ -3,12 +3,14 @@
 import uuid
 from datetime import UTC, datetime
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.core.queue import get_arq_pool
 from app.models import (
     Agent,
     AgentKnowledgeBaseFile,
@@ -24,7 +26,9 @@ from app.schemas.agents import (
     AgentDraftIn,
     AgentKnowledgeBaseFileOut,
     AgentOut,
+    AgentPackageOut,
     AgentPublishIn,
+    AgentSpecialtyIn,
     AgentUpdate,
     AgentVersionOut,
     AgentWorkspaceOut,
@@ -35,7 +39,14 @@ from app.schemas.conversations import ConversationOut
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
 from app.services import agent_versions as versions
 from app.services.agents_engine import load_agents_for_engine
+from app.services.packages import (
+    count_package_files,
+    detach_agent_package,
+    enqueue_copies,
+    sync_agent_package,
+)
 from app.services.subscriptions import get_active_subscription
+from app.services.team_access import require_admin
 from app.services.urgency import build_default_urgency_keywords
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -270,6 +281,60 @@ async def update_agent(
     )
 
 
+@router.put("/{agent_id}/specialty", dependencies=[Depends(require_admin)])
+async def set_agent_specialty(
+    agent_id: uuid.UUID,
+    body: AgentSpecialtyIn,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+    arq: ArqRedis = Depends(get_arq_pool),
+) -> AgentPackageOut:
+    """Define a especialidade do agente e traz o pacote de documentos dela.
+
+    Trocar de especialidade tira do agente as cópias do pacote anterior (as que
+    não estiverem em outro agente são excluídas) antes de trazer o novo.
+    """
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
+    agent = await _get_agent(agent_id, ctx, session)
+    to_copy: list[uuid.UUID] = []
+    if agent.specialty != body.specialty:
+        await detach_agent_package(session, agent)
+        agent.specialty = body.specialty
+        to_copy = await sync_agent_package(session, agent)
+        await session.commit()
+        await session.refresh(agent)
+        await enqueue_copies(arq, ctx.tenant_id, to_copy)
+    return AgentPackageOut(
+        agent=AgentOut.model_validate(agent),
+        copying=len(to_copy),
+        documents=await count_package_files(session, agent),
+    )
+
+
+@router.post("/{agent_id}/package/restore", dependencies=[Depends(require_admin)])
+async def restore_agent_package(
+    agent_id: uuid.UUID,
+    ctx: TenantContext = Depends(get_current_tenant),
+    session: AsyncSession = Depends(get_tenant_session),
+    arq: ArqRedis = Depends(get_arq_pool),
+) -> AgentPackageOut:
+    """Traz de volta os documentos do pacote que foram excluídos e atualiza os
+    que mudaram na base da Advoxs. Não mexe nos documentos do próprio escritório."""
+    await session.execute(select(Tenant.id).where(Tenant.id == ctx.tenant_id).with_for_update())
+    agent = await _get_agent(agent_id, ctx, session)
+    if not agent.specialty:
+        raise HTTPException(409, "Escolha a especialidade do agente antes de restaurar o pacote.")
+    to_copy = await sync_agent_package(session, agent)
+    await session.commit()
+    await session.refresh(agent)
+    await enqueue_copies(arq, ctx.tenant_id, to_copy)
+    return AgentPackageOut(
+        agent=AgentOut.model_validate(agent),
+        copying=len(to_copy),
+        documents=await count_package_files(session, agent),
+    )
+
+
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(
     agent_id: uuid.UUID,
@@ -293,6 +358,7 @@ async def delete_agent(
             detail="O tenant precisa ter ao menos 1 agente — crie outro antes de apagar este",
         )
 
+    await detach_agent_package(session, agent)
     await session.delete(agent)
     await session.commit()
 

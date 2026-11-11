@@ -13,6 +13,7 @@ from app.tasks.follow_ups import deliver_follow_up_batch, recover_follow_up_batc
 from app.tasks.inbound_outbox import recover_inbound_message_jobs
 from app.tasks.knowledge_base import (
     INGESTION_QUEUE,
+    copy_public_document,
     ingest_knowledge_base_file,
     recover_drive_imports,
 )
@@ -96,7 +97,10 @@ class WorkerSettings:
 class IngestionWorkerSettings:
     """Base de conhecimento: um arquivo por vez, na fila própria (container worker-ingestion)."""
 
-    functions = [func(ingest_knowledge_base_file, keep_result=0)]
+    functions = [
+        func(ingest_knowledge_base_file, keep_result=0),
+        func(copy_public_document, keep_result=0),
+    ]
     queue_name = INGESTION_QUEUE
     max_jobs = 1
     redis_settings = RedisSettings.from_dsn(settings.redis_url)

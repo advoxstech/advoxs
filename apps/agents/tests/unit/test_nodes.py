@@ -210,6 +210,22 @@ async def test_prompt_explica_fallback_para_conhecimento_nativo(monkeypatch) -> 
     assert "nunca afirme que consultou" in prompt_arg.content
 
 
+@pytest.mark.asyncio
+async def test_prompt_explica_arquivo_que_nao_pode_ser_lido(monkeypatch) -> None:
+    from agents.nodes import agent_node
+
+    model = mock_model(ai_response("oi"))
+    monkeypatch.setattr("agents.nodes.model", model)
+
+    await agent_node(base_state(current_agent_id="other-1"))
+
+    prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
+    assert "Regra de arquivos que não puderam ser lidos" in prompt
+    assert "carimbo" in prompt
+    assert "LGPD" in prompt
+    assert "3.000 páginas" in prompt
+
+
 # ──────────────────────────────────────────────
 # agent_node — agente não-entry-point (equivalente aos especialistas de antes)
 # ──────────────────────────────────────────────

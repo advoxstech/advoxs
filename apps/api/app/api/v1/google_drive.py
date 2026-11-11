@@ -196,6 +196,7 @@ async def import_file(
     used = await session.scalar(
         select(func.coalesce(func.sum(KnowledgeBaseFile.size_bytes), 0)).where(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.public_document_id.is_(None),
         )
     )
     if plan.max_knowledge_base_storage_bytes is not None:

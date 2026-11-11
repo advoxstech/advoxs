@@ -2,6 +2,7 @@ import asyncio
 import io
 import os
 import re
+import shutil
 import unicodedata
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
@@ -43,7 +44,7 @@ from constants import (
 )
 from database.models import DocumentoSistema, DocumentoUsuario
 from database.repositories.documento import DocumentoRepository
-from safe_logging import safe_identifier
+from safe_logging import safe_error, safe_identifier
 
 load_dotenv()
 
@@ -685,6 +686,119 @@ class DocumentoService:
 
         logger.info("Processamento concluido")
         return resumos
+
+    async def copiar_documento_usuario(
+        self,
+        source_tenant_id: str,
+        source_doc_id: str,
+        tenant_id: str,
+        conversation_id: str,
+        doc_id: str,
+        filename: str | None = None,
+    ) -> int:
+        """Copia um documento já indexado para outro escritório, sem ler o arquivo
+        de novo: duplica os trechos no Qdrant com o tenant e o doc_id de destino.
+
+        Usado pelos pacotes de especialidade (base central da Advoxs → escritório).
+        Idempotente: um destino com o mesmo doc_id é substituído. Devolve o
+        número de trechos copiados.
+        """
+        if not tenant_id or not source_tenant_id:
+            raise ValueError("tenant_id é obrigatório")
+        if tenant_id == source_tenant_id:
+            raise ValueError("Origem e destino precisam ser escritórios diferentes")
+
+        origem = await self.repo.buscar_documento_usuario_por_id(UUID(source_doc_id))
+        if origem is None or origem.tenant_id != source_tenant_id:
+            raise ValueError("Documento de origem não encontrado")
+
+        existente = await self.repo.buscar_documento_usuario_por_id(UUID(doc_id))
+        if existente is not None:
+            if existente.tenant_id != tenant_id:
+                raise ValueError("doc_id já pertence a outro escritório")
+            await self.deletar_documento_usuario(tenant_id, [doc_id])
+
+        nome = filename or origem.nome
+        path_doc = f"{tenant_id}/{conversation_id}"
+        self._ligar_arquivo(f"{origem.path_base}/{origem.path_doc}/{origem.nome}", path_doc, nome)
+
+        instance = DocumentoUsuario(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            nome=nome,
+            extensao=origem.extensao,
+            path_base=UPLOAD_DIR_USER,
+            path_doc=path_doc,
+        )
+        instance.id = UUID(doc_id)
+        await self.repo.criar_documento_usuario(instance)
+
+        total = 0
+        try:
+            offset = None
+            while True:
+                pontos, offset = await self.qdrant.scroll_by_filter(
+                    QDRANT_COLLECTION,
+                    tenant_id=source_tenant_id,
+                    field="doc_id",
+                    value=str(origem.id),
+                    offset=offset,
+                    limit=QDRANT_UPSERT_BATCH,
+                )
+                if pontos:
+                    result = await self.qdrant.upsert_points(
+                        collection_name=QDRANT_COLLECTION,
+                        points=[
+                            PointStruct(
+                                id=str(uuid4()),
+                                vector=ponto.vector,
+                                payload={
+                                    **(ponto.payload or {}),
+                                    "tenant_id": tenant_id,
+                                    "conversation_id": conversation_id,
+                                    "doc_id": doc_id,
+                                    "name": nome,
+                                },
+                            )
+                            for ponto in pontos
+                        ],
+                    )
+                    if not result["success"]:
+                        raise RuntimeError(f"Falha ao gravar trechos copiados: {result['error']}")
+                    total += len(pontos)
+                if offset is None:
+                    break
+            if total == 0:
+                raise ValueError("Documento de origem sem conteúdo indexado")
+        except Exception:
+            # Nada fica pela metade: trechos já copiados, arquivo e registro saem.
+            await self.deletar_documento_usuario(tenant_id, [doc_id])
+            raise
+        logger.info(
+            "Documento copiado | doc_id={} | trechos={} | tenant_ref={}",
+            doc_id,
+            total,
+            safe_identifier(tenant_id),
+        )
+        return total
+
+    @staticmethod
+    def _ligar_arquivo(origem: str, path_doc: str, nome: str) -> None:
+        """Deixa o arquivo original disponível para o destino sem duplicar o disco
+        (hard link; cópia se o sistema de arquivos não permitir). Melhor esforço:
+        sem o arquivo, só o download do original fica indisponível."""
+        destino_dir = f"{UPLOAD_DIR_USER}/{path_doc}"
+        destino = f"{destino_dir}/{nome}"
+        if not os.path.exists(origem) or os.path.exists(destino):
+            return
+        try:
+            os.makedirs(destino_dir, exist_ok=True)
+            try:
+                os.link(origem, destino)
+            except OSError:
+                shutil.copyfile(origem, destino)
+        except OSError as exc:
+            logger.warning("Arquivo original não copiado | error_type={}", safe_error(exc))
 
     async def deletar_documento_usuario(self, tenant_id: str, docs_ids: list[str]):
         if not tenant_id:

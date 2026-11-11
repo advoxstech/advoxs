@@ -9,7 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import tables
-from app.clients.rag import ingest_document
+from app.clients.rag import copy_document, ingest_document
 from app.config import settings
 from app.db import open_system_session, open_tenant_session
 from app.safe_logging import safe_error
@@ -24,6 +24,10 @@ MAX_TRIES = 5
 # (IngestionWorkerSettings) — livros grandes nunca disputam memória entre si
 # nem atrasam as mensagens do WhatsApp. Espelhado em apps/api/app/core/queue.py.
 INGESTION_QUEUE = "arq:ingestion"
+
+# Tenant reservado no api_rag para a base central da Advoxs (espelha
+# apps/api/app/core/knowledge_tree.py).
+PUBLIC_TENANT_ID = "advoxs-public"
 
 
 def _rag_error_detail(response: httpx.Response) -> str:
@@ -146,6 +150,66 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
         )
     path.unlink(missing_ok=True)
     logger.info("Arquivo ingerido | tenant=%s file=%s", tenant_id, file_id)
+
+
+async def copy_public_document(ctx: dict, tenant_id: str, file_id: str) -> None:
+    """Copia para o escritório o conteúdo já indexado de um documento do pacote de
+    especialidade (apps/api/app/services/packages.py). Sem leitura nem OCR: o
+    api_rag duplica os trechos da base central. Idempotente.
+    """
+    session_factory = ctx["session_factory"]
+    http: httpx.AsyncClient = ctx["rag_http"]
+
+    async with open_tenant_session(session_factory, tenant_id) as session:
+        row = (
+            await session.execute(
+                select(
+                    tables.knowledge_base_files.c.filename,
+                    tables.knowledge_base_files.c.status,
+                    tables.knowledge_base_files.c.public_document_id,
+                ).where(tables.knowledge_base_files.c.id == uuid.UUID(file_id))
+            )
+        ).one_or_none()
+
+    if row is None or row.status != "processing" or row.public_document_id is None:
+        logger.info("Cópia de pacote inexistente ou já concluída | file=%s", file_id)
+        return
+
+    try:
+        await copy_document(
+            http,
+            source_tenant_id=PUBLIC_TENANT_ID,
+            source_doc_id=str(row.public_document_id),
+            tenant_id=tenant_id,
+            doc_id=file_id,
+            filename=row.filename,
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code >= 500 and ctx.get("job_try", 1) < MAX_TRIES:
+            raise Retry(defer=ctx.get("job_try", 1) * 15)
+        await _set_status(
+            session_factory,
+            file_id,
+            "error",
+            "Não foi possível copiar o documento do pacote. Use Reprocessar para tentar de novo.",
+            tenant_id,
+        )
+        return
+    except httpx.HTTPError as exc:
+        if ctx.get("job_try", 1) < MAX_TRIES:
+            logger.warning(
+                "api_rag indisponível na cópia de pacote, reagendando | file=%s error_type=%s",
+                file_id,
+                safe_error(exc),
+            )
+            raise Retry(defer=ctx.get("job_try", 1) * 15)
+        await _set_status(
+            session_factory, file_id, "error", "Serviço de ingestão indisponível", tenant_id
+        )
+        return
+
+    await _set_status(session_factory, file_id, "ready", None, tenant_id)
+    logger.info("Documento de pacote copiado | tenant=%s file=%s", tenant_id, file_id)
 
 
 async def _load_file(session: AsyncSession, file_id: str):

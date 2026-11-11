@@ -196,6 +196,29 @@ class QdrantClient:
             with_payload=True,
         )
 
+    async def scroll_by_filter(
+        self,
+        collection_name: str,
+        tenant_id: str,
+        field: str,
+        value: str,
+        offset=None,
+        limit: int = 64,
+    ):
+        """Uma página dos pontos que casam com o filtro, com vetores e payload.
+
+        Devolve (pontos, próximo_offset); próximo_offset None = acabou. Erros
+        sobem para quem chama (a cópia de documento desfaz o que já gravou).
+        """
+        return await self._client.scroll(
+            collection_name=collection_name,
+            scroll_filter=_tenant_filter(tenant_id, {field: value}),
+            offset=offset,
+            limit=limit,
+            with_payload=True,
+            with_vectors=True,
+        )
+
     async def get_point(self, collection_name: str, point_id: str | int):
         return await self._safe_call(
             "get_point",

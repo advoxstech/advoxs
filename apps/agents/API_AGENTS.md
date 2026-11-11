@@ -144,7 +144,8 @@ do WhatsApp. Somente o estado `agent`, com saldo liberado, executa o grafo.
       "name": "Secretária",
       "instructions": "texto livre — vira o system prompt do agente",
       "is_entry_point": true,
-      "knowledge_base_file_ids": ["uuid-arquivo-1"]
+      "knowledge_base_file_ids": ["uuid-arquivo-1"],
+      "reference_file_ids": []                 // opcional — subconjunto: cópias do pacote da especialidade
     }
   ]
 }
@@ -500,7 +501,12 @@ START → agent_node (ponto de entrada) → (transfer_to_agent) → tool_node
   `buscar_base_conhecimento_agente`, resolve o agente ativo
   (`state["current_agent_id"]`) em `state["agents"]` e sobrescreve
   `knowledge_base_file_ids` com os arquivos de KB anexados a ele — o LLM nunca
-  escolhe quais arquivos são consultados.
+  escolhe quais arquivos são consultados. `reference_file_ids` (cópias do pacote
+  da especialidade: legislação e jurisprudência) é injetado junto; quando o
+  agente tem os dois tipos, a tool faz duas buscas ao mesmo tempo e devolve
+  primeiro os trechos do escritório, para as leis não tomarem o lugar deles.
+  Arquivos da pasta F ("não selecionáveis") nunca chegam nessas listas
+  (`worker` e `api` os excluem). Ver `docs/arvore-base-de-conhecimento.md`.
 - **Injeção de `valid_agent_ids`:** para `transfer_to_agent`, sobrescreve
   `valid_agent_ids` com os ids reais de `state["agents"]` — a tool recusa a
   transferência se o `agent_id` escolhido pelo LLM não estiver nessa lista.
