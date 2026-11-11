@@ -39,6 +39,11 @@ nomes das pastas 3 a 6 e qual pacote de documentos o agente recebe.
 - Trocar de especialidade tira do agente as cópias do pacote anterior. As que não
   estiverem em outro agente são excluídas. Os documentos do próprio escritório não
   mudam.
+- Agente com o nome de uma área ("Cível", "Direito Tributário", "Trabalho") recebe a
+  especialidade pelo nome, ao ser criado e, para os já existentes, pela migration `0054`.
+  Só nome exato: "Contratos Imobiliários" fica sem especialidade. A `0054` não entrega os
+  pacotes: depois do deploy, rode de novo o script de carga com `--provision` (só os pacotes
+  são entregues; os documentos já lidos são pulados).
 - Os agentes padrão Condominial, Contratos e Direito do Consumidor já nascem com a
   especialidade. Nos escritórios existentes, a migration `0053` preenche os que
   ainda têm o nome original.

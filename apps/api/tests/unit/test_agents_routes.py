@@ -632,3 +632,22 @@ class TestSpecialty:
 
         assert response.status_code == 409
         package["sync"].assert_not_awaited()
+
+
+class TestCreateSpecialtyFromName:
+    @pytest.mark.parametrize(
+        ("name", "expected"), [("Tributário", "tributario"), ("Dra. Ana", None)]
+    )
+    def test_novo_agente_recebe_especialidade_pelo_nome(
+        self, client, session, name, expected
+    ) -> None:
+        session.execute.return_value = _active_subscription()
+        session.scalar.return_value = 1
+
+        response = client.post("/api/v1/agents", json={"name": name, "instructions": "x"})
+
+        assert response.status_code == 201
+        agent = next(
+            call.args[0] for call in session.add.call_args_list if isinstance(call.args[0], Agent)
+        )
+        assert agent.specialty == expected

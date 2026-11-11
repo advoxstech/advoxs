@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.core.knowledge_tree import specialty_from_name
 from app.core.queue import get_arq_pool
 from app.models import (
     Agent,
@@ -238,7 +239,11 @@ async def create_agent(
         )
 
     agent = Agent(
-        id=uuid.uuid4(), tenant_id=ctx.tenant_id, is_entry_point=False, **body.model_dump()
+        id=uuid.uuid4(),
+        tenant_id=ctx.tenant_id,
+        is_entry_point=False,
+        specialty=specialty_from_name(body.name),
+        **body.model_dump(),
     )
     session.add(agent)
     await session.flush()
