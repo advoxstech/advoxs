@@ -342,8 +342,10 @@ function FileList({
             key={file.id}
             className="flex flex-wrap items-center gap-3 border-b border-line py-3 last:border-b-0"
           >
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-ink">{file.filename}</p>
+            {/* Largura mínima: em tela estreita os controles descem de linha em vez
+                de cortar o nome do arquivo. */}
+            <div className="min-w-[min(100%,16rem)] flex-1">
+              <p className="break-words font-medium text-ink">{file.filename}</p>
               {file.drive_file_id && (
                 <p className="text-xs text-muted">
                   Google Drive · {file.replaces_file_id ? "Atualização em preparação" : "Cópia importada"}

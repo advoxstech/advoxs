@@ -13,7 +13,7 @@ import uuid
 from pathlib import PurePath
 
 from arq.connections import ArqRedis
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rag import RagApiError, delete_documents
@@ -135,6 +135,21 @@ async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.U
     return to_copy
 
 
+async def count_package_files(session: AsyncSession, agent: Agent) -> int:
+    """Quantas cópias de pacote estão ligadas ao agente (prontas ou a caminho)."""
+    return await session.scalar(
+        select(func.count())
+        .select_from(AgentKnowledgeBaseFile)
+        .join(
+            KnowledgeBaseFile, KnowledgeBaseFile.id == AgentKnowledgeBaseFile.knowledge_base_file_id
+        )
+        .where(
+            AgentKnowledgeBaseFile.agent_id == agent.id,
+            KnowledgeBaseFile.public_document_id.is_not(None),
+        )
+    )
+
+
 async def detach_agent_package(session: AsyncSession, agent: Agent) -> None:
     """Tira do agente as cópias de pacote (troca ou remoção da especialidade) e
     exclui as que não ficaram ligadas a nenhum outro agente. Não faz commit."""
@@ -203,11 +218,17 @@ async def provision_packages(session: AsyncSession, agents: list[Agent]) -> None
 
 
 async def enqueue_copies(arq: ArqRedis, tenant_id: uuid.UUID, file_ids: list[uuid.UUID]) -> None:
-    """Enfileira a cópia do conteúdo indexado — sempre depois do commit."""
+    """Enfileira a cópia do conteúdo indexado — sempre depois do commit.
+
+    O _job_id por arquivo faz a fila ignorar uma cópia que já está pendente:
+    dois agentes do mesmo escritório com o mesmo documento, ou "Restaurar
+    pacote" enquanto a cópia ainda roda, não copiam duas vezes.
+    """
     for file_id in file_ids:
         await arq.enqueue_job(
             "copy_public_document",
             tenant_id=str(tenant_id),
             file_id=str(file_id),
+            _job_id=f"kb-copy:{file_id}",
             _queue_name=INGESTION_QUEUE,
         )

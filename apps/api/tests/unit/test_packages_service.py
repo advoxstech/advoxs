@@ -187,5 +187,6 @@ async def test_enfileira_uma_copia_por_arquivo_na_fila_de_ingestao() -> None:
     assert call.kwargs == {
         "tenant_id": str(TENANT_ID),
         "file_id": str(file_ids[0]),
+        "_job_id": f"kb-copy:{file_ids[0]}",
         "_queue_name": "arq:ingestion",
     }

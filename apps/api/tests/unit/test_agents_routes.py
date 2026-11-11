@@ -562,6 +562,7 @@ class TestSpecialty:
         monkeypatch.setattr(agents_routes, "detach_agent_package", mocks["detach"])
         monkeypatch.setattr(agents_routes, "sync_agent_package", mocks["sync"])
         monkeypatch.setattr(agents_routes, "enqueue_copies", mocks["enqueue"])
+        monkeypatch.setattr(agents_routes, "count_package_files", AsyncMock(return_value=3))
         arq = AsyncMock()
         app.dependency_overrides[get_arq_pool] = lambda: arq
         yield mocks
@@ -579,6 +580,7 @@ class TestSpecialty:
         assert response.status_code == 200
         assert response.json()["agent"]["specialty"] == "contratos"
         assert response.json()["copying"] == 2
+        assert response.json()["documents"] == 3
         package["detach"].assert_awaited_once()
         package["sync"].assert_awaited_once()
         session.commit.assert_awaited_once()

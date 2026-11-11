@@ -509,4 +509,33 @@ describe("KnowledgeBasePanel", () => {
       "O pacote já está completo e atualizado.",
     );
   });
+
+  it("avisa quando o pacote já estava no escritório e só foi ligado ao agente", async () => {
+    mockedFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "agents") return { ok: true, status: 200, json: async () => agents };
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            agent: { ...agents[0], specialty: "condominial" },
+            copying: 0,
+            documents: 2,
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => files };
+    });
+
+    render(<KnowledgeBasePanel pollMs={0} />);
+    await waitFor(() => expect(screen.getByText("Secretária")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Especialidade de Secretária"), {
+      target: { value: "condominial" },
+    });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "2 documentos do pacote já estavam no escritório e foram ligados a este agente",
+    );
+  });
 });

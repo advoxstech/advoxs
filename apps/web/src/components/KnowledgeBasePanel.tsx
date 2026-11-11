@@ -184,15 +184,19 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
 
   // Resposta de PUT /specialty e POST /package/restore: o agente atualizado e
   // quantos documentos do pacote estão sendo copiados agora.
-  async function applyPackage(response: Response, fallback: string, done: (n: number) => string) {
+  async function applyPackage(
+    response: Response,
+    fallback: string,
+    done: (copying: number, documents: number) => string,
+  ) {
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       setFeedback(body?.detail ?? fallback);
       return;
     }
-    const body: { agent: Agent; copying: number } = await response.json();
+    const body: { agent: Agent; copying: number; documents?: number } = await response.json();
     setAgents((current) => current.map((a) => (a.id === body.agent.id ? body.agent : a)));
-    setNotice(done(body.copying));
+    setNotice(done(body.copying, body.documents ?? 0));
     await load();
   }
 
@@ -214,13 +218,20 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         method: "PUT",
         body: JSON.stringify({ specialty: specialty || null }),
       });
-      await applyPackage(response, "Falha ao definir a especialidade. Tente novamente.", (n) =>
-        n > 0
-          ? `Especialidade definida. ${n} documento${n === 1 ? "" : "s"} do pacote ` +
-            `${n === 1 ? "está sendo copiado" : "estão sendo copiados"} para este agente.`
-          : specialty
-            ? "Especialidade definida. Este pacote ainda não tem documentos disponíveis."
-            : "Especialidade removida.",
+      await applyPackage(
+        response,
+        "Falha ao definir a especialidade. Tente novamente.",
+        (copying, documents) =>
+          !specialty
+            ? "Especialidade removida."
+            : copying > 0
+              ? `Especialidade definida. ${copying} documento${copying === 1 ? "" : "s"} do pacote ` +
+                `${copying === 1 ? "está sendo copiado" : "estão sendo copiados"} para este agente.`
+              : documents > 0
+                ? `Especialidade definida. ${documents} documento${documents === 1 ? "" : "s"} do ` +
+                  `pacote já ${documents === 1 ? "estava" : "estavam"} no escritório e ` +
+                  `${documents === 1 ? "foi ligado" : "foram ligados"} a este agente.`
+                : "Especialidade definida. Este pacote ainda não tem documentos disponíveis.",
       );
     } catch {
       setFeedback("Falha de conexão — tente novamente.");

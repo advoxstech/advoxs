@@ -55,6 +55,8 @@ class AgentPackageOut(BaseModel):
     agent: AgentOut
     # Documentos do pacote que estão sendo copiados para o escritório agora.
     copying: int
+    # Documentos do pacote ligados ao agente (incluindo os que já estavam no escritório).
+    documents: int = 0
 
 
 class AgentKnowledgeBaseFileOut(BaseModel):

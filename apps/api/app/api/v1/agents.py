@@ -39,7 +39,12 @@ from app.schemas.conversations import ConversationOut
 from app.schemas.knowledge_base import KnowledgeBaseFileOut
 from app.services import agent_versions as versions
 from app.services.agents_engine import load_agents_for_engine
-from app.services.packages import detach_agent_package, enqueue_copies, sync_agent_package
+from app.services.packages import (
+    count_package_files,
+    detach_agent_package,
+    enqueue_copies,
+    sync_agent_package,
+)
 from app.services.subscriptions import get_active_subscription
 from app.services.team_access import require_admin
 from app.services.urgency import build_default_urgency_keywords
@@ -299,7 +304,11 @@ async def set_agent_specialty(
         await session.commit()
         await session.refresh(agent)
         await enqueue_copies(arq, ctx.tenant_id, to_copy)
-    return AgentPackageOut(agent=AgentOut.model_validate(agent), copying=len(to_copy))
+    return AgentPackageOut(
+        agent=AgentOut.model_validate(agent),
+        copying=len(to_copy),
+        documents=await count_package_files(session, agent),
+    )
 
 
 @router.post("/{agent_id}/package/restore", dependencies=[Depends(require_admin)])
@@ -319,7 +328,11 @@ async def restore_agent_package(
     await session.commit()
     await session.refresh(agent)
     await enqueue_copies(arq, ctx.tenant_id, to_copy)
-    return AgentPackageOut(agent=AgentOut.model_validate(agent), copying=len(to_copy))
+    return AgentPackageOut(
+        agent=AgentOut.model_validate(agent),
+        copying=len(to_copy),
+        documents=await count_package_files(session, agent),
+    )
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
