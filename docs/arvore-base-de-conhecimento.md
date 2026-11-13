@@ -118,6 +118,24 @@ A pasta copiada some no próximo deploy, que recria os contêineres.
 Rodar de novo depois de atualizar a pasta lê só os documentos que mudaram e regrava
 a composição dos pacotes.
 
+## Medição (2026-11-11)
+
+Ambiente local com a base real (o zip `PACOTES` do Drive), escritório de teste com os 3
+agentes padrão, 18 perguntas de legislação com resposta exata na lei (6 por área), uma
+conversa de teste por pergunta:
+
+| Área | Sem pacote | Com pacote | Citou o pacote |
+|---|---|---|---|
+| Consumidor | 6/6 | 6/6 | 6/6 |
+| Condominial | 3/6 | 5/6 | 5/6 |
+| Contratos | 0/6 | 5/6 | 5/6 |
+| Total | 9/18 | 16/18 | 16/18 |
+
+Sem o pacote, os especialistas de Condominial e Contratos tendiam a devolver uma pergunta
+de triagem em vez de responder. Os 2 erros com pacote são a recepção respondendo sem
+transferir. A medição revelou que a busca automática não rodava na chegada do especialista
+(corrigido; antes da correção, 10/18 com pacote e só 3 respostas citando a lei).
+
 ## Limites conhecidos
 
 - O painel lista até 500 arquivos por escritório.
