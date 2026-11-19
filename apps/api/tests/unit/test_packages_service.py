@@ -79,12 +79,23 @@ async def test_cria_a_copia_marcada_como_pacote_e_liga_ao_agente(session) -> Non
 
 async def test_nome_ja_usado_por_arquivo_do_escritorio_ganha_sufixo(session) -> None:
     session.scalars.side_effect = [_rows([_document()]), _rows([]), _rows([]), _rows([])]
-    session.scalar.return_value = uuid.uuid4()
+    session.scalar.side_effect = [uuid.uuid4(), None]
 
     await packages.sync_agent_package(session, _agent())
 
     (record,) = _added(session, KnowledgeBaseFile)
     assert record.filename == "1.01_Codigo_Civil_texto_oficial (base Advoxs).pdf"
+
+
+async def test_nome_alternativo_ocupado_recebe_numero(session):
+    session.scalar.side_effect = [uuid.uuid4(), uuid.uuid4(), None]
+    assert await packages._free_filename(session, TENANT_ID, "lei.pdf") == "lei (base Advoxs 2).pdf"
+
+
+async def test_redis_indisponivel_mantem_copia_pendente_para_recuperacao():
+    arq = AsyncMock()
+    arq.enqueue_job.side_effect = ConnectionError("offline")
+    await packages.enqueue_copies(arq, TENANT_ID, [uuid.uuid4()])
 
 
 async def test_copia_em_dia_de_outro_agente_so_ganha_o_vinculo(session) -> None:
@@ -133,6 +144,7 @@ async def test_copia_desatualizada_ou_incompleta_e_refeita(session, status, sha)
         public_document_id=document.id,
         status=status,
         content_sha256=sha,
+        filename=document.filename,
         error_message="falhou",
     )
     session.scalars.side_effect = [
@@ -142,11 +154,17 @@ async def test_copia_desatualizada_ou_incompleta_e_refeita(session, status, sha)
         _rows([existing.id]),
     ]
 
-    assert await packages.sync_agent_package(session, _agent()) == [existing.id]
+    copied = await packages.sync_agent_package(session, _agent())
+    assert len(copied) == 1
 
-    assert existing.status == "processing"
-    assert existing.content_sha256 == "a" * 64
-    assert existing.error_message is None
+    if status == "ready":
+        assert existing.status == "ready"
+        assert existing.content_sha256 == sha
+        assert _added(session, KnowledgeBaseFile)[0].replaces_file_id == existing.id
+    else:
+        assert existing.status == "processing"
+        assert existing.content_sha256 == "a" * 64
+        assert existing.error_message is None
 
 
 async def test_trocar_de_especialidade_exclui_so_as_copias_sem_outro_agente(
@@ -156,28 +174,32 @@ async def test_trocar_de_especialidade_exclui_so_as_copias_sem_outro_agente(
     orphan = SimpleNamespace(id=uuid.uuid4())
     session.scalars.side_effect = [_rows([shared, orphan]), _rows([shared.id])]
     delete_documents = AsyncMock()
-    monkeypatch.setattr(packages, "delete_documents", delete_documents)
+    monkeypatch.setattr(packages, "delete_documents", delete_documents, raising=False)
 
     await packages.detach_agent_package(session, _agent())
 
-    delete_documents.assert_awaited_once_with(str(TENANT_ID), [str(orphan.id)])
-    session.delete.assert_awaited_once_with(orphan)
+    delete_documents.assert_not_awaited()
+    session.delete.assert_not_awaited()
+    assert orphan.deletion_requested_at is not None
 
 
 async def test_falha_no_api_rag_nao_impede_a_troca(session, monkeypatch) -> None:
     orphan = SimpleNamespace(id=uuid.uuid4())
     session.scalars.side_effect = [_rows([orphan]), _rows([])]
-    monkeypatch.setattr(packages, "delete_documents", AsyncMock(side_effect=RagApiError("x")))
+    monkeypatch.setattr(
+        packages, "delete_documents", AsyncMock(side_effect=RagApiError("x")), raising=False
+    )
 
     await packages.detach_agent_package(session, _agent())
 
-    session.delete.assert_awaited_once_with(orphan)
+    session.delete.assert_not_awaited()
+    assert orphan.deletion_requested_at is not None
 
 
 async def test_agente_sem_copias_de_pacote_nao_chama_o_api_rag(session, monkeypatch) -> None:
     session.scalars.side_effect = [_rows([])]
     delete_documents = AsyncMock()
-    monkeypatch.setattr(packages, "delete_documents", delete_documents)
+    monkeypatch.setattr(packages, "delete_documents", delete_documents, raising=False)
 
     await packages.detach_agent_package(session, _agent())
 
@@ -212,7 +234,7 @@ async def test_documento_que_saiu_do_pacote_sai_do_agente(session, monkeypatch) 
         content_sha256=document.content_sha256,
     )
     delete_documents = AsyncMock()
-    monkeypatch.setattr(packages, "delete_documents", delete_documents)
+    monkeypatch.setattr(packages, "delete_documents", delete_documents, raising=False)
     # documentos do pacote, cópias fora do pacote, ainda ligadas, cópias do pacote, ligadas
     session.scalars.side_effect = [
         _rows([document]),
@@ -224,5 +246,6 @@ async def test_documento_que_saiu_do_pacote_sai_do_agente(session, monkeypatch) 
 
     assert await packages.sync_agent_package(session, _agent()) == []
 
-    delete_documents.assert_awaited_once_with(str(TENANT_ID), [str(removed.id)])
-    session.delete.assert_awaited_once_with(removed)
+    delete_documents.assert_not_awaited()
+    assert removed.deletion_requested_at is not None
+    session.delete.assert_not_awaited()

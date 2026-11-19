@@ -2,21 +2,21 @@
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
-from app.clients.rag import RagApiError, delete_documents, read_office_document
+from app.clients.rag import RagApiError, read_office_document
 from app.core.config import settings
-from app.core.queue import INGESTION_QUEUE, get_arq_pool
-from app.core.safe_logging import safe_error
+from app.core.queue import INGESTION_QUEUE, enqueue_file_task, get_arq_pool
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 from app.schemas.knowledge_base import (
     KnowledgeBaseCategory,
@@ -60,7 +60,9 @@ async def file_content(
     await require_document_access(session, ctx, file_id)
     record = await session.scalar(
         select(KnowledgeBaseFile).where(
-            KnowledgeBaseFile.id == file_id, KnowledgeBaseFile.tenant_id == ctx.tenant_id
+            KnowledgeBaseFile.id == file_id,
+            KnowledgeBaseFile.tenant_id == ctx.tenant_id,
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
         )
     )
     if record is None:
@@ -243,7 +245,8 @@ async def upload_file(
     await session.refresh(record)
     # Enfileira só depois do commit — o worker não pode acordar antes de a
     # linha estar visível (mesmo padrão do webhook do WhatsApp).
-    await arq.enqueue_job(
+    await enqueue_file_task(
+        arq,
         "ingest_knowledge_base_file",
         tenant_id=str(ctx.tenant_id),
         file_id=str(record.id),
@@ -273,7 +276,11 @@ async def list_files(
         select(KnowledgeBaseFile)
         .where(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
-            KnowledgeBaseFile.superseded_at.is_(None),
+            or_(
+                KnowledgeBaseFile.superseded_at.is_(None),
+                (KnowledgeBaseFile.deletion_requested_at.is_not(None))
+                & (KnowledgeBaseFile.status == "error"),
+            ),
         )
         .order_by(KnowledgeBaseFile.uploaded_at.desc())
         .limit(limit)
@@ -308,6 +315,7 @@ async def list_files(
             drive_file_id=getattr(f, "drive_file_id", None),
             imported_at=getattr(f, "imported_at", None),
             replaces_file_id=getattr(f, "replaces_file_id", None),
+            deletion_requested_at=getattr(f, "deletion_requested_at", None),
             pages_total=getattr(f, "pages_total", None),
             partial_pages=getattr(f, "partial_pages", None) or [],
             from_package=getattr(f, "public_document_id", None) is not None,
@@ -379,7 +387,9 @@ async def delete_file(
     )
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
-    if getattr(record, "drive_file_id", None):
+    if getattr(record, "deletion_requested_at", None) is not None and record.status != "error":
+        return
+    if getattr(record, "drive_file_id", None) or getattr(record, "public_document_id", None):
         await _delete_drive_files(record, ctx, session)
         return
     if record.status == "processing":
@@ -388,24 +398,9 @@ async def delete_file(
             detail="Arquivo em processamento — aguarde a ingestão terminar para excluir",
         )
 
-    # Remove no api_rag primeiro: se falhar, o registro fica e o usuário
-    # tenta de novo (nunca deixa chunk órfão no Qdrant).
-    try:
-        await delete_documents(str(ctx.tenant_id), [str(file_id)])
-    except RagApiError as exc:
-        # Detalhe interno só no log — não expor nome/erro do serviço ao tenant.
-        logger.error(
-            "Falha ao excluir no api_rag | file=%s error_type=%s", file_id, safe_error(exc)
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Falha ao excluir o arquivo — tente novamente em instantes",
-        )
-
-    temp_path = Path(settings.kb_upload_dir) / str(ctx.tenant_id) / str(file_id)
-    temp_path.unlink(missing_ok=True)
-
-    await session.delete(record)
+    record.deletion_requested_at = datetime.now(UTC)
+    record.superseded_at = datetime.now(UTC)
+    record.status = "ready"
     await session.commit()
 
 
@@ -418,25 +413,19 @@ async def _delete_drive_files(record, ctx, session) -> None:
         result = await session.execute(
             select(KnowledgeBaseFile).where(
                 KnowledgeBaseFile.tenant_id == ctx.tenant_id,
-                KnowledgeBaseFile.drive_file_id == record.drive_file_id,
+                (KnowledgeBaseFile.drive_file_id == record.drive_file_id)
+                if getattr(record, "drive_file_id", None)
+                else (KnowledgeBaseFile.public_document_id == record.public_document_id),
             )
         )
         records = list(result.scalars().all())
     if any(item.status == "processing" for item in records):
         raise HTTPException(409, "Aguarde o processamento terminar antes de excluir.")
-    try:
-        await delete_documents(str(ctx.tenant_id), [str(item.id) for item in records])
-    except RagApiError:
-        raise HTTPException(502, "Falha ao excluir. Tente novamente em instantes.") from None
-    # Remove tentativas primeiro para respeitar a FK sem publicar uma versão por acidente.
     for item in records:
-        if item.replaces_file_id:
-            await session.delete(item)
-    await session.flush()
-    for item in records:
-        if not item.replaces_file_id:
-            await session.delete(item)
-        safe_delete(settings.kb_upload_dir, str(ctx.tenant_id), str(item.id))
+        if getattr(item, "deletion_requested_at", None) is None or item.status == "error":
+            item.deletion_requested_at = datetime.now(UTC)
+            item.superseded_at = datetime.now(UTC)
+            item.status = "ready"
     await session.commit()
 
 
@@ -460,6 +449,8 @@ async def reprocess_file(
     )
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
+    if getattr(record, "deletion_requested_at", None) is not None:
+        raise HTTPException(409, "Este arquivo está em exclusão. Tente excluir novamente.")
     if record.status != "error":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -475,7 +466,8 @@ async def reprocess_file(
     # O arquivo temporário permanece no volume quando a ingestão falha (só é
     # apagado no caminho de sucesso, ver ingest_knowledge_base_file) — o
     # worker reencontra o mesmo arquivo, sem precisar de novo upload.
-    await arq.enqueue_job(
+    await enqueue_file_task(
+        arq,
         "ingest_knowledge_base_file",
         tenant_id=str(ctx.tenant_id),
         file_id=str(file_id),

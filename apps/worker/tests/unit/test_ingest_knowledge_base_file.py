@@ -11,6 +11,8 @@ from app.config import settings
 from app.tasks import knowledge_base as kb_task
 from app.tasks.knowledge_base import ingest_knowledge_base_file
 
+ingest_knowledge_base_file = ingest_knowledge_base_file.__wrapped__
+
 TENANT_ID = str(uuid.uuid4())
 FILE_ID = str(uuid.uuid4())
 
@@ -268,7 +270,9 @@ async def test_publish_swaps_links_atomically_and_keeps_old_document():
     ctx = _ctx()
     previous = uuid.uuid4()
     candidate_result = MagicMock()
-    candidate_result.one_or_none.return_value = SimpleNamespace(status="processing")
+    candidate_result.one_or_none.return_value = SimpleNamespace(
+        status="processing", deletion_requested_at=None
+    )
     previous_result = MagicMock()
     previous_result.one_or_none.return_value = SimpleNamespace(category="livros_digitais")
     ctx["_session"].execute.side_effect = [

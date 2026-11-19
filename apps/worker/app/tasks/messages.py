@@ -153,6 +153,9 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             tables.agent_knowledge_base_files.c.agent_id.in_([row.id for row in agents_rows]),
             # Pasta F ("não selecionáveis"): o agente não consulta.
             tables.knowledge_base_files.c.category.is_distinct_from(UNREADABLE_CATEGORY),
+            tables.knowledge_base_files.c.status == "ready",
+            tables.knowledge_base_files.c.superseded_at.is_(None),
+            tables.knowledge_base_files.c.deletion_requested_at.is_(None),
         )
     )
     kb_by_agent: dict[uuid.UUID, list[str]] = {}

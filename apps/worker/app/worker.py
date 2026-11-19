@@ -9,6 +9,7 @@ from app.tasks.conversation_cleanup import (
     process_conversation_cleanup,
     recover_conversation_cleanup_jobs,
 )
+from app.tasks.file_tasks import delete_knowledge_file, recover_file_tasks
 from app.tasks.follow_ups import deliver_follow_up_batch, recover_follow_up_batches
 from app.tasks.inbound_outbox import recover_inbound_message_jobs
 from app.tasks.knowledge_base import (
@@ -81,6 +82,7 @@ class WorkerSettings:
         recover_conversation_cleanup_jobs,
     ]
     cron_jobs = [
+        cron(recover_file_tasks, second=15),
         cron(deliver_team_emails, second={10, 40}),
         cron(recover_drive_imports, second=30),
         cron(recover_inbound_message_jobs, second=0),
@@ -100,6 +102,7 @@ class IngestionWorkerSettings:
     functions = [
         func(ingest_knowledge_base_file, keep_result=0),
         func(copy_public_document, keep_result=0),
+        func(delete_knowledge_file, keep_result=0),
     ]
     queue_name = INGESTION_QUEUE
     max_jobs = 1

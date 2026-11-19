@@ -246,12 +246,12 @@ def test_fake_pdf_rejected(setup):
     setup.session.add.assert_not_called()
 
 
-def test_queue_failure_can_be_retried_without_google_token(setup):
+def test_queue_failure_keeps_processing_for_automatic_recovery(setup):
     setup.queue.enqueue_job.side_effect = RuntimeError("queue down")
     response = setup.client.post("/api/v1/knowledge-base/drive/import", json=payload())
-    assert response.json()["result"] == "error"
+    assert response.json()["result"] == "processing"
     record = setup.session.add.call_args_list[0].args[0]
-    assert record.status == "error"
+    assert record.status == "processing"
     assert (setup.path / str(TENANT) / str(record.id)).exists()
 
 
@@ -303,12 +303,13 @@ async def test_delete_drive_current_removes_history_but_attempt_preserves_curren
     result.scalars.return_value.all.return_value = [record, older]
     setup.session.execute.return_value = result
     delete = AsyncMock()
-    monkeypatch.setattr(kb, "delete_documents", delete)
+    monkeypatch.setattr(kb, "delete_documents", delete, raising=False)
     ctx = TenantContext(user_id=uuid.uuid4(), tenant_id=TENANT, role="admin")
     await kb._delete_drive_files(record, ctx, setup.session)
-    expected = [str(record.id)] if pending else [str(record.id), str(older.id)]
-    delete.assert_awaited_once_with(str(TENANT), expected)
-    assert setup.session.delete.await_count == len(expected)
+    delete.assert_not_awaited()
+    setup.session.delete.assert_not_awaited()
+    assert record.deletion_requested_at is not None
+    assert (getattr(older, "deletion_requested_at", None) is None) == pending
     if not pending:
         query = setup.session.execute.await_args.args[0].compile(dialect=postgresql.dialect())
         assert TENANT in query.params.values()
@@ -323,7 +324,7 @@ async def test_delete_processing_replacement_preserves_current(setup, monkeypatc
     record.status = "processing"
     record.replaces_file_id = uuid.uuid4()
     delete = AsyncMock()
-    monkeypatch.setattr(kb, "delete_documents", delete)
+    monkeypatch.setattr(kb, "delete_documents", delete, raising=False)
     ctx = TenantContext(user_id=uuid.uuid4(), tenant_id=TENANT, role="admin")
     with pytest.raises(HTTPException) as caught:
         await kb._delete_drive_files(record, ctx, setup.session)

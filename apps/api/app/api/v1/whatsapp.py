@@ -303,6 +303,12 @@ async def _self_heal_zapi_status(number: WhatsAppNumber, session: AsyncSession) 
     )
     try:
         live_status = await check_zapi_status(number.zapi_instance_id, token, client_token)
+        number.status_verified = True
+        if live_status.get("connected") is False and number.status != "disconnected":
+            number.status = "disconnected"
+            number.zapi_disconnected_at = datetime.now(UTC)
+            await session.commit()
+            await session.refresh(number)
 
         needs_phone_refresh = (
             number.status != "connected" or number.display_phone_number == "Aguardando pareamento"
@@ -312,9 +318,11 @@ async def _self_heal_zapi_status(number: WhatsAppNumber, session: AsyncSession) 
             if phone:
                 number.display_phone_number = phone
             number.status = "connected"
+            number.zapi_disconnected_at = None
             await session.commit()
             await session.refresh(number)
     except (ZApiNetworkError, ZApiApiError) as exc:
+        number.status_verified = False
         logger.warning(
             "Falha ao revalidar status Z-API (best-effort) | error_type=%s", safe_error(exc)
         )
@@ -423,6 +431,7 @@ async def disconnect(
     was_connected = number.status != "disconnected"
     provider = number.provider
     number.status = "disconnected"
+    number.zapi_disconnected_at = None
     await session.commit()
     await session.refresh(number)
 

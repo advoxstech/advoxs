@@ -13,6 +13,7 @@ from app.clients.rag import copy_document, ingest_document
 from app.config import settings
 from app.db import open_system_session, open_tenant_session
 from app.safe_logging import safe_error
+from app.tasks.file_tasks import durable_task
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ async def recover_drive_imports(ctx: dict) -> None:
         )
 
 
+@durable_task("ingest")
 async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) -> None:
     """Lê o arquivo do volume compartilhado, ingere no api_rag e marca o status.
 
@@ -152,6 +154,7 @@ async def ingest_knowledge_base_file(ctx: dict, tenant_id: str, file_id: str) ->
     logger.info("Arquivo ingerido | tenant=%s file=%s", tenant_id, file_id)
 
 
+@durable_task("ingest")
 async def copy_public_document(ctx: dict, tenant_id: str, file_id: str) -> None:
     """Copia para o escritório o conteúdo já indexado de um documento do pacote de
     especialidade (apps/api/app/services/packages.py). Sem leitura nem OCR: o
@@ -167,7 +170,13 @@ async def copy_public_document(ctx: dict, tenant_id: str, file_id: str) -> None:
                     tables.knowledge_base_files.c.filename,
                     tables.knowledge_base_files.c.status,
                     tables.knowledge_base_files.c.public_document_id,
-                ).where(tables.knowledge_base_files.c.id == uuid.UUID(file_id))
+                    tables.knowledge_base_files.c.replaces_file_id,
+                    tables.knowledge_base_files.c.pages_total,
+                    tables.knowledge_base_files.c.partial_pages,
+                ).where(
+                    tables.knowledge_base_files.c.id == uuid.UUID(file_id),
+                    tables.knowledge_base_files.c.deletion_requested_at.is_(None),
+                )
             )
         ).one_or_none()
 
@@ -208,7 +217,19 @@ async def copy_public_document(ctx: dict, tenant_id: str, file_id: str) -> None:
         )
         return
 
-    await _set_status(session_factory, file_id, "ready", None, tenant_id)
+    if row.replaces_file_id:
+        await _publish_replacement(
+            session_factory,
+            tenant_id,
+            file_id,
+            row.replaces_file_id,
+            {
+                "pages_total": row.pages_total,
+                "partial_pages": row.partial_pages,
+            },
+        )
+    else:
+        await _set_status(session_factory, file_id, "ready", None, tenant_id)
     logger.info("Documento de pacote copiado | tenant=%s file=%s", tenant_id, file_id)
 
 
@@ -219,7 +240,10 @@ async def _load_file(session: AsyncSession, file_id: str):
                 tables.knowledge_base_files.c.filename,
                 tables.knowledge_base_files.c.status,
                 tables.knowledge_base_files.c.replaces_file_id,
-            ).where(tables.knowledge_base_files.c.id == uuid.UUID(file_id))
+            ).where(
+                tables.knowledge_base_files.c.id == uuid.UUID(file_id),
+                tables.knowledge_base_files.c.deletion_requested_at.is_(None),
+            )
         )
     ).one_or_none()
 
@@ -244,7 +268,10 @@ async def _set_status(
     async with open_tenant_session(session_factory, tenant_id) as session:
         await session.execute(
             update(tables.knowledge_base_files)
-            .where(tables.knowledge_base_files.c.id == uuid.UUID(file_id))
+            .where(
+                tables.knowledge_base_files.c.id == uuid.UUID(file_id),
+                tables.knowledge_base_files.c.deletion_requested_at.is_(None),
+            )
             .values(status=status, error_message=error_message, **(extra or {}))
         )
         await session.commit()
@@ -275,7 +302,7 @@ async def _publish_replacement(
                 .with_for_update()
             )
         ).one_or_none()
-        if candidate is None or candidate.status != "processing":
+        if candidate is None or candidate.status != "processing" or candidate.deletion_requested_at:
             return
         previous = (
             await session.execute(
@@ -284,6 +311,7 @@ async def _publish_replacement(
                     files.c.id == previous_id,
                     files.c.tenant_id == tid,
                     files.c.superseded_at.is_(None),
+                    files.c.deletion_requested_at.is_(None),
                 )
                 .with_for_update()
             )

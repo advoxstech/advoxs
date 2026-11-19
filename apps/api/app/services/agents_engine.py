@@ -30,6 +30,9 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
         )
         .where(
             Agent.tenant_id == tenant_id,
+            KnowledgeBaseFile.status == "ready",
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
             # Pasta F ("não selecionáveis"): o agente não consulta.
             KnowledgeBaseFile.category.is_distinct_from(UNREADABLE_CATEGORY),
         )

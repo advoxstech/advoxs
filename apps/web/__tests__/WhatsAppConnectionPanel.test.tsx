@@ -15,6 +15,17 @@ beforeEach(() => {
 });
 
 describe("WhatsAppConnectionPanel", () => {
+  it("avisa quando o provedor não confirmou o status da conexão", async () => {
+    mockedBackendFetch.mockImplementation(async (path: string) => ({
+      ok: true,
+      json: async () => path === "whatsapp/connection" ? {
+        provider: "zapi", display_phone_number: "+55 **** 1234", status: "connected",
+        status_verified: false, connected_at: "2026-11-19T12:00:00Z",
+      } : null,
+    }));
+    render(<WhatsAppConnectionPanel />);
+    await waitFor(() => expect(screen.getByText("status não confirmado")).toBeInTheDocument());
+  });
   it("mostra o seletor de provedor quando não há conexão, e o formulário da Meta ao escolher", async () => {
     mockedBackendFetch.mockResolvedValue({ ok: true, json: async () => null });
 

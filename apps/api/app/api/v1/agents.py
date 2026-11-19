@@ -384,6 +384,7 @@ async def attach_knowledge_base_file(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
             KnowledgeBaseFile.superseded_at.is_(None),
             KnowledgeBaseFile.replaces_file_id.is_(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
         )
     )
     if file is None:
@@ -448,7 +449,10 @@ async def list_agent_knowledge_base_files(
             AgentKnowledgeBaseFile,
             AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
         )
-        .where(AgentKnowledgeBaseFile.agent_id == agent_id)
+        .where(
+            AgentKnowledgeBaseFile.agent_id == agent_id,
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
+        )
         .order_by(KnowledgeBaseFile.uploaded_at.desc())
     )
     return [KnowledgeBaseFileOut.model_validate(f) for f in result.scalars().all()]

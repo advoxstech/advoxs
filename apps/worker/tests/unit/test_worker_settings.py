@@ -36,6 +36,7 @@ def test_ingestion_runs_alone_in_its_own_queue():
     assert _names(IngestionWorkerSettings.functions) == {
         "ingest_knowledge_base_file",
         "copy_public_document",
+        "delete_knowledge_file",
     }
     assert IngestionWorkerSettings.queue_name == INGESTION_QUEUE
     assert IngestionWorkerSettings.max_jobs == 1
