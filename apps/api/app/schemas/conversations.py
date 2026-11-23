@@ -38,6 +38,8 @@ class ConversationOut(BaseModel):
     urgent_reason: str | None = None
     urgent_source: Literal["agent", "keyword", "manual"] | None = None
     urgent_agent_name: str | None = None
+    human_requested_at: datetime | None = None
+    human_request_reason: str | None = None
 
 
 class ResponseSource(BaseModel):

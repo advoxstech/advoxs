@@ -33,6 +33,7 @@ async def send_playground_message(
     message: str,
     agents: list[dict] | None = None,
     test_start_agent_id: str | None = None,
+    human_request: dict | None = None,
 ) -> dict | None:
     """POST /messages no agents, sem enviar pelo WhatsApp (send_to_whatsapp=False).
 
@@ -61,6 +62,8 @@ async def send_playground_message(
     }
     if test_start_agent_id is not None:
         payload["test_start_agent_id"] = test_start_agent_id
+    if human_request:
+        payload["human_request"] = human_request
     try:
         async with httpx.AsyncClient(
             base_url=settings.agents_service_url, timeout=_TIMEOUT_SECONDS
@@ -86,6 +89,7 @@ async def send_playground_message(
         "current_agent_id": data.get("current_agent_id"),
         "documents": data.get("documents", []),
         "urgency": data.get("urgency"),
+        "human_request": data.get("human_request"),
     }
 
 

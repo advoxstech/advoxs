@@ -10,6 +10,7 @@ async def send_message_to_agents(
     contact_phone_number: str,
     message: str,
     agents: list[dict] | None = None,
+    human_request: dict | None = None,
 ) -> dict | None:
     """Chama POST /messages do agents service.
 
@@ -46,6 +47,8 @@ async def send_message_to_agents(
         "agents": agents or [],
     }
 
+    if human_request:
+        payload["human_request"] = human_request
     response = await http.post("/messages", json=payload, headers=headers)
     if response.status_code == 202:
         return None
@@ -61,6 +64,7 @@ async def send_message_to_agents(
         "delivery_failures": data.get("delivery_failures", []),
         "documents": data.get("documents", []),
         "urgency": data.get("urgency"),
+        "human_request": data.get("human_request"),
     }
 
 

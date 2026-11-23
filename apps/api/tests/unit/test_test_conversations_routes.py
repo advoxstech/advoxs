@@ -21,6 +21,8 @@ def _conversation(is_test: bool = True) -> SimpleNamespace:
         tenant_id=TENANT_ID,
         contact_phone_number="teste-abc123def456",
         state="agent",
+        human_requested_at=None,
+        human_request_agent_id=None,
         is_test=is_test,
         last_message_at=None,
         created_at=__import__("datetime").datetime(2026, 7, 16, tzinfo=__import__("datetime").UTC),

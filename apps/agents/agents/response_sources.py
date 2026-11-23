@@ -106,8 +106,8 @@ def collect_search(observation: dict, state: dict, agent: dict) -> tuple[dict, d
         status = "unavailable"
     if status == "unavailable":
         observation["guidance"] = (
-            "Base temporariamente indisponível. Use seu conhecimento nativo; "
-            "não afirme que consultou os documentos."
+            "Base temporariamente indisponível. Ofereça apoio factual e solicite revisão "
+            "humana para conclusões jurídicas; não alegue consulta aos documentos."
         )
     elif partial_docs:
         observation["guidance"] = " ".join(

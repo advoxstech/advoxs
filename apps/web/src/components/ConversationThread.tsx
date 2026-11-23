@@ -22,7 +22,7 @@ import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 import { ContactBadges } from "./ContactBadges";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
 import { FollowUpDialog } from "./FollowUpDialog";
-import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
+import { HumanRequestBanner, UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 function formatUpdateTime(date: Date): string {
   return date.toLocaleTimeString("pt-BR", {
@@ -340,6 +340,7 @@ export function ConversationThread({
           onUpdate={onConversationUpdate}
         />
       )}
+      <HumanRequestBanner conversation={conversation} />
       <UrgencyBanner
         conversation={conversation}
         onUpdate={onConversationUpdate}

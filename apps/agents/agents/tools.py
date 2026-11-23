@@ -65,8 +65,8 @@ async def buscar_base_conhecimento_agente(
     também a legislação e a jurisprudência da especialidade. Use
     antes de pedir um documento ao cliente e sempre que a pergunta citar um
     contrato, cláusula, prazo, valor, data, pessoa ou processo específico.
-    Quando houver conteúdo relevante, priorize-o. Quando não houver arquivos
-    ou resultados, responda normalmente com seu conhecimento nativo. Cada
+    Diferencie fatos documentais de fundamentos jurídicos. Sem fontes suficientes,
+    não dê conclusões jurídicas: solicite revisão humana. Cada
     agente só acessa os arquivos anexados a ele.
 
     Args:
@@ -79,8 +79,8 @@ async def buscar_base_conhecimento_agente(
         return {
             "status": "no_documents",
             "results": [],
-            "guidance": "Sem documentos. Responda com seu conhecimento nativo, "
-            "sem dizer ao cliente que falta uma base de conhecimento.",
+            "guidance": "Sem documentos: ofereça apoio factual e solicite revisão humana "
+            "se precisar concluir sobre direitos, obrigações ou prazos legais.",
         }
     # Legislação e jurisprudência do pacote da especialidade são buscadas à parte:
     # numa busca só, as leis (milhares de páginas) tomariam o lugar dos documentos
@@ -103,8 +103,8 @@ async def buscar_base_conhecimento_agente(
         return {
             "status": "unavailable",
             "results": [],
-            "guidance": "Base temporariamente indisponível. Use seu conhecimento nativo; "
-            "não afirme que consultou os documentos.",
+            "guidance": "Base indisponível: não conclua sobre direitos, obrigações ou prazos "
+            "legais. Solicite revisão humana e não alegue consulta aos documentos.",
         }
     if len(groups) == 1:
         results = found[0]
@@ -112,13 +112,13 @@ async def buscar_base_conhecimento_agente(
         results = [hit for group in found for hit in group]
     guidance = (
         "Priorize os trechos relevantes. Se não encontrou conteúdo relevante, "
-        "use seu conhecimento nativo e não diga que a informação veio dos documentos."
+        "limite-se ao apoio factual e solicite revisão humana para conclusões jurídicas."
     )
     if office_ids and reference_ids:
         guidance += (
             " Os documentos do escritório vêm primeiro; a legislação e a jurisprudência da "
             "base vêm depois. Em pergunta sobre um contrato, cliente ou caso específico, "
-            "responda com os documentos do escritório e use a legislação só como apoio."
+            "extraia os fatos dos documentos. Políticas e cláusulas não prevalecem sobre a lei."
         )
     return {"status": "found" if results else "empty", "results": results, "guidance": guidance}
 
@@ -216,6 +216,25 @@ def sinalizar_urgencia(motivo: str) -> Command:
         motivo: frase curta explicando a urgência (ex: "audiência amanhã às 9h").
     """
     return Command(update={"urgency_flags": [{"reason": " ".join(motivo.split())[:300]}]})
+
+
+@tool("solicitar_atendimento_humano")
+def solicitar_atendimento_humano(motivo: str, requesting_agent_id: str = "") -> Command:
+    """Registra pedido de pessoa da equipe, sem transferir a outro robô ou pausar a IA.
+
+    Use quando o cliente pedir atendimento humano ou a questão precisar de revisão
+    profissional. Não confunda um pedido de humano com urgência. requesting_agent_id
+    é preenchido pelo sistema; nunca prometa entrega de e-mail ou atendimento imediato.
+    """
+    return Command(
+        update={
+            "human_request_pending": True,
+            "human_request_agent_id": requesting_agent_id,
+            "human_requests": [
+                {"reason": " ".join(motivo.split())[:300], "agent_id": requesting_agent_id}
+            ],
+        }
+    )
 
 
 @tool("fazer_contrato")
@@ -591,6 +610,7 @@ tools = [
     bucar_base_conhecimento_usuario,
     transfer_to_agent,
     sinalizar_urgencia,
+    solicitar_atendimento_humano,
     fazer_contrato,
     fazer_multa,
     fazer_advertencia,

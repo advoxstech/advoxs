@@ -143,6 +143,7 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             tables.agent_knowledge_base_files.c.agent_id,
             tables.agent_knowledge_base_files.c.knowledge_base_file_id,
             tables.knowledge_base_files.c.public_document_id,
+            tables.knowledge_base_files.c.category,
         )
         .join(
             tables.knowledge_base_files,
@@ -162,10 +163,13 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
     # Cópias do pacote de especialidade: buscadas à parte, para não disputar
     # espaço com os documentos do próprio escritório.
     reference_by_agent: dict[uuid.UUID, list[str]] = {}
-    for agent_id, file_id, public_document_id in links_result.all():
+    legal_by_agent: dict[uuid.UUID, list[str]] = {}
+    for agent_id, file_id, public_document_id, category in links_result.all():
         kb_by_agent.setdefault(agent_id, []).append(str(file_id))
         if public_document_id is not None:
             reference_by_agent.setdefault(agent_id, []).append(str(file_id))
+        if category in {"constituicao", "legislacao_especifica", "decisoes_tribunais"}:
+            legal_by_agent.setdefault(agent_id, []).append(str(file_id))
 
     return [
         {
@@ -174,6 +178,11 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             "instructions": row.instructions,
             "is_entry_point": row.is_entry_point,
             "knowledge_base_file_ids": kb_by_agent.get(row.id, []),
+            **(
+                {"legal_reference_file_ids": legal_by_agent[row.id]}
+                if row.id in legal_by_agent
+                else {}
+            ),
             # Só quando há cópias de pacote (subconjunto da lista acima).
             **(
                 {"reference_file_ids": reference_by_agent[row.id]}
@@ -512,16 +521,33 @@ async def _has_newer_contact_message(
 
 
 async def _conversation_allows_automation(
-    session: AsyncSession, conversation_id: str, *, lock: bool = False
+    session: AsyncSession,
+    conversation_id: str,
+    *,
+    lock: bool = False,
+    inbound: InboundContext | None = None,
 ) -> bool:
     """Lê a fonte de verdade; com lock, serializa com o takeover da API."""
     statement = select(
         tables.conversations.c.state,
         tables.conversations.c.deletion_requested_at,
+        tables.conversations.c.human_requested_at,
+        tables.conversations.c.human_request_agent_id,
     ).where(tables.conversations.c.id == uuid.UUID(conversation_id))
     if lock:
         statement = statement.with_for_update()
     row = (await session.execute(statement)).one_or_none()
+    if inbound is not None:
+        # A mensagem seguinte pode ter pedido humano durante o processamento
+        # de um anexo. Não use o snapshot anterior à chegada desse pedido.
+        inbound.human_request = (
+            {
+                "pending": True,
+                "agent_id": str(row.human_request_agent_id) if row.human_request_agent_id else None,
+            }
+            if row is not None and getattr(row, "human_requested_at", None)
+            else None
+        )
     return row is not None and row.state == "agent" and row.deletion_requested_at is None
 
 
@@ -877,7 +903,9 @@ async def _process_inbound_message(
     # O estado carregado no início do job pode ter mudado enquanto o anexo
     # era processado. Revalidamos antes de iniciar uma execução cobrada da IA.
     async with open_tenant_session(session_factory, tenant_id) as session:
-        automation_allowed = await _conversation_allows_automation(session, conversation_id)
+        automation_allowed = await _conversation_allows_automation(
+            session, conversation_id, inbound=inbound
+        )
     if not automation_allowed:
         await _sync_context(http, tenant_id, inbound.contact_phone_number, message_content)
         logger.info(
@@ -894,6 +922,7 @@ async def _process_inbound_message(
             contact_phone_number=inbound.contact_phone_number,
             message=message_content,
             agents=inbound.agents,
+            **({"human_request": inbound.human_request} if inbound.human_request else {}),
         )
     except Exception as exc:
         # Qualquer falha ao chamar o agents (rede, 5xx, ou um bug — ex: um
@@ -1033,6 +1062,29 @@ async def _process_inbound_message(
             current_agent_id,
         )
 
+        request = result.get("human_request")
+        if request:
+            conversations = tables.conversations
+            requested_agent = request.get("agent_id")
+            valid_agent = requested_agent in {a["id"] for a in inbound.agents}
+            await session.execute(
+                update(conversations)
+                .where(
+                    conversations.c.id == uuid.UUID(conversation_id),
+                    conversations.c.tenant_id == uuid.UUID(tenant_id),
+                    conversations.c.human_requested_at.is_(None),
+                    conversations.c.state != "human",
+                    conversations.c.deletion_requested_at.is_(None),
+                )
+                .values(
+                    human_requested_at=func.now(),
+                    human_request_reason=str(request.get("reason") or "Revisão humana solicitada")[
+                        :300
+                    ],
+                    human_request_agent_id=uuid.UUID(requested_agent) if valid_agent else None,
+                )
+            )
+
         if result.get("urgency"):
             # Mesma regra de app/services/urgency.py::mark_urgent no api: mantém
             # o horário da primeira sinalização aberta; motivo do agente prevalece.
@@ -1166,6 +1218,8 @@ async def _load_context(
                 tables.conversations.c.contact_phone_number,
                 tables.conversations.c.human_only,
                 tables.conversations.c.current_agent_id,
+                tables.conversations.c.human_requested_at,
+                tables.conversations.c.human_request_agent_id,
                 tables.conversations.c.human_last_seen_at,
                 tables.conversations.c.billing_gate_step,
                 tables.conversations.c.billing_gate_retries,
@@ -1308,6 +1362,14 @@ async def _load_context(
 
     return InboundContext(
         conversation_state=conversation.state,
+        human_request={
+            "pending": True,
+            "agent_id": str(conversation.human_request_agent_id)
+            if conversation.human_request_agent_id
+            else None,
+        }
+        if getattr(conversation, "human_requested_at", None)
+        else None,
         human_only=conversation.human_only,
         contact_phone_number=conversation.contact_phone_number,
         message_content=content,

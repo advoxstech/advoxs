@@ -41,6 +41,7 @@ async def test_returns_responses_and_tokens_on_200() -> None:
         "delivery_failures": [],
         "documents": [],
         "urgency": None,
+        "human_request": None,
     }
     body = http.post.await_args.kwargs["json"]
     assert body["tenant_id"] == "t-1"
@@ -67,6 +68,7 @@ async def test_resposta_sem_tokens_usa_zero() -> None:
         "delivery_failures": [],
         "documents": [],
         "urgency": None,
+        "human_request": None,
     }
 
 

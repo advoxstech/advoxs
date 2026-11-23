@@ -75,6 +75,7 @@ class IncomingMessage(BaseModel):
     # Palavras configuráveis agora são avaliadas diretamente pelo API/worker.
     urgency_keywords: list[str] = Field(default_factory=list)
     test_start_agent_id: str | None = None
+    human_request: dict | None = None
 
 
 class SummaryMessageIn(BaseModel):
@@ -189,6 +190,7 @@ async def receive(body: IncomingMessage):
             conversation_id=thread_id,
             number_whatsapp=body.contact_phone_number,
             agents=body.agents,
+            **({"human_request": body.human_request} if body.human_request else {}),
             **(
                 {"test_start_agent_id": body.test_start_agent_id}
                 if body.test_start_agent_id
@@ -198,6 +200,7 @@ async def receive(body: IncomingMessage):
 
         response_sources = usage.pop("response_sources", [])
         urgency = usage.pop("urgency", None)
+        human_request = usage.pop("human_request", None)
         delivery_failures: list[int] = []
         # `documents` carrega o custo fixo em crédito de cada documento
         # gerado (ver agents/tools.py) — devolvido ao chamador mesmo quando
@@ -266,6 +269,7 @@ async def receive(body: IncomingMessage):
             "delivery_failures": delivery_failures,
             "documents": documents,
             "urgency": urgency,
+            "human_request": human_request,
         }
     except Exception as exc:
         logger.error(

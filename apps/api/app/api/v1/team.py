@@ -67,6 +67,12 @@ async def refresh_urgencies(session, tenant_id):
     """),
         {"tid": tenant_id},
     )
+    await session.execute(
+        text("""UPDATE conversations SET human_requested_at=human_requested_at
+        WHERE tenant_id=:tid AND human_requested_at IS NOT NULL
+          AND deletion_requested_at IS NULL AND NOT is_test"""),
+        {"tid": tenant_id},
+    )
 
 
 def digest(token):

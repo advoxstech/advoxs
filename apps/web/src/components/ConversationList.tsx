@@ -110,6 +110,9 @@ export function ConversationList({
               <span className="flex items-center justify-between gap-2">
                 <ConversationStatusIndicator conversation={conversation} />
                 {isUrgent ? <UrgentTag /> : null}
+                {conversation.human_requested_at && conversation.state !== "human" ? (
+                  <span className="text-xs font-semibold text-ink">Solicitou humano</span>
+                ) : null}
               </span>
             </button>
           </li>

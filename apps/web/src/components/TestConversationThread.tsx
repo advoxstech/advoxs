@@ -11,7 +11,7 @@ import type { Conversation, Message } from "@/lib/types";
 
 import { ConversationStatusIndicator } from "./ConversationStatusIndicator";
 import { ActionMenu, type ActionMenuItem } from "./ActionMenu";
-import { UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
+import { HumanRequestBanner, UrgencyBanner, useUrgencyUpdate } from "./ConversationUrgency";
 
 interface TestConversationThreadProps {
   conversation: Conversation;
@@ -154,6 +154,7 @@ export function TestConversationThread({
         </div>
         <ActionMenu items={moreActions} />
       </header>
+      <HumanRequestBanner conversation={conversation} />
       <UrgencyBanner conversation={conversation} onUpdate={onConversationUpdate} />
       {urgency.error ? (
         <p role="alert" className="border-b border-line bg-surface px-6 py-2 text-xs text-danger">

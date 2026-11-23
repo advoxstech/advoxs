@@ -89,6 +89,7 @@ export function ConversationsPanel({
   const [mine, setMine] = useState(false);
   const [tab, setTab] = useState<Tab>(isLawyer ? "real" : initialOrigin);
   const [urgentOnly, setUrgentOnly] = useState(initialUrgentOnly);
+  const [humanRequestedOnly, setHumanRequestedOnly] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -122,7 +123,7 @@ export function ConversationsPanel({
       const chunks = await Promise.all(
         Array.from({ length: pages }, async (_, page) => {
           const response = await backendFetch(
-            `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
+            `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${humanRequestedOnly ? "&human_requested=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
           );
           if (!response.ok) throw new Error("conversations request failed");
           return (await response.json()) as Conversation[];
@@ -134,7 +135,7 @@ export function ConversationsPanel({
       if (
         selectedId &&
         !mine &&
-        !urgentOnly &&
+        !urgentOnly && !humanRequestedOnly &&
         !tagFilter &&
         !data.some((c) => c.id === selectedId)
       ) {
@@ -152,7 +153,7 @@ export function ConversationsPanel({
       if (sequence !== refreshSequenceRef.current) return;
       // Com o filtro ativo, uma conversa resolvida precisa sair da lista.
       setConversations((current) =>
-        urgentOnly || mine || isLawyer || tagFilter
+        urgentOnly || humanRequestedOnly || mine || isLawyer || tagFilter
           ? data
           : mergeConversations(current, data),
       );
@@ -169,7 +170,7 @@ export function ConversationsPanel({
         setRefreshing(false);
       }
     }
-  }, [tab, urgentOnly, mine, isLawyer, tagFilter, tagQuery]);
+  }, [tab, urgentOnly, humanRequestedOnly, mine, isLawyer, tagFilter, tagQuery]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
@@ -177,7 +178,7 @@ export function ConversationsPanel({
     const sequence = refreshSequenceRef.current;
     try {
       const response = await backendFetch(
-        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
+        `conversations?origin=${tab}${urgentOnly ? "&urgent=true" : ""}${humanRequestedOnly ? "&human_requested=true" : ""}${mine ? "&mine=true" : ""}${tagQuery}&limit=${PAGE_SIZE}&offset=${conversations.length}`,
       );
       if (!response.ok) throw new Error("older conversations request failed");
       const data: Conversation[] = await response.json();
@@ -436,6 +437,23 @@ export function ConversationsPanel({
               }`}
             >
               Urgentes
+            </button>
+            <button
+              type="button"
+              aria-pressed={humanRequestedOnly}
+              className="rounded-sm border border-line px-2 py-1 text-xs text-ink aria-pressed:bg-surface"
+              onClick={() => {
+                setHumanRequestedOnly((value) => !value);
+                setConversations([]);
+                setSelectedId(null);
+                setLoaded(false);
+                setHasMore(true);
+                setLoadError(false);
+                setLastUpdatedAt(null);
+                setActionNotice(null);
+              }}
+            >
+              Solicitou humano
             </button>
             <span className="font-mono text-xs text-muted">
               {conversations.length}

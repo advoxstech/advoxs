@@ -66,6 +66,10 @@ conversations = Table(
     Column("urgent_reason", Text),
     Column("urgent_source", String),
     Column("urgent_agent_id", Uuid),
+    Column("human_requested_at", DateTime(timezone=True)),
+    Column("human_request_reason", Text),
+    Column("human_request_agent_id", Uuid),
+    Column("human_request_episode_id", Uuid),
 )
 
 urgency_keywords = Table(

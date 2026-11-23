@@ -238,7 +238,8 @@ async def test_final_cannot_be_combined_with_a_transfer(monkeypatch):
     assert result.update["messages"][0].content == ""
     state["messages"] = result.update["messages"]
     update = await tool_node(state)
-    assert len(update["messages"]) == 2
+    assert len(update["messages"]) == 3
+    assert "encaminhar" in update["messages"][-1].content
     assert "sozinha" in update["messages"][0].content
 
 
