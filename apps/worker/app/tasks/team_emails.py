@@ -135,6 +135,52 @@ async def render_email(session, job):
         )
     if job["kind"] in CREDIT_ALERT_KINDS:
         return await _render_credit_alert(session, job, tenant["name"], base)
+    if job["kind"] == "human_request":
+        row = (
+            (
+                await session.execute(
+                    text("""
+          SELECT u.email,a.name AS agent_name,c.human_requested_at
+          FROM conversations c JOIN users u ON u.id=:uid
+          JOIN office_memberships m ON m.user_id=u.id AND m.tenant_id=c.tenant_id
+          LEFT JOIN agents a ON a.id=COALESCE(c.human_request_agent_id,c.current_agent_id,
+            (SELECT id FROM agents WHERE tenant_id=c.tenant_id AND is_entry_point LIMIT 1))
+          WHERE c.id=:cid AND c.tenant_id=:tid AND c.human_request_episode_id=:episode
+            AND c.human_requested_at IS NOT NULL AND c.state!='human'
+            AND NOT c.is_test AND c.deletion_requested_at IS NULL AND u.active AND m.active
+            AND (EXISTS(SELECT 1 FROM agent_lawyers al WHERE al.tenant_id=c.tenant_id
+              AND al.agent_id=a.id AND al.user_id=u.id AND m.role='lawyer')
+              OR (m.role='admin' AND NOT EXISTS(SELECT 1 FROM agent_lawyers al
+                JOIN users v ON v.id=al.user_id
+                JOIN office_memberships vm ON vm.user_id=v.id AND vm.tenant_id=al.tenant_id
+                WHERE al.tenant_id=c.tenant_id AND al.agent_id=a.id
+                  AND v.active AND vm.active AND vm.role='lawyer')))
+        """),
+                    dict(
+                        uid=job["user_id"],
+                        cid=job["conversation_id"],
+                        tid=job["tenant_id"],
+                        episode=job["episode_id"],
+                    ),
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None
+        return (
+            row["email"],
+            "Advoxs — pedido de atendimento humano",
+            (
+                f"Escritório: {tenant['name']}\nAgente: {row['agent_name'] or 'Atendimento'}\n"
+                f"Solicitado em: {row['human_requested_at'].isoformat()}\n\n"
+                f"Abrir atendimento: {base}/escritorios?escritorio={job['tenant_id']}"
+                f"&conversa={job['conversation_id']}\n\n"
+                "O cliente pediu atendimento humano. A IA continua disponível para apoio "
+                "até alguém clicar em Assumir atendimento. Consulte os detalhes no painel."
+            ),
+        )
     # Recheck current access immediately before sending; links never grant access.
     row = (
         (

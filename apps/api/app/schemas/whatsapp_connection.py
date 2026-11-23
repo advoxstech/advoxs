@@ -43,6 +43,7 @@ class WhatsAppConnectionOut(BaseModel):
     # credenciais — o painel do tenant usa isso pra pular o formulário e ir
     # direto pro QR code. Sempre False pra provider="meta".
     managed_by_advoxs: bool = False
+    status_verified: bool = True
 
 
 class WebhookConfigOut(BaseModel):

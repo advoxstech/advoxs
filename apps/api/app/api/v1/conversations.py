@@ -139,6 +139,7 @@ async def list_conversations(
     offset: int = Query(default=0, ge=0),
     origin: Literal["real", "test"] = Query(default="real"),
     urgent: bool = Query(default=False),
+    human_requested: bool = Query(default=False),
     mine: bool = Query(default=False),
     tag_id: uuid.UUID | None = Query(default=None),
     untagged: bool = Query(default=False),
@@ -174,6 +175,8 @@ async def list_conversations(
         filters.append(Conversation.assigned_user_id == ctx.user_id)
     if urgent:
         filters.append(Conversation.urgent_since.is_not(None))
+    if human_requested is True:
+        filters.append(Conversation.human_requested_at.is_not(None))
     result = await session.execute(
         select(Conversation)
         .where(*filters)
@@ -365,6 +368,10 @@ async def update_state(
             409, "Desative o atendimento exclusivamente humano no cadastro do contato."
         )
     if body.state == "human":
+        conversation.human_requested_at = None
+        conversation.human_request_reason = None
+        conversation.human_request_agent_id = None
+        conversation.human_request_episode_id = None
         if owner is not None and owner != ctx.user_id:
             raise HTTPException(
                 409, "Outro profissional já assumiu. Solicite uma transferência ao administrador."

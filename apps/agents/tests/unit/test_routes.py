@@ -82,6 +82,7 @@ def test_fluxo_feliz_envia_respostas_e_retorna_lista(client, monkeypatch):
         "delivery_failures": [],
         "documents": [],
         "urgency": None,
+        "human_request": None,
     }
 
     # thread_id composto por tenant + telefone do contato
@@ -137,6 +138,7 @@ def test_send_to_whatsapp_false_nao_envia_mas_retorna_respostas(client, monkeypa
         "delivery_failures": [],
         "documents": [],
         "urgency": None,
+        "human_request": None,
     }
     wa_cls.assert_not_called()
     wa_instance.send_text_message.assert_not_awaited()

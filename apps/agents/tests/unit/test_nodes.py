@@ -66,7 +66,7 @@ async def test_sem_agentes_no_estado_retorna_erro_generico():
 
 
 @pytest.mark.asyncio
-async def test_transfer_sem_content_injeta_despedida_com_nome_do_agente():
+async def test_transfer_so_anuncia_depois_de_confirmada():
     from agents.nodes import agent_node
 
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "other-1"}, content="")
@@ -75,12 +75,15 @@ async def test_transfer_sem_content_injeta_despedida_com_nome_do_agente():
         result = await agent_node(base_state())
 
     ai_msg = result.update["messages"][0]
-    assert ai_msg.content != "", "Despedida não foi injetada"
-    assert "condominial" in ai_msg.content.lower()
+    assert ai_msg.content == ""
+    from agents.nodes import tool_node
+
+    update = await tool_node(base_state(current_agent_id="entry-1", messages=[ai_msg]))
+    assert "Condominial" in update["messages"][-1].content
 
 
 @pytest.mark.asyncio
-async def test_transfer_com_content_nao_sobrescreve():
+async def test_transfer_adia_anuncio_do_modelo_ate_confirmacao():
     from agents.nodes import agent_node
 
     fake = ai_with_tool_call(
@@ -91,7 +94,7 @@ async def test_transfer_com_content_nao_sobrescreve():
         result = await agent_node(base_state())
 
     ai_msg = result.update["messages"][0]
-    assert ai_msg.content == "Um momento, vou transferir você."
+    assert ai_msg.content == ""
 
 
 @pytest.mark.asyncio
@@ -196,7 +199,7 @@ async def test_prompt_inclui_regra_de_continuidade_no_especialista(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_prompt_explica_fallback_para_conhecimento_nativo(monkeypatch) -> None:
+async def test_prompt_exige_revisao_quando_faltam_fontes(monkeypatch) -> None:
     from agents.nodes import agent_node
 
     model = mock_model(ai_response("oi"))
@@ -206,8 +209,8 @@ async def test_prompt_explica_fallback_para_conhecimento_nativo(monkeypatch) -> 
 
     prompt_arg = model.bind_tools.return_value.ainvoke.call_args.args[0][0]
     assert "Regra da base de conhecimento" in prompt_arg.content
-    assert "conhecimento nativo" in prompt_arg.content
-    assert "nunca afirme que consultou" in prompt_arg.content
+    assert "solicite revisão humana" in prompt_arg.content
+    assert "nunca afirme " in prompt_arg.content
 
 
 @pytest.mark.asyncio
@@ -222,7 +225,8 @@ async def test_prompt_explica_arquivo_que_nao_pode_ser_lido(monkeypatch) -> None
     prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
     assert "Regra de arquivos que não puderam ser lidos" in prompt
     assert "carimbo" in prompt
-    assert "LGPD" in prompt
+    assert "por questões de LGPD" not in prompt
+    assert "ferramenta não lê arquivos protegidos" in prompt
     assert "3.000 páginas" in prompt
 
 
@@ -550,7 +554,7 @@ async def test_todo_agente_busca_na_base_antes_de_pedir_documento(monkeypatch, a
 
 
 @pytest.mark.asyncio
-async def test_primeira_resposta_do_especialista_busca_antes_do_parecer(monkeypatch):
+async def test_primeira_resposta_do_especialista_busca_antes_de_orientar(monkeypatch):
     from agents.nodes import agent_node
 
     model = mock_model(ai_response("oi"))
@@ -559,11 +563,11 @@ async def test_primeira_resposta_do_especialista_busca_antes_do_parecer(monkeypa
     await agent_node(base_state(current_agent_id="other-1", receptive_message_specialist=True))
 
     prompt = model.bind_tools.return_value.ainvoke.call_args.args[0][0].content
-    assert "consulte a base de conhecimento antes de dar o parecer" in prompt
+    assert "consulte a base de conhecimento antes de orientar" in prompt
 
 
 @pytest.mark.asyncio
-async def test_transfer_sem_content_injeta_despedida_no_agente_atual():
+async def test_transfer_especialista_adia_despedida():
     from agents.nodes import agent_node
 
     fake = ai_with_tool_call("transfer_to_agent", {"agent_id": "entry-1"}, content="")
@@ -574,8 +578,11 @@ async def test_transfer_sem_content_injeta_despedida_no_agente_atual():
         )
 
     ai_msg = result.update["messages"][0]
-    assert ai_msg.content != ""
-    assert "secretária" in ai_msg.content.lower()
+    assert ai_msg.content == ""
+    from agents.nodes import tool_node
+
+    update = await tool_node(base_state(current_agent_id="other-1", messages=[ai_msg]))
+    assert "Secretária" in update["messages"][-1].content
 
 
 # ──────────────────────────────────────────────

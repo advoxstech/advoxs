@@ -93,3 +93,17 @@ export function UrgentTag() {
     </span>
   );
 }
+
+export function HumanRequestBanner({ conversation }: { conversation: Conversation }) {
+  if (!conversation.human_requested_at || conversation.state === "human") return null;
+  return (
+    <div role="status" className="border-b border-line bg-surface px-4 py-3 text-sm md:px-6">
+      <p className="font-semibold">Aguardando atendimento humano</p>
+      <p>{conversation.human_request_reason}</p>
+      <p className="text-xs text-muted">
+        Pedido registrado em {formatFullDateTime(conversation.human_requested_at)}.
+        A IA permanece disponível até a equipe clicar em Assumir atendimento.
+      </p>
+    </div>
+  );
+}

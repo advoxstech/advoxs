@@ -66,6 +66,10 @@ conversations = Table(
     Column("urgent_reason", Text),
     Column("urgent_source", String),
     Column("urgent_agent_id", Uuid),
+    Column("human_requested_at", DateTime(timezone=True)),
+    Column("human_request_reason", Text),
+    Column("human_request_agent_id", Uuid),
+    Column("human_request_episode_id", Uuid),
 )
 
 urgency_keywords = Table(
@@ -245,6 +249,22 @@ knowledge_base_files = Table(
     Column("pages_total", Integer),
     Column("partial_pages", ARRAY(Integer)),
     Column("public_document_id", Uuid),
+    Column("deletion_requested_at", DateTime(timezone=True)),
+)
+
+knowledge_file_tasks = Table(
+    "knowledge_file_tasks",
+    metadata,
+    Column("file_id", Uuid, primary_key=True),
+    Column("operation", String, primary_key=True),
+    Column("tenant_id", Uuid),
+    Column("state", String),
+    Column("attempts", Integer),
+    Column("lease_until", DateTime(timezone=True)),
+    Column("lease_token", Uuid),
+    Column("next_attempt_at", DateTime(timezone=True)),
+    Column("last_error", Text),
+    Column("updated_at", DateTime(timezone=True)),
 )
 
 agents = Table(

@@ -26,6 +26,9 @@ class State(TypedDict):
     # Sinalizações de urgência (tool sinalizar_urgencia) — mesmo padrão de
     # generated_documents: acumula e call_agent.py fatia só as desta execução.
     urgency_flags: Annotated[list[dict], operator.add]
+    human_requests: Annotated[list[dict], operator.add]
+    human_request_pending: bool
+    human_request_agent_id: str | None
 
 
 graph = StateGraph(State)

@@ -151,7 +151,7 @@ async def test_buscar_agente_sem_arquivos_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "conhecimento nativo" in result["guidance"].lower()
+        assert "revisão humana" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_buscar_agente_sem_knowledge_base_file_ids_nao_chama_retrieval():
         )
 
         mock_fn.assert_not_called()
-        assert "conhecimento nativo" in result["guidance"].lower()
+        assert "revisão humana" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_buscar_agente_sem_resultado_orienta_resposta_nativa():
         )
 
     assert "não encontrou conteúdo relevante" in result["guidance"].lower()
-    assert "conhecimento nativo" in result["guidance"].lower()
+    assert "revisão humana" in result["guidance"].lower()
 
 
 @pytest.mark.asyncio
@@ -195,9 +195,9 @@ async def test_buscar_agente_com_falha_tecnica_orienta_resposta_nativa_sem_alega
             }
         )
 
-    assert "temporariamente indisponível" in result["guidance"].lower()
-    assert "conhecimento nativo" in result["guidance"].lower()
-    assert "não afirme" in result["guidance"].lower()
+    assert "indisponível" in result["guidance"].lower()
+    assert "revisão humana" in result["guidance"].lower()
+    assert "não alegue consulta" in result["guidance"].lower()
 
 
 # ──────────────────────────────────────────────

@@ -7,6 +7,7 @@ from api.routes.documents.users import get_service
 from api.routes.retrievals import get_retrieval
 from constants import SYSTEM_TENANT_ID
 from main import app
+from services.documents.main import DocumentoIlegivel
 from services.retrieval.main import RetrievalUnavailableError
 
 HEADERS = {"Authorization": "test-api-key"}
@@ -163,6 +164,37 @@ class TestDocumentsUsers:
         args = documento_service.inserir_documento_usuario.await_args.args
         assert args[1] == "t1"
         assert args[2] == "c1"
+
+    @pytest.mark.parametrize("motivo", ["senha", "corrompido", "paginas_demais"])
+    def test_recusa_de_leitura_devolve_o_codigo_do_motivo(
+        self, client, documento_service, motivo
+    ) -> None:
+        documento_service.inserir_documento_usuario.side_effect = DocumentoIlegivel(
+            "Texto para o painel.", motivo
+        )
+
+        response = client.post(
+            "/documents/users/insert",
+            data={"tenant_id": "t1", "conversation_id": "c1"},
+            files={"file": ("a.pdf", b"%PDF", "application/pdf")},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Texto para o painel.", "motivo": motivo}
+
+    def test_outro_erro_de_validacao_continua_sem_codigo(self, client, documento_service) -> None:
+        documento_service.inserir_documento_usuario.side_effect = ValueError("Formato inválido")
+
+        response = client.post(
+            "/documents/users/insert",
+            data={"tenant_id": "t1", "conversation_id": "c1"},
+            files={"file": ("a.pdf", b"%PDF", "application/pdf")},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"detail": "Formato inválido"}
 
     def test_delete_exige_tenant_id(self, client) -> None:
         response = client.delete(

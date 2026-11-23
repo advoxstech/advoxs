@@ -1,3 +1,5 @@
+import logging
+
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
@@ -8,6 +10,15 @@ _pool: ArqRedis | None = None
 # Fila da base de conhecimento, consumida pelo container worker-ingestion um
 # arquivo por vez. Espelhado em apps/worker/app/tasks/knowledge_base.py.
 INGESTION_QUEUE = "arq:ingestion"
+
+
+async def enqueue_file_task(arq: ArqRedis, *args, **kwargs):
+    """O trigger já persistiu a tarefa; falha de Redis não desfaz a aceitação."""
+    try:
+        return await arq.enqueue_job(*args, **kwargs)
+    except Exception:
+        logging.getLogger(__name__).warning("Tarefa de arquivo aguardando recuperação")
+        return None
 
 
 async def get_arq_pool() -> ArqRedis:

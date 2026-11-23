@@ -62,6 +62,7 @@ class KnowledgeBaseFile(Base):
     drive_version: Mapped[str | None] = mapped_column(String(100))
     content_sha256: Mapped[str | None] = mapped_column(String(64))
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # A versão anterior permanece disponível para as fontes de respostas antigas.
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replaces_file_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -82,4 +83,31 @@ class KnowledgeBaseFile(Base):
     partial_pages: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class KnowledgeFileTask(Base):
+    """Intenção persistida pelo trigger, na transação que aceita/remove o arquivo.
+
+    Sem FK para o arquivo: o resultado da limpeza permanece após sua exclusão.
+    """
+
+    __tablename__ = "knowledge_file_tasks"
+    __table_args__ = (
+        CheckConstraint("operation IN ('ingest', 'delete')", name="operation"),
+        CheckConstraint("state IN ('pending', 'running', 'completed', 'failed')", name="state"),
+    )
+    file_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    operation: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id"))
+    state: Mapped[str] = mapped_column(Text, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
     )

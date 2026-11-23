@@ -9,6 +9,8 @@ from arq.worker import Retry
 from app.tasks import knowledge_base as kb_task
 from app.tasks.knowledge_base import PUBLIC_TENANT_ID, copy_public_document
 
+copy_public_document = copy_public_document.__wrapped__
+
 TENANT_ID = str(uuid.uuid4())
 FILE_ID = str(uuid.uuid4())
 PUBLIC_DOCUMENT_ID = uuid.uuid4()
@@ -25,7 +27,10 @@ def _ctx(row, job_try: int = 1) -> dict:
 
 def _row(status: str = "processing", public_document_id=PUBLIC_DOCUMENT_ID) -> SimpleNamespace:
     return SimpleNamespace(
-        filename="1.01_Codigo_Civil.pdf", status=status, public_document_id=public_document_id
+        filename="1.01_Codigo_Civil.pdf",
+        status=status,
+        public_document_id=public_document_id,
+        replaces_file_id=None,
     )
 
 

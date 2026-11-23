@@ -20,6 +20,7 @@ export type KbFile = {
   mime_type: string;
   status: "processing" | "ready" | "error";
   error_message: string | null;
+  deletion_requested_at?: string | null;
   category: string | null;
   uploaded_at: string;
   agent_ids: string[];
@@ -409,7 +410,7 @@ function FileList({
                 ))}
               </select>
             )}
-            {file.status === "error" && (
+            {file.status === "error" && !file.deletion_requested_at && (
               <button
                 type="button"
                 onClick={() => onReprocess(file)}

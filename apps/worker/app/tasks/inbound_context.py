@@ -40,6 +40,7 @@ class InboundContext:
     media_url: str | None = None
     media_type: str | None = None
     human_only: bool = False
+    human_request: dict | None = None
 
     # Z-API Omni (WhatsApp oficial) usa a mesma API de envio da Z-API: o canal
     # e o token do canal vêm em zapi_instance_id/zapi_instance_token_encrypted

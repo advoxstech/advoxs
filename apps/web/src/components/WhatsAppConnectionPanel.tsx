@@ -12,6 +12,7 @@ type Connection = {
   provider: Provider | "omni";
   display_phone_number: string;
   status: "connected" | "disconnected";
+  status_verified?: boolean;
   connected_at: string;
   // True quando a instância Z-API foi provisionada manualmente pela Advoxs
   // (painel de admin) em vez do próprio tenant ter colado as credenciais —
@@ -379,9 +380,11 @@ export function WhatsAppConnectionPanel() {
             <div className="flex items-center justify-between">
               <p className="font-medium text-ink">{connection.display_phone_number}</p>
               <span
-                className={`rounded-full px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] ${STATUS_CLASS[connection.status]}`}
+                className={`rounded-full px-3 py-1 font-mono text-micro uppercase tracking-[0.12em] ${connection.status_verified === false ? "bg-line text-muted" : STATUS_CLASS[connection.status]}`}
               >
-                {STATUS_LABEL[connection.status]}
+                {connection.status_verified === false
+                  ? "status não confirmado"
+                  : STATUS_LABEL[connection.status]}
               </span>
             </div>
             <p className="mt-1 text-xs text-muted">

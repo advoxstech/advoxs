@@ -54,9 +54,14 @@ def contact_sent_document(messages: list) -> bool:
 def _is_agent_answer(message) -> bool:
     # Respostas do grafo sempre levam response_sources (agent_node); mensagens do
     # atendente sincronizadas no checkpoint (services/update_context.py) não.
+    # Mensagem que ainda chama ferramenta não fecha o turno: a despedida da
+    # recepção ao transferir ("um momento... vou te passar pra(o) X") também tem
+    # texto e response_sources, e sem essa exceção o especialista chegava sem
+    # pergunta do cliente para buscar.
     return (
         isinstance(message, AIMessage)
         and bool(message.content)
+        and not message.tool_calls
         and "response_sources" in (message.additional_kwargs or {})
     )
 

@@ -62,6 +62,12 @@ class Conversation(Base):
     assigned_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"))
     assigned_user_name: Mapped[str | None] = mapped_column(Text)
     urgency_episode_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    human_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    human_request_reason: Mapped[str | None] = mapped_column(Text)
+    human_request_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="SET NULL")
+    )
+    human_request_episode_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     billing_gate_step: Mapped[str | None] = mapped_column(String)
     billing_gate_retries: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")

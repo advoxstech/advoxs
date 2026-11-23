@@ -22,6 +22,7 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
             AgentKnowledgeBaseFile.agent_id,
             AgentKnowledgeBaseFile.knowledge_base_file_id,
             KnowledgeBaseFile.public_document_id,
+            KnowledgeBaseFile.category,
         )
         .join(Agent, Agent.id == AgentKnowledgeBaseFile.agent_id)
         .join(
@@ -30,6 +31,9 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
         )
         .where(
             Agent.tenant_id == tenant_id,
+            KnowledgeBaseFile.status == "ready",
+            KnowledgeBaseFile.superseded_at.is_(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
             # Pasta F ("não selecionáveis"): o agente não consulta.
             KnowledgeBaseFile.category.is_distinct_from(UNREADABLE_CATEGORY),
         )
@@ -38,10 +42,13 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
     # Cópias do pacote de especialidade (legislação e jurisprudência): buscadas
     # à parte, para não disputar espaço com os documentos do próprio escritório.
     reference_by_agent: dict[uuid.UUID, list[str]] = {}
-    for agent_id, file_id, public_document_id in links_result.all():
+    legal_by_agent: dict[uuid.UUID, list[str]] = {}
+    for agent_id, file_id, public_document_id, category in links_result.all():
         kb_by_agent.setdefault(agent_id, []).append(str(file_id))
         if public_document_id is not None:
             reference_by_agent.setdefault(agent_id, []).append(str(file_id))
+        if category in {"constituicao", "legislacao_especifica", "decisoes_tribunais"}:
+            legal_by_agent.setdefault(agent_id, []).append(str(file_id))
 
     return [
         {
@@ -52,6 +59,11 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
             "knowledge_base_file_ids": kb_by_agent.get(agent.id, []),
             # Só quando há cópias de pacote (subconjunto da lista acima).
             **_reference(reference_by_agent.get(agent.id)),
+            **(
+                {"legal_reference_file_ids": legal_by_agent[agent.id]}
+                if agent.id in legal_by_agent
+                else {}
+            ),
         }
         for agent in agents
     ]

@@ -41,6 +41,7 @@ class KnowledgeBaseFileOut(BaseModel):
     drive_file_id: str | None = None
     imported_at: datetime | None = None
     replaces_file_id: uuid.UUID | None = None
+    deletion_requested_at: datetime | None = None
     # Leitura parcial: páginas sem texto ou com leitura fraca mesmo com OCR.
     pages_total: int | None = None
     partial_pages: list[int] = Field(default_factory=list)

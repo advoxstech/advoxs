@@ -3,7 +3,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from clients.qdrant import QdrantClient
 from database.repositories.documento import DocumentoRepository
 from database.session import get_session
 from safe_logging import safe_error, safe_identifier
-from services.documents.main import DocumentoService
+from services.documents.main import DocumentoIlegivel, DocumentoService
 
 router_doc_users = APIRouter(prefix="/documents/users")
 
@@ -88,6 +88,9 @@ async def inserir_documento(
             # Páginas totais (só PDF), lidas por OCR e com leitura parcial.
             "leitura": resumos[0] if resumos else None,
         }
+    except DocumentoIlegivel as exc:
+        logger.warning("Erro de validação ao inserir documento | error_type={}", safe_error(exc))
+        return JSONResponse(status_code=400, content={"detail": str(exc), "motivo": exc.motivo})
     except ValueError as exc:
         logger.warning("Erro de validação ao inserir documento | error_type={}", safe_error(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc

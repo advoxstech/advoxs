@@ -22,7 +22,7 @@ from app.clients.media import (
     download_meta_media,
     download_zapi_media,
 )
-from app.clients.rag import ingest_document
+from app.clients.rag import ingest_document, refusal_reason
 from app.config import settings
 from app.safe_logging import safe_error
 
@@ -54,6 +54,47 @@ def _nota_arquivo_grande() -> str:
 _NOTA_FALHA_INGESTAO = (
     "[Anexo recebido mas não pôde ser processado: falha ao processar o documento.]"
 )
+
+# Motivo da recusa, para o agente explicar ao cliente o que fazer
+# (_ATTACHMENT_RULE em apps/agents/agents/nodes.py). Mesmo texto em
+# apps/api/app/services/test_attachments.py.
+REFUSAL_NOTES = {
+    "senha": "[Anexo recebido mas não pôde ser lido: o PDF está protegido por senha.]",
+    "corrompido": (
+        "[Anexo recebido mas não pôde ser lido: o arquivo está corrompido ou danificado e "
+        "não abre.]"
+    ),
+    "paginas_demais": (
+        "[Anexo recebido mas não pôde ser lido: o documento tem mais de 3.000 páginas, acima "
+        "do limite de leitura.]"
+    ),
+    "escaneadas_demais": (
+        "[Anexo recebido mas não pôde ser lido: é um documento digitalizado (páginas em "
+        "imagem) grande demais para a leitura de imagem. Trate como problema de qualidade do "
+        "arquivo: peça o PDF original digital ou o arquivo dividido em partes menores.]"
+    ),
+    "sem_texto": (
+        "[Anexo recebido mas não pôde ser lido: não foi possível ler o texto nem pela leitura "
+        "de imagem — qualidade ruim da digitalização ou da foto.]"
+    ),
+    "leitura_demorada": (
+        "[Anexo recebido mas não pôde ser lido: a leitura do documento digitalizado não "
+        "terminou no tempo limite — qualidade ou tamanho do arquivo.]"
+    ),
+}
+
+# Documento lido como imagem (OCR) sem páginas com leitura parcial: o sistema não
+# detecta carimbo nem mancha, então o agente avisa da limitação se não achar algo.
+SCANNED_NOTE = (
+    " O documento é digitalizado e foi lido como imagem: trechos com carimbo por cima do "
+    "texto, manchas ou baixa qualidade podem não ter sido lidos. Se a informação pedida não "
+    "estiver nos trechos encontrados, explique isso ao cliente e peça uma cópia melhor."
+)
+
+
+def refusal_note(motivo: str | None) -> str:
+    return REFUSAL_NOTES.get(motivo or "", _NOTA_FALHA_INGESTAO)
+
 
 # Um PDF escaneado grande leva minutos no api_rag (OCR). A leitura espera até
 # ATTACHMENT_RAG_TIMEOUT_SECONDS, e o contato é avisado se ela passar de
@@ -149,6 +190,18 @@ async def process_inbound_attachment(
     )
     try:
         reading = await await_with_notice(ingestion, on_slow_reading, tenant_id=tenant_id)
+    except httpx.TimeoutException:
+        logger.warning("Leitura de anexo passou do prazo | tenant=%s", tenant_id)
+        return refusal_note("leitura_demorada")
+    except httpx.HTTPStatusError as exc:
+        motivo = refusal_reason(exc.response)
+        logger.warning(
+            "api_rag recusou o anexo | tenant=%s status=%s motivo=%s",
+            tenant_id,
+            exc.response.status_code,
+            motivo,
+        )
+        return refusal_note(motivo)
     except httpx.HTTPError as exc:
         logger.warning(
             "Falha ao ingerir anexo no api_rag | tenant=%s error_type=%s",
@@ -203,6 +256,11 @@ def processed_note(filename: str, reading: dict | None) -> str:
     """Nota para o agente; cita as páginas com leitura parcial, se houver."""
     partial = (reading or {}).get("partial_pages") or []
     if not partial:
+        if (reading or {}).get("ocr_pages"):
+            return (
+                f"[Documento recebido e processado: {filename} — disponível para busca."
+                f"{SCANNED_NOTE}]"
+            )
         return f"[Documento recebido e processado: {filename} — disponível para busca.]"
     pages = ", ".join(str(p) for p in partial[:30]) + ("…" if len(partial) > 30 else "")
     return (

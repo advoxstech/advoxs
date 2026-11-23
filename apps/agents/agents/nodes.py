@@ -9,6 +9,7 @@ from loguru import logger
 
 from agents import auto_search
 from agents.helpers import strip_messages
+from agents.legal_safety import LEGAL_SAFETY_RULE, REVIEW_ANSWER, legal_review_reason
 from agents.response_sources import (
     SOURCE_RULE,
     collect_search,
@@ -26,6 +27,7 @@ from agents.tools import (
     fazer_multa,
     fazer_oficio,
     sinalizar_urgencia,
+    solicitar_atendimento_humano,
     tools,
     transfer_to_agent,
 )
@@ -64,9 +66,9 @@ _KNOWLEDGE_BASE_RULE = (
     "arquivo nesta conversa, consulte também bucar_base_conhecimento_usuario. Só peça o "
     "documento ao cliente quando as buscas não trouxerem a informação. Quando a busca trouxer "
     "conteúdo relevante, priorize as informações do escritório. Quando não houver documentos "
-    "ou resultados relevantes, responda normalmente usando seu conhecimento nativo. Se a busca "
-    "estiver indisponível, você também pode responder com seu conhecimento nativo, mas nunca "
-    "afirme que consultou ou encontrou algo nos documentos."
+    "ou resultados relevantes, limite-se à coleta factual e informação geral não conclusiva. "
+    "Se faltar suporte para uma conclusão jurídica, solicite revisão humana; nunca afirme "
+    "que consultou ou encontrou algo nos documentos sem ter consultado."
 )
 
 # Vale para todo agente: o que dizer ao cliente quando um arquivo dele não pôde ser
@@ -84,8 +86,8 @@ _ATTACHMENT_RULE = (
     "digital ou uma cópia mais nítida, sem carimbo sobre o texto.\n"
     "- Arquivo corrompido ou danificado: diga que o arquivo está com erro e não abre, e "
     "pergunte se o cliente tem outra versão.\n"
-    "- Arquivo protegido por senha: diga que o arquivo tem senha e que, por questões de LGPD, "
-    "você não abre arquivos protegidos por senha, mesmo que o cliente envie a senha. Peça uma "
+    "- Arquivo protegido por senha: diga que a ferramenta não lê arquivos protegidos, "
+    "mesmo que o cliente envie a senha. Peça uma "
     "versão sem senha. Se o cliente mandar uma senha, não a use e não a repita na resposta.\n"
     "- Documento com mais de 3.000 páginas: diga que o documento passa do limite de 3.000 "
     "páginas para leitura."
@@ -103,7 +105,7 @@ _URGENCY_RULE = (
     'sinalizar_urgencia (motivo curto, ex: "audiência trabalhista em 2 dias"), antes de '
     "responder, de transferir ou de usar outra ferramenta — inclusive quando você for "
     "transferir o atendimento. Depois da confirmação, siga normalmente e avise o cliente "
-    "que a equipe do escritório foi notificada com prioridade."
+    "que a urgência foi registrada para a equipe do escritório. Não confirme entrega de e-mail."
 )
 
 
@@ -184,7 +186,9 @@ async def agent_node(state: dict) -> Command:
             goto=END,
         )
 
-    current_agent_id = state.get("current_agent_id")
+    current_agent_id = (
+        state.get("human_request_agent_id") if state.get("human_request_pending") else None
+    ) or state.get("current_agent_id")
     current = agents_by_id.get(current_agent_id) if current_agent_id else None
     if current is None:
         current = entry_point
@@ -230,6 +234,7 @@ async def agent_node(state: dict) -> Command:
     tools_for_agent = [
         transfer_to_agent,
         sinalizar_urgencia,
+        solicitar_atendimento_humano,
         responder_com_fontes,
         buscar_base_conhecimento_agente,
         bucar_base_conhecimento_usuario,
@@ -246,6 +251,13 @@ async def agent_node(state: dict) -> Command:
             fazer_oficio,
             enviar_edital_convocacao,
             enviar_aviso,
+        ]
+    if state.get("human_request_pending"):
+        tools_for_agent = [
+            tool
+            for tool in tools_for_agent
+            if tool.name
+            not in DOCUMENT_TOOLS | {"transfer_to_agent", "solicitar_atendimento_humano"}
         ]
     # Na chegada de um especialista com base própria, a busca é obrigatória antes
     # do parecer: só a instrução não bastava (o gpt-5-mini respondia "me manda o
@@ -293,7 +305,9 @@ async def agent_node(state: dict) -> Command:
 
     # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
     prompt = (
-        _urgency_rule()
+        LEGAL_SAFETY_RULE
+        + "\n\n"
+        + _urgency_rule()
         + current["instructions"]
         + _CONTINUITY_RULE
         + _KNOWLEDGE_BASE_RULE
@@ -301,7 +315,11 @@ async def agent_node(state: dict) -> Command:
         + (_AUTO_SEARCH_RULE if auto else "")
         + SOURCE_RULE
     )
+    if state.get("human_request_pending"):
+        prompt += "\nPEDIDO HUMANO JÁ REGISTRADO: não transfira de agente nem registre novamente."
     other_agents = [a for a in state.get("agents", []) if a["id"] != current["id"]]
+    if state.get("human_request_pending"):
+        other_agents = []
     if other_agents:
         roster_text = "\n".join(f"- agent_id: {a['id']} — {a['name']}" for a in other_agents)
         prompt += (
@@ -315,11 +333,10 @@ async def agent_node(state: dict) -> Command:
         prompt += (
             "\n\n---\n"
             "**Instrução:** Esta é sua primeira resposta neste atendimento. "
-            "### Se Apresente, diga sua especialidade e diga que dali para frente é "
-            "responsável pelo atendimento. "
-            "Leia o histórico completo e responda diretamente com seu parecer sobre o caso. "
+            "Apresente-se brevemente como assistente digital e diga sua área de atuação. "
+            "Leia o histórico completo e responda com orientação inicial, respeitando as fontes. "
             "Se a pergunta depende de um documento (contrato, cláusula, prazo, valor, nome), "
-            "consulte a base de conhecimento antes de dar o parecer — não peça o documento ao "
+            "consulte a base de conhecimento antes de orientar — não peça o documento ao "
             "cliente sem buscar primeiro. Se o cliente enviou um documento nesta conversa, ele "
             "já está disponível em bucar_base_conhecimento_usuario: use o que a busca trouxer "
             "e nunca peça de novo um arquivo que ele já mandou. "
@@ -359,6 +376,31 @@ async def agent_node(state: dict) -> Command:
             _log_final_sources(False, [], evidence)
 
     update: dict = {"messages": [response], "current_agent_id": current["id"]}
+    if not response.tool_calls:
+        context = "\n".join(
+            str(m.content) for m in state["messages"] if isinstance(m, HumanMessage)
+        )
+        reason = legal_review_reason(
+            str(response.content), evidence, current.get("legal_reference_file_ids"), context
+        )
+        if reason:
+            response = response.model_copy(
+                update={
+                    "content": REVIEW_ANSWER,
+                    "additional_kwargs": {
+                        "response_sources": response_evidence(state, current, [])
+                    },
+                }
+            )
+            update["messages"] = [response]
+            if not state.get("human_request_pending"):
+                update.update(
+                    {
+                        "human_request_pending": True,
+                        "human_request_agent_id": current["id"],
+                        "human_requests": [{"reason": reason, "agent_id": current["id"]}],
+                    }
+                )
     if is_first_run and not (force_contact_search or force_kb_search):
         # Com a busca forçada, a "primeira resposta" (apresentação + parecer) é a
         # chamada seguinte, já com o resultado da busca no histórico.
@@ -368,14 +410,10 @@ async def agent_node(state: dict) -> Command:
         tool_name = response.tool_calls[0]["name"]
         logger.info("Ferramenta selecionada | tool={}", tool_name)
 
-        if tool_name == "transfer_to_agent" and not response.content:
-            target_id = response.tool_calls[0]["args"].get("agent_id")
-            target = agents_by_id.get(target_id)
-            label = target["name"] if target else "outro agente"
-            farewell = f"um momento... vou te passar pra(o) {label} agora."
-            response = response.model_copy(update={"content": farewell})
+        # Intermediate tool-call prose has not passed the final evidence gate.
+        if response.content:
+            response = response.model_copy(update={"content": ""})
             update["messages"] = [response]
-            logger.info("Despedida de transferência injetada | target={}", target_id)
 
         return Command(update=update, goto="tool_node")
 
@@ -396,7 +434,22 @@ async def tool_node(state: dict) -> dict:
     state_updates = {}
 
     prepared = []
+    blocked = set()
+    pending_human = state.get("human_request_pending") or any(
+        call["name"] == "solicitar_atendimento_humano" for call in tool_calls
+    )
     for tool_call in tool_calls:
+        if pending_human and tool_call["name"] in DOCUMENT_TOOLS | {"transfer_to_agent"}:
+            blocked.add(tool_call["id"])
+            prepared.append((tool_call, None, None))
+            continue
+        if (
+            state.get("human_request_pending")
+            and tool_call["name"] == "solicitar_atendimento_humano"
+        ):
+            blocked.add(tool_call["id"])
+            prepared.append((tool_call, None, None))
+            continue
         if tool_call["name"] == "responder_com_fontes":
             prepared.append((tool_call, None, None))
             continue
@@ -407,6 +460,8 @@ async def tool_node(state: dict) -> dict:
             continue
 
         args = dict(tool_call["args"])
+        if tool_call["name"] == "solicitar_atendimento_humano":
+            args["requesting_agent_id"] = state.get("current_agent_id") or ""
         if tool_call["name"] in STATE_SCOPED_TOOLS:
             args["conversation_id"] = state["conversation_id"]
         if tool_call["name"] == "bucar_base_conhecimento_usuario":
@@ -429,8 +484,13 @@ async def tool_node(state: dict) -> dict:
         if tool is None:
             messages.append(
                 ToolMessage(
-                    content="Finalize chamando responder_com_fontes sozinha, com answer não vazio.",
+                    content=(
+                        "Pedido humano pendente: permaneça no agente atual e ofereça apoio factual."
+                        if tool_call["id"] in blocked
+                        else "Finalize chamando responder_com_fontes sozinha, com answer não vazio."
+                    ),
                     tool_call_id=tool_call["id"],
+                    name=tool_call["name"],
                 )
             )
             continue
@@ -451,10 +511,17 @@ async def tool_node(state: dict) -> dict:
                     "Atualizando estado via Command | updates={}",
                     list(observation.update.keys()),
                 )
-                state_updates.update(observation.update)
+                for key, value in observation.update.items():
+                    if key in {"human_requests", "urgency_flags", "generated_documents"}:
+                        state_updates[key] = state_updates.get(key, []) + value
+                    else:
+                        state_updates[key] = value
             content = (
                 "Conversa sinalizada como urgente para a equipe. Continue o atendimento."
                 if tool_call["name"] == "sinalizar_urgencia"
+                else "Pedido humano registrado. Permaneça no agente atual; "
+                "IA disponível até a equipe assumir."
+                if tool_call["name"] == "solicitar_atendimento_humano"
                 else ""
             )
         else:
@@ -463,6 +530,16 @@ async def tool_node(state: dict) -> dict:
         messages.append(
             ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
         )
+
+    # Só anuncie a transferência efetivada, depois das respostas de ferramentas
+    # (protocolo OpenAI) e antes de executar o especialista.
+    target_id = state_updates.get("current_agent_id")
+    if target_id and target_id != state.get("current_agent_id"):
+        target = agents_by_id.get(target_id)
+        if target:
+            messages.append(
+                AIMessage(content=f"Vou encaminhar você ao assistente de {target['name']}.")
+            )
 
     logger.info("tool_node finalizado | mensagens_geradas={}", len(messages))
     return {"messages": messages, **state_updates}

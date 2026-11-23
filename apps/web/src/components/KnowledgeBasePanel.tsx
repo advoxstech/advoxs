@@ -158,6 +158,7 @@ export function KnowledgeBasePanel({ pollMs = 5000 }: { pollMs?: number }) {
         setFeedback(body?.detail ?? "Falha ao excluir — tente novamente.");
         return;
       }
+      setNotice("Exclusão iniciada. A limpeza do conteúdo continuará em segundo plano.");
       await load();
     } catch {
       setFeedback("Falha de conexão — tente novamente.");

@@ -192,6 +192,75 @@ async def test_falha_na_ingestao_devolve_nota_de_erro_sem_levantar(patched) -> N
     assert "processar o documento" in result.lower()
 
 
+async def _process(patched) -> str | None:
+    return await process_inbound_attachment(
+        AsyncMock(),
+        tenant_id=TENANT_ID,
+        conversation_id=CONVERSATION_ID,
+        message_id=MESSAGE_ID,
+        media_ref="media-123",
+        media_type="application/pdf",
+        whatsapp_provider="meta",
+        access_token="token",
+    )
+
+
+@pytest.mark.parametrize(
+    ("motivo", "trecho"),
+    [
+        ("senha", "protegido por senha"),
+        ("corrompido", "corrompido ou danificado"),
+        ("paginas_demais", "mais de 3.000 páginas"),
+        ("escaneadas_demais", "digitalizado"),
+        ("sem_texto", "qualidade ruim"),
+    ],
+)
+async def test_recusa_do_api_rag_vira_aviso_com_o_motivo(patched, motivo, trecho) -> None:
+    request = httpx.Request("POST", "http://rag")
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "400",
+        request=request,
+        response=httpx.Response(400, json={"detail": "texto", "motivo": motivo}, request=request),
+    )
+
+    result = await _process(patched)
+
+    assert trecho in result
+    assert result.startswith("[Anexo recebido mas não pôde ser lido")
+
+
+async def test_recusa_sem_motivo_conhecido_continua_generica(patched) -> None:
+    request = httpx.Request("POST", "http://rag")
+    patched["ingest"].side_effect = httpx.HTTPStatusError(
+        "400", request=request, response=httpx.Response(400, json={"detail": "x"}, request=request)
+    )
+
+    assert "falha ao processar o documento" in await _process(patched)
+
+
+async def test_leitura_que_passa_do_prazo_vira_aviso_de_qualidade(patched) -> None:
+    patched["ingest"].side_effect = httpx.ReadTimeout("prazo")
+
+    result = await _process(patched)
+
+    assert "não terminou no tempo limite" in result
+
+
+async def test_documento_lido_como_imagem_avisa_sobre_carimbo(patched) -> None:
+    patched["ingest"].return_value = {"pages_total": 10, "ocr_pages": 10, "partial_pages": []}
+
+    result = await _process(patched)
+
+    assert result.startswith("[Documento recebido e processado:")
+    assert "carimbo" in result
+
+
+async def test_documento_de_texto_nao_ganha_aviso_de_digitalizado(patched) -> None:
+    patched["ingest"].return_value = {"pages_total": 10, "ocr_pages": 0, "partial_pages": []}
+
+    assert "carimbo" not in await _process(patched)
+
+
 async def test_txt_e_formato_suportado(patched) -> None:
     result = await process_inbound_attachment(
         AsyncMock(),

@@ -52,6 +52,7 @@ export function AttendancePanel({
   }, [open, conversation.id, conversation.assigned_user_id, identity?.role]);
   const labels: Record<string, string> = {
     assumed: "assumiu o atendimento",
+    human_requested: "registrou pedido de atendimento humano",
     returned_to_ai: "devolveu para IA",
     transferred: "transferiu para",
     urgency_marked: "Marcou como urgente",

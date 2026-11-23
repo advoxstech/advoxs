@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
 from app.clients.google_drive import DriveError, GoogleDrive
 from app.core.config import settings
-from app.core.queue import INGESTION_QUEUE, get_arq_pool
+from app.core.queue import INGESTION_QUEUE, enqueue_file_task, get_arq_pool
 from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 from app.schemas.knowledge_base import DriveImport, DriveSelection
 from app.services.subscriptions import get_active_subscription
@@ -248,7 +248,8 @@ async def import_file(
             ) from None
         raise
     try:
-        await arq.enqueue_job(
+        await enqueue_file_task(
+            arq,
             "ingest_knowledge_base_file",
             tenant_id=str(ctx.tenant_id),
             file_id=str(record.id),

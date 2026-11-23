@@ -49,6 +49,7 @@ def to_connection_out(number: WhatsAppNumber) -> WhatsAppConnectionOut:
         provider=number.provider,
         display_phone_number=mask_phone_number(number.display_phone_number),
         status=number.status,
+        status_verified=getattr(number, "status_verified", True),
         connected_at=number.connected_at,
         # Omni: sempre cadastrado pela Advoxs (workspace e portfólio da Advoxs).
         managed_by_advoxs=number.zapi_managed_by_advoxs or number.provider == "omni",
@@ -136,6 +137,7 @@ async def provision_zapi_connection(
     number.meta_webhook_secret = None
     number.display_phone_number = zapi_display_phone
     number.status = zapi_status
+    number.zapi_disconnected_at = None
     number.connected_at = now
 
     if existing is None:

@@ -39,6 +39,11 @@ nomes das pastas 3 a 6 e qual pacote de documentos o agente recebe.
 - Trocar de especialidade tira do agente as cópias do pacote anterior. As que não
   estiverem em outro agente são excluídas. Os documentos do próprio escritório não
   mudam.
+- Agente com o nome de uma área ("Cível", "Direito Tributário", "Trabalho") recebe a
+  especialidade pelo nome, ao ser criado e, para os já existentes, pela migration `0054`.
+  Só nome exato: "Contratos Imobiliários" fica sem especialidade. A `0054` não entrega os
+  pacotes: depois do deploy, rode de novo o script de carga com `--provision` (só os pacotes
+  são entregues; os documentos já lidos são pulados).
 - Os agentes padrão Condominial, Contratos e Direito do Consumidor já nascem com a
   especialidade. Nos escritórios existentes, a migration `0053` preenche os que
   ainda têm o nome original.
@@ -112,6 +117,24 @@ A pasta copiada some no próximo deploy, que recria os contêineres.
 
 Rodar de novo depois de atualizar a pasta lê só os documentos que mudaram e regrava
 a composição dos pacotes.
+
+## Medição (2026-11-11)
+
+Ambiente local com a base real (o zip `PACOTES` do Drive), escritório de teste com os 3
+agentes padrão, 18 perguntas de legislação com resposta exata na lei (6 por área), uma
+conversa de teste por pergunta:
+
+| Área | Sem pacote | Com pacote | Citou o pacote |
+|---|---|---|---|
+| Consumidor | 6/6 | 6/6 | 6/6 |
+| Condominial | 3/6 | 5/6 | 5/6 |
+| Contratos | 0/6 | 5/6 | 5/6 |
+| Total | 9/18 | 16/18 | 16/18 |
+
+Sem o pacote, os especialistas de Condominial e Contratos tendiam a devolver uma pergunta
+de triagem em vez de responder. Os 2 erros com pacote são a recepção respondendo sem
+transferir. A medição revelou que a busca automática não rodava na chegada do especialista
+(corrigido; antes da correção, 10/18 com pacote e só 3 respostas citando a lei).
 
 ## Limites conhecidos
 

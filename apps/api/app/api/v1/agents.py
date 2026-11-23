@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantContext, get_current_tenant, get_tenant_session
+from app.core.knowledge_tree import specialty_from_name
 from app.core.queue import get_arq_pool
 from app.models import (
     Agent,
@@ -238,7 +239,11 @@ async def create_agent(
         )
 
     agent = Agent(
-        id=uuid.uuid4(), tenant_id=ctx.tenant_id, is_entry_point=False, **body.model_dump()
+        id=uuid.uuid4(),
+        tenant_id=ctx.tenant_id,
+        is_entry_point=False,
+        specialty=specialty_from_name(body.name),
+        **body.model_dump(),
     )
     session.add(agent)
     await session.flush()
@@ -379,6 +384,7 @@ async def attach_knowledge_base_file(
             KnowledgeBaseFile.tenant_id == ctx.tenant_id,
             KnowledgeBaseFile.superseded_at.is_(None),
             KnowledgeBaseFile.replaces_file_id.is_(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
         )
     )
     if file is None:
@@ -443,7 +449,10 @@ async def list_agent_knowledge_base_files(
             AgentKnowledgeBaseFile,
             AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
         )
-        .where(AgentKnowledgeBaseFile.agent_id == agent_id)
+        .where(
+            AgentKnowledgeBaseFile.agent_id == agent_id,
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
+        )
         .order_by(KnowledgeBaseFile.uploaded_at.desc())
     )
     return [KnowledgeBaseFileOut.model_validate(f) for f in result.scalars().all()]

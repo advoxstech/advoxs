@@ -14,6 +14,38 @@ from app.main import app
 
 TENANT_ID = uuid.uuid4()
 
+
+@pytest.mark.parametrize("connected", [False, True])
+def test_status_ao_vivo_corrige_queda_e_reconexao(client, session, monkeypatch, connected):
+    number = _zapi_number(status="disconnected" if connected else "connected")
+    session.scalar.return_value = number
+    monkeypatch.setattr(whatsapp_module, "decrypt_access_token", lambda value: "token")
+    monkeypatch.setattr(
+        whatsapp_module, "check_zapi_status", AsyncMock(return_value={"connected": connected})
+    )
+    monkeypatch.setattr(
+        whatsapp_module, "fetch_zapi_connected_phone", AsyncMock(return_value="5511999998888")
+    )
+    response = client.get("/api/v1/whatsapp/connection")
+    assert response.json()["status"] == ("connected" if connected else "disconnected")
+    assert response.json()["status_verified"] is True
+    assert (number.zapi_disconnected_at is None) == connected
+
+
+def test_falha_consulta_nao_afirma_status_confirmado(client, session, monkeypatch):
+    from app.clients.zapi import ZApiNetworkError
+
+    number = _zapi_number(status="connected")
+    session.scalar.return_value = number
+    monkeypatch.setattr(whatsapp_module, "decrypt_access_token", lambda value: "token")
+    monkeypatch.setattr(
+        whatsapp_module, "check_zapi_status", AsyncMock(side_effect=ZApiNetworkError("offline"))
+    )
+    response = client.get("/api/v1/whatsapp/connection")
+    assert response.json()["status_verified"] is False
+    assert number.status == "connected"
+
+
 CONNECT_ZAPI_BODY = {
     "instance_id": "inst-123",
     "instance_token": "token-claro",

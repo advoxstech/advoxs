@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,6 +13,26 @@ from app.models import Message
 
 WEBHOOK_SECRET = "segredo-abc"
 WEBHOOK_PATH = f"/api/v1/webhooks/zapi/{WEBHOOK_SECRET}"
+
+
+@pytest.mark.parametrize("observed_drop", [False, True])
+async def test_message_recovers_observed_drop_but_not_manual_disconnect(monkeypatch, observed_drop):
+    from app.services import whatsapp_inbound as inbound
+
+    number = SimpleNamespace(
+        status="disconnected",
+        zapi_webhook_secret=WEBHOOK_SECRET,
+        zapi_disconnected_at=datetime.now(UTC) if observed_drop else None,
+    )
+    session = AsyncMock()
+    session.scalar.return_value = number
+    monkeypatch.setattr(
+        inbound, "_store_zapi_format_message", AsyncMock(return_value={"received": 1})
+    )
+    await inbound.handle_zapi_webhook(TEXT_PAYLOAD, WEBHOOK_SECRET, session, AsyncMock())
+    assert number.status == ("connected" if observed_drop else "disconnected")
+    assert number.zapi_disconnected_at is None
+
 
 TEXT_PAYLOAD = {
     "instanceId": "inst-123",

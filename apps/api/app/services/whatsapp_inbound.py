@@ -103,6 +103,11 @@ async def handle_zapi_webhook(
         )
         return {"received": 0}
 
+    # Recupera apenas quedas detectadas, nunca uma desconexão solicitada.
+    if getattr(number, "zapi_disconnected_at", None) is not None:
+        number.status = "connected"
+        number.zapi_disconnected_at = None
+        await session.commit()
     return await _store_zapi_format_message(number, inbound, session, arq)
 
 

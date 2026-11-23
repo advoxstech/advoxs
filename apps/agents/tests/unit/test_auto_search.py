@@ -93,6 +93,31 @@ def test_texto_da_busca_junta_mensagens_desde_a_ultima_resposta():
     assert auto_search.turn_query(mensagens) == "qual a multa? e o foro?"
 
 
+def test_especialista_recem_transferido_busca_com_a_pergunta_do_cliente():
+    despedida = AIMessage(
+        content="um momento... vou te passar pra(o) Contratos agora.",
+        tool_calls=[
+            {
+                "id": "t1",
+                "name": "transfer_to_agent",
+                "args": {"agent_id": "other-1"},
+                "type": "tool_call",
+            }
+        ],
+        additional_kwargs={"response_sources": {"status": "no_documents"}},
+    )
+    mensagens = [
+        HumanMessage(content="qual a multa da cláusula penal?"),
+        despedida,
+        ToolMessage(content="", tool_call_id="t1", name="transfer_to_agent"),
+    ]
+
+    calls = auto_search.plan(mensagens, _especialista())
+
+    assert [c["name"] for c in calls] == [auto_search.KB_TOOL]
+    assert calls[0]["args"]["query"] == "qual a multa da cláusula penal?"
+
+
 def test_palavras_incertas_da_transcricao_ficam_no_texto_da_busca():
     mensagens = [
         HumanMessage(content="[Áudio do cliente, transcrito automaticamente]: o contrato [?Zeta?]")

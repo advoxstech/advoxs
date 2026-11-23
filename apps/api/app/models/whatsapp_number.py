@@ -50,6 +50,7 @@ class WhatsAppNumber(Base):
     zapi_instance_id: Mapped[str | None] = mapped_column(String, unique=True)
     zapi_instance_token_encrypted: Mapped[str | None] = mapped_column(Text)
     zapi_client_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    zapi_disconnected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Segredo nosso (não é credencial da Z-API) que compõe a URL do webhook —
     # única camada de autenticação do endpoint, já que a Z-API não assina o
     # payload como a Meta faz.

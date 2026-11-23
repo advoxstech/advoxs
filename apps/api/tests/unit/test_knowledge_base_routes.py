@@ -402,7 +402,7 @@ class TestDelete:
     @pytest.fixture
     def rag_delete(self, monkeypatch):
         mock = AsyncMock()
-        monkeypatch.setattr(kb_module, "delete_documents", mock)
+        monkeypatch.setattr(kb_module, "delete_documents", mock, raising=False)
         return mock
 
     def test_delete_feliz_204(self, client, session, rag_delete) -> None:
@@ -411,8 +411,9 @@ class TestDelete:
         response = client.delete(f"/api/v1/knowledge-base/files/{FILE_ID}")
 
         assert response.status_code == 204
-        rag_delete.assert_awaited_once_with(str(TENANT_ID), [str(FILE_ID)])
-        session.delete.assert_awaited_once()
+        rag_delete.assert_not_awaited()
+        session.delete.assert_not_awaited()
+        assert session.scalar.return_value.deletion_requested_at is not None
 
     def test_delete_durante_processing_409(self, client, session, rag_delete) -> None:
         session.scalar.return_value = _record(status="processing")
@@ -429,14 +430,17 @@ class TestDelete:
 
         assert response.status_code == 404
 
-    def test_rag_indisponivel_502(self, client, session, rag_delete) -> None:
+    def test_rag_indisponivel_nao_impede_exclusao_duravel(
+        self, client, session, rag_delete
+    ) -> None:
         session.scalar.return_value = _record(status="ready")
         rag_delete.side_effect = RagApiError("api_rag indisponível")
 
         response = client.delete(f"/api/v1/knowledge-base/files/{FILE_ID}")
 
-        assert response.status_code == 502
+        assert response.status_code == 204
         session.delete.assert_not_awaited()
+        assert session.scalar.return_value.deletion_requested_at is not None
 
 
 class TestReprocess:

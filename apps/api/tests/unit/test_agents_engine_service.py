@@ -30,7 +30,7 @@ async def test_monta_lista_com_arquivos_anexados(session):
     agents_result = SimpleNamespace(
         scalars=lambda: SimpleNamespace(all=lambda: [agent_row, other_row])
     )
-    links_result = SimpleNamespace(all=lambda: [(AGENT_ID, FILE_ID, None)])
+    links_result = SimpleNamespace(all=lambda: [(AGENT_ID, FILE_ID, None, None)])
     session.execute = AsyncMock(side_effect=[agents_result, links_result])
 
     result = await load_agents_for_engine(session, TENANT_ID)
@@ -60,7 +60,10 @@ async def test_copias_de_pacote_vao_tambem_em_reference_file_ids(session):
     )
     agents_result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [agent_row]))
     links_result = SimpleNamespace(
-        all=lambda: [(AGENT_ID, FILE_ID, None), (AGENT_ID, package_file, uuid.uuid4())]
+        all=lambda: [
+            (AGENT_ID, FILE_ID, None, None),
+            (AGENT_ID, package_file, uuid.uuid4(), "legislacao_especifica"),
+        ]
     )
     session.execute = AsyncMock(side_effect=[agents_result, links_result])
 
@@ -68,6 +71,7 @@ async def test_copias_de_pacote_vao_tambem_em_reference_file_ids(session):
 
     assert result[0]["knowledge_base_file_ids"] == [str(FILE_ID), str(package_file)]
     assert result[0]["reference_file_ids"] == [str(package_file)]
+    assert result[0]["legal_reference_file_ids"] == [str(package_file)]
 
 
 async def test_consulta_exclui_a_pasta_nao_selecionaveis(session):

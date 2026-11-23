@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from app.clients.rag import RagApiError, insert_user_document
+from app.clients.rag import RagApiError, insert_user_document_reading
 from app.core.config import settings
 from app.services.upload_storage import UploadTooLargeError, read_upload_limited
 
@@ -38,6 +38,40 @@ def _nota_arquivo_grande() -> str:
 
 _NOTA_FALHA_INGESTAO = (
     "[Anexo recebido mas não pôde ser processado: falha ao processar o documento.]"
+)
+
+# Motivo da recusa, para o agente explicar ao cliente o que fazer
+# (_ATTACHMENT_RULE em apps/agents/agents/nodes.py). Mesmo texto em
+# apps/worker/app/tasks/attachments.py.
+REFUSAL_NOTES = {
+    "senha": "[Anexo recebido mas não pôde ser lido: o PDF está protegido por senha.]",
+    "corrompido": (
+        "[Anexo recebido mas não pôde ser lido: o arquivo está corrompido ou danificado e "
+        "não abre.]"
+    ),
+    "paginas_demais": (
+        "[Anexo recebido mas não pôde ser lido: o documento tem mais de 3.000 páginas, acima "
+        "do limite de leitura.]"
+    ),
+    "escaneadas_demais": (
+        "[Anexo recebido mas não pôde ser lido: é um documento digitalizado (páginas em "
+        "imagem) grande demais para a leitura de imagem. Trate como problema de qualidade do "
+        "arquivo: peça o PDF original digital ou o arquivo dividido em partes menores.]"
+    ),
+    "sem_texto": (
+        "[Anexo recebido mas não pôde ser lido: não foi possível ler o texto nem pela leitura "
+        "de imagem — qualidade ruim da digitalização ou da foto.]"
+    ),
+    "leitura_demorada": (
+        "[Anexo recebido mas não pôde ser lido: a leitura do documento digitalizado não "
+        "terminou no tempo limite — qualidade ou tamanho do arquivo.]"
+    ),
+}
+
+SCANNED_NOTE = (
+    " O documento é digitalizado e foi lido como imagem: trechos com carimbo por cima do "
+    "texto, manchas ou baixa qualidade podem não ter sido lidos. Se a informação pedida não "
+    "estiver nos trechos encontrados, explique isso ao cliente e peça uma cópia melhor."
 )
 
 # Mesmo prazo do worker (apps/worker/app/tasks/attachments.py): um PDF escaneado
@@ -82,7 +116,7 @@ async def ingest_test_attachment(
     o thread_id composto "{tenant_id}:{contact_phone_number}" (ver
     app/clients/rag.py::insert_user_document pro porquê)."""
     try:
-        partial_pages = await insert_user_document(
+        reading = await insert_user_document_reading(
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             doc_id=message_id,
@@ -94,8 +128,8 @@ async def ingest_test_attachment(
         logger.warning(
             "Falha ao ingerir anexo de teste no api_rag | tenant=%s erro=%s", tenant_id, exc
         )
-        return _NOTA_FALHA_INGESTAO
-    return processed_note(attachment.filename, partial_pages)
+        return REFUSAL_NOTES.get(exc.motivo or "", _NOTA_FALHA_INGESTAO)
+    return processed_note(attachment.filename, reading["partial_pages"], reading["ocr_pages"])
 
 
 async def process_test_attachment(
@@ -114,12 +148,17 @@ async def process_test_attachment(
     )
 
 
-def processed_note(filename: str, partial_pages: list[int] | None) -> str:
+def processed_note(filename: str, partial_pages: list[int] | None, ocr_pages: int = 0) -> str:
     """Nota para o agente; cita as páginas com leitura parcial, se houver.
 
     Mesmo texto de apps/worker/app/tasks/attachments.py::processed_note.
     """
     if not partial_pages:
+        if ocr_pages:
+            return (
+                f"[Documento recebido e processado: {filename} — disponível para busca."
+                f"{SCANNED_NOTE}]"
+            )
         return f"[Documento recebido e processado: {filename} — disponível para busca.]"
     pages = ", ".join(str(p) for p in partial_pages[:30]) + ("…" if len(partial_pages) > 30 else "")
     return (

@@ -36,6 +36,15 @@ beforeEach(() => {
 });
 
 describe("ConversationsPanel — abas", () => {
+  it("filtra pedidos humanos independentemente da urgência", async () => {
+    backendFetchMock.mockResolvedValue(jsonResponse([]));
+    render(<ConversationsPanel pollMs={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "Solicitou humano" }));
+    await waitFor(() => expect(backendFetchMock.mock.calls.some(([path]) =>
+      String(path).includes("human_requested=true") && !String(path).includes("urgent=true"),
+    )).toBe(true));
+  });
+
   it("aba padrão busca origin=real e a de testes origin=test", async () => {
     backendFetchMock.mockImplementation(async (path: string) => {
       if (String(path).includes("origin=test")) {

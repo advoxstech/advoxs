@@ -10,13 +10,13 @@ feita pelo worker (copy_public_document), sem ler o arquivo de novo.
 
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import PurePath
 
 from arq.connections import ArqRedis
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.rag import RagApiError, delete_documents
 from app.core.queue import INGESTION_QUEUE, get_arq_pool
 from app.core.safe_logging import safe_error
 from app.models import (
@@ -25,6 +25,7 @@ from app.models import (
     KnowledgeBaseFile,
     PublicDocument,
     SpecialtyPackageDocument,
+    Tenant,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ def _active(tenant_id: uuid.UUID):
         KnowledgeBaseFile.tenant_id == tenant_id,
         KnowledgeBaseFile.superseded_at.is_(None),
         KnowledgeBaseFile.replaces_file_id.is_(None),
+        KnowledgeBaseFile.deletion_requested_at.is_(None),
     )
 
 
@@ -49,7 +51,20 @@ async def _free_filename(session: AsyncSession, tenant_id: uuid.UUID, filename: 
     if taken is None:
         return filename
     path = PurePath(filename)
-    return f"{path.stem} (base Advoxs){path.suffix}"
+    number = 1
+    while True:
+        suffix = "" if number == 1 else f" {number}"
+        candidate = f"{path.stem} (base Advoxs{suffix}){path.suffix}"
+        if (
+            await session.scalar(
+                select(KnowledgeBaseFile.id).where(
+                    *_active(tenant_id), KnowledgeBaseFile.filename == candidate
+                )
+            )
+            is None
+        ):
+            return candidate
+        number += 1
 
 
 async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.UUID]:
@@ -76,6 +91,8 @@ async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.U
             .order_by(PublicDocument.code)
         )
     ).all()
+    # Documentos que saíram do pacote saem também do agente.
+    await detach_agent_package(session, agent, keep={d.id for d in documents})
     if not documents:
         return []
 
@@ -116,6 +133,25 @@ async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.U
             # "processing" também: uma cópia que ficou pelo caminho é refeita
             # (a cópia é idempotente).
             outdated = record.status != "ready" or record.content_sha256 != document.content_sha256
+        previous = None
+        if outdated and record.status == "ready":
+            previous = record
+            # Nunca substitui a cópia consultável antes de a nova ficar pronta.
+            candidate = await session.scalar(
+                select(KnowledgeBaseFile).where(
+                    KnowledgeBaseFile.replaces_file_id == previous.id,
+                    KnowledgeBaseFile.deletion_requested_at.is_(None),
+                )
+            )
+            record = candidate or KnowledgeBaseFile(
+                id=uuid.uuid4(),
+                tenant_id=agent.tenant_id,
+                filename=previous.filename,
+                public_document_id=document.id,
+                replaces_file_id=previous.id,
+            )
+            if candidate is None:
+                session.add(record)
         if outdated:
             record.size_bytes = document.size_bytes
             record.mime_type = document.mime_type
@@ -128,9 +164,10 @@ async def sync_agent_package(session: AsyncSession, agent: Agent) -> list[uuid.U
             to_copy.append(record.id)
         # Flush antes do vínculo: a FK exige a linha do arquivo já gravada.
         await session.flush()
-        if record.id not in linked:
-            session.add(AgentKnowledgeBaseFile(agent_id=agent.id, knowledge_base_file_id=record.id))
-            linked.add(record.id)
+        link_id = previous.id if previous else record.id
+        if link_id not in linked:
+            session.add(AgentKnowledgeBaseFile(agent_id=agent.id, knowledge_base_file_id=link_id))
+            linked.add(link_id)
     await session.flush()
     return to_copy
 
@@ -146,27 +183,36 @@ async def count_package_files(session: AsyncSession, agent: Agent) -> int:
         .where(
             AgentKnowledgeBaseFile.agent_id == agent.id,
             KnowledgeBaseFile.public_document_id.is_not(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
         )
     )
 
 
-async def detach_agent_package(session: AsyncSession, agent: Agent) -> None:
+async def detach_agent_package(
+    session: AsyncSession, agent: Agent, keep: set[uuid.UUID] | None = None
+) -> None:
     """Tira do agente as cópias de pacote (troca ou remoção da especialidade) e
-    exclui as que não ficaram ligadas a nenhum outro agente. Não faz commit."""
-    package_files = (
-        await session.scalars(
-            select(KnowledgeBaseFile)
-            .join(
-                AgentKnowledgeBaseFile,
-                AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
-            )
-            .where(
-                AgentKnowledgeBaseFile.agent_id == agent.id,
-                KnowledgeBaseFile.tenant_id == agent.tenant_id,
-                KnowledgeBaseFile.public_document_id.is_not(None),
-            )
+    exclui as que não ficaram ligadas a nenhum outro agente. Não faz commit.
+
+    Com `keep`, só tira as cópias de documentos fora desse conjunto: as que
+    saíram do pacote da especialidade.
+    """
+    query = (
+        select(KnowledgeBaseFile)
+        .join(
+            AgentKnowledgeBaseFile,
+            AgentKnowledgeBaseFile.knowledge_base_file_id == KnowledgeBaseFile.id,
         )
-    ).all()
+        .where(
+            AgentKnowledgeBaseFile.agent_id == agent.id,
+            KnowledgeBaseFile.tenant_id == agent.tenant_id,
+            KnowledgeBaseFile.public_document_id.is_not(None),
+            KnowledgeBaseFile.deletion_requested_at.is_(None),
+        )
+    )
+    if keep:
+        query = query.where(KnowledgeBaseFile.public_document_id.not_in(keep))
+    package_files = (await session.scalars(query)).all()
     if not package_files:
         return
     ids = [record.id for record in package_files]
@@ -188,18 +234,19 @@ async def detach_agent_package(session: AsyncSession, agent: Agent) -> None:
     orphans = [record for record in package_files if record.id not in still_linked]
     if not orphans:
         return
-    try:
-        await delete_documents(str(agent.tenant_id), [str(record.id) for record in orphans])
-    except RagApiError as exc:
-        # O registro some do painel de qualquer forma; os trechos órfãos não são
-        # alcançados por nenhuma busca (o agente só busca nos ids ligados a ele).
-        logger.warning(
-            "Falha ao remover cópias de pacote no api_rag | tenant=%s error_type=%s",
-            agent.tenant_id,
-            safe_error(exc),
-        )
     for record in orphans:
-        await session.delete(record)
+        record.deletion_requested_at = datetime.now(UTC)
+        # Libera o nome; a tarefa de limpeza é criada na mesma transação.
+        record.superseded_at = datetime.now(UTC)
+    # Uma atualização pendente também sai; nunca pode publicar depois da remoção.
+    await session.execute(
+        update(KnowledgeBaseFile)
+        .where(
+            KnowledgeBaseFile.tenant_id == agent.tenant_id,
+            KnowledgeBaseFile.replaces_file_id.in_([record.id for record in orphans]),
+        )
+        .values(deletion_requested_at=datetime.now(UTC), superseded_at=datetime.now(UTC))
+    )
 
 
 async def provision_packages(session: AsyncSession, agents: list[Agent]) -> None:
@@ -211,6 +258,9 @@ async def provision_packages(session: AsyncSession, agents: list[Agent]) -> None
     for agent in agents:
         if not agent.specialty:
             continue
+        await session.execute(
+            select(Tenant.id).where(Tenant.id == agent.tenant_id).with_for_update()
+        )
         to_copy = await sync_agent_package(session, agent)
         await session.commit()
         if to_copy:
@@ -225,10 +275,13 @@ async def enqueue_copies(arq: ArqRedis, tenant_id: uuid.UUID, file_ids: list[uui
     pacote" enquanto a cópia ainda roda, não copiam duas vezes.
     """
     for file_id in file_ids:
-        await arq.enqueue_job(
-            "copy_public_document",
-            tenant_id=str(tenant_id),
-            file_id=str(file_id),
-            _job_id=f"kb-copy:{file_id}",
-            _queue_name=INGESTION_QUEUE,
-        )
+        try:
+            await arq.enqueue_job(
+                "copy_public_document",
+                tenant_id=str(tenant_id),
+                file_id=str(file_id),
+                _job_id=f"kb-copy:{file_id}",
+                _queue_name=INGESTION_QUEUE,
+            )
+        except Exception as exc:
+            logger.warning("Cópia pendente de recuperação | error_type=%s", safe_error(exc))

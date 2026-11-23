@@ -74,6 +74,20 @@ async def copy_document(
     response.raise_for_status()
 
 
+def refusal_reason(response: httpx.Response) -> str | None:
+    """Código do motivo de uma recusa de leitura do api_rag (400), ou None.
+
+    senha | corrompido | paginas_demais | escaneadas_demais | sem_texto
+    """
+    if response.status_code != 400:
+        return None
+    try:
+        motivo = response.json().get("motivo")
+    except (ValueError, AttributeError):
+        return None
+    return motivo if isinstance(motivo, str) else None
+
+
 def reading_summary(response: httpx.Response) -> dict:
     """Resumo da leitura devolvido pelo api_rag, normalizado (nunca levanta)."""
     try:
@@ -84,8 +98,11 @@ def reading_summary(response: httpx.Response) -> dict:
         return {}
     paginas = leitura.get("paginas")
     parciais = leitura.get("paginas_parciais")
+    ocr = leitura.get("ocr")
     return {
         "pages_total": paginas if type(paginas) is int and paginas > 0 else None,
+        # Páginas lidas como imagem (OCR): documento digitalizado ou foto.
+        "ocr_pages": ocr if type(ocr) is int and ocr > 0 else 0,
         "partial_pages": sorted(
             {p for p in parciais if type(p) is int and p > 0}
             if isinstance(parciais, list)

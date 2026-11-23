@@ -254,11 +254,25 @@ async def _run_agent_turn(
     start_agent_id: str | None,
 ) -> TestTurn:
     """Chama o agente e persiste/debita as respostas (sem a mensagem do contato)."""
+    # A inserção da mensagem pode ter registrado o pedido por trigger.
+    await session.refresh(conversation)
     result = await send_playground_message(
         tenant_id=str(tenant_id),
         contact_phone_number=conversation.contact_phone_number,
         message=message_for_agent,
         agents=agents,
+        **(
+            {
+                "human_request": {
+                    "pending": True,
+                    "agent_id": str(conversation.human_request_agent_id)
+                    if conversation.human_request_agent_id
+                    else None,
+                }
+            }
+            if conversation.human_requested_at
+            else {}
+        ),
         **({"test_start_agent_id": start_agent_id} if start_agent_id is not None else {}),
     )
     if result is None:
@@ -287,6 +301,15 @@ async def _run_agent_turn(
             )
     if result.get("urgency"):
         mark_urgent(conversation, result["urgency"], "agent")
+    request = result.get("human_request")
+    if request and not conversation.human_requested_at and conversation.state != "human":
+        conversation.human_requested_at = datetime.now(UTC)
+        conversation.human_request_reason = str(
+            request.get("reason") or "Revisão humana solicitada"
+        )[:300]
+        requested_agent = request.get("agent_id")
+        if requested_agent in {a["id"] for a in agents}:
+            conversation.human_request_agent_id = uuid.UUID(requested_agent)
     config = await get_current_pricing_config(session)
     # Custo de tokens + custo fixo de cada documento gerado nesta execução
     # (ver agents/tools.py) — mesma fórmula do worker (conversas reais).

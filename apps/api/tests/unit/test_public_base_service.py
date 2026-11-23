@@ -60,6 +60,7 @@ def test_documento_repetido_nos_pacotes_e_um_so_com_as_especialidades(tmp_path) 
     _write(tmp_path, "15_CONTRATOS/Z) CONSTITUIÇÃO/3) Contratos assinados/contrato.pdf", b"x")
     _write(tmp_path, "15_CONTRATOS/Z) CONSTITUIÇÃO/planilha.xlsx", b"y")
     _write(tmp_path, "15_CONTRATOS/Z) CONSTITUIÇÃO/_manifesto.pdf", b"z")
+    _write(tmp_path, "_RELATORIOS/relatorio.pdf", b"r")
 
     items = scan_packages(tmp_path)
 

@@ -159,6 +159,7 @@ jobs:
           SYSTEM_DATABASE_URL: postgresql+asyncpg://advoxs_system:advoxs@localhost:5432/advoxs_test
           REDIS_URL: redis://localhost:6379/0
           CONVERSATION_CLEANUP_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/cleanup_test
+          FILE_TASKS_TEST_DATABASE_URL: postgresql+asyncpg://advoxs_test:test-only@localhost:5432/cleanup_test
 
   api_rag:
     needs: changes

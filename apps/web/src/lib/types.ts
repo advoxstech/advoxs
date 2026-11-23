@@ -32,6 +32,8 @@ export interface Conversation {
   assigned_user_id?: string | null;
   assigned_user_name?: string | null;
   urgent_since?: string | null;
+  human_requested_at?: string | null;
+  human_request_reason?: string | null;
   urgent_reason?: string | null;
   urgent_source?: "agent" | "keyword" | "manual" | null;
   urgent_agent_name?: string | null;

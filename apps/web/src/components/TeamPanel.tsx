@@ -286,7 +286,9 @@ export function TeamPanel() {
         {notifications.map((n) => (
           <div key={n.id} className="border-b border-line py-3 flex gap-3">
             <span className="flex-1">
-              {n.kind === "urgency" ? "Urgência" : "Convite"} ·{" "}
+              {({ urgency: "Urgência", human_request: "Pedido de atendimento humano",
+                invitation: "Convite", low_credits: "Créditos baixos",
+                credits_depleted: "Créditos esgotados" } as Record<string, string>)[n.kind] ?? n.kind} ·{" "}
               {n.recipient_name || n.invitation_email} ·{" "}
               {statusLabels[n.status] || n.status}
             </span>
