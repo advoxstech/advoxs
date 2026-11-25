@@ -565,8 +565,9 @@ async def enviar_aviso(
     observacoes: str = "",
     conversation_id: str = "",
 ) -> str | Command:
-    """Gera um aviso/comunicado condominial em PDF e envia ao contato pelo
-    WhatsApp. Só chame depois de coletar e confirmar TODOS os dados com o
+    """Gera aviso/comunicado informativo em PDF, administrativo ou condominial.
+    Não é advertência, multa ou acusação de infração. O arquivo é anexado pela
+    plataforma automaticamente. Só chame depois de coletar e confirmar TODOS os dados com o
     cliente e ele confirmar que quer que o aviso seja enviado — nunca com
     dados incompletos ou assumidos.
 

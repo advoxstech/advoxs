@@ -3,11 +3,33 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from app.tasks.messages import _load_context
+from app.tasks.messages import _load_agents, _load_context
 
 TENANT_ID = str(uuid.uuid4())
 CONVERSATION_ID = str(uuid.uuid4())
 MESSAGE_ID = str(uuid.uuid4())
+
+
+async def test_agents_include_current_office_name_from_tenant_join():
+    session = AsyncMock()
+    agent_result = MagicMock()
+    agent_result.all.return_value = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            name="Secretária",
+            instructions="Exemplo antigo GVA",
+            is_entry_point=True,
+            office_name="Helder Goes Advocacia",
+        )
+    ]
+    links_result = MagicMock()
+    links_result.all.return_value = []
+    session.execute.side_effect = [agent_result, links_result]
+    result = await _load_agents(session, TENANT_ID)
+    assert result[0]["office_name"] == "Helder Goes Advocacia"
+    statement = session.execute.await_args_list[0].args[0]
+    assert "JOIN tenants" in str(statement)
+    assert uuid.UUID(TENANT_ID) in statement.compile().params.values()
 
 
 def _session_with(

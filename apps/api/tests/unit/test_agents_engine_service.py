@@ -95,3 +95,18 @@ async def test_sem_agentes_retorna_lista_vazia(session):
     result = await load_agents_for_engine(session, TENANT_ID)
 
     assert result == []
+
+
+async def test_office_name_comes_from_current_tenant_registration(session):
+    agent_row = SimpleNamespace(
+        id=AGENT_ID, name="Secretária", instructions="Antigo GVA", is_entry_point=True
+    )
+    session.execute.side_effect = [
+        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [agent_row])),
+        SimpleNamespace(all=lambda: []),
+    ]
+    session.scalar.return_value = "Helder Goes Advocacia"
+    result = await load_agents_for_engine(session, TENANT_ID)
+    assert result[0]["office_name"] == "Helder Goes Advocacia"
+    statement = session.scalar.await_args.args[0]
+    assert TENANT_ID in statement.compile().params.values()

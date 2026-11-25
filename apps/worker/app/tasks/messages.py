@@ -134,7 +134,10 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             tables.agents.c.name,
             tables.agents.c.instructions,
             tables.agents.c.is_entry_point,
-        ).where(tables.agents.c.tenant_id == uuid.UUID(tenant_id))
+            tables.tenants.c.name.label("office_name"),
+        )
+        .join(tables.tenants, tables.tenants.c.id == tables.agents.c.tenant_id)
+        .where(tables.agents.c.tenant_id == uuid.UUID(tenant_id))
     )
     agents_rows = agents_result.all()
 
@@ -176,6 +179,11 @@ async def _load_agents(session: AsyncSession, tenant_id: str) -> list[dict]:
             "id": str(row.id),
             "name": row.name,
             "instructions": row.instructions,
+            **(
+                {"office_name": row.office_name}
+                if isinstance(getattr(row, "office_name", None), str) and row.office_name.strip()
+                else {}
+            ),
             "is_entry_point": row.is_entry_point,
             "knowledge_base_file_ids": kb_by_agent.get(row.id, []),
             **(
