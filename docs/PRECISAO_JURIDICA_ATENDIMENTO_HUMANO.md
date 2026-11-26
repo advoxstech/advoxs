@@ -75,3 +75,39 @@ Esses valores fictícios não são parâmetros de produção.
 - Lint e tipagem dos fontes da interface passaram. A checagem TypeScript global
   ainda aponta erros anteriores nos arquivos de testes web; não foram alterados
   por esta implementação.
+
+## Identidade do escritório e confirmação do PDF — 24/11/2026
+
+Os seis prompts atuais da Helder Goes foram auditados: nenhum continha GVA.
+Os prompts padrão de provisionamento ainda continham esse nome fixo; foram
+neutralizados no código. O episódio relatado não foi reproduzido nos testes
+atuais, portanto a origem na memória de uma conversa antiga é uma hipótese,
+não uma causa comprovada. Históricos existentes não foram apagados.
+
+API e worker passam ao motor o nome do escritório obtido do cadastro do tenant.
+Esse dado prevalece sobre exemplos e identidades antigas presentes no histórico.
+Não há migração nova. Essa proteção do motor exige publicar os serviços.
+
+Após geração e armazenamento bem-sucedidos, o motor encerra o turno com uma
+confirmação automática, sem chamar novamente o modelo para decidir se deve enviar
+o PDF ou oferecer outro canal. A confirmação descreve geração e anexação pela
+plataforma, sem afirmar que o destinatário recebeu ou abriu o documento.
+Falhas de geração continuam no fluxo de erro, e a confirmação de um PDF antigo
+não é reutilizada em um novo turno.
+
+Um teste real revelou escolha indevida de advertência para um pedido de comunicado.
+O prompt passou a mapear explicitamente os tipos e o motor bloqueia a ferramenta
+incompatível quando há pedido de geração explícito e inequívoco no turno atual.
+Pedidos ambíguos continuam dependendo de esclarecimento e das instruções do agente.
+
+Os seis prompts da Helder Goes receberam a versão 3 publicada. Foram testados:
+identidade dos seis agentes sob sugestão de GVA; saudação simples; contestação
+baseada em apresentação antiga; e geração de comunicado com pedido natural.
+A rodada final anexou Aviso.pdf e respondeu apenas que o arquivo acompanhava
+a mensagem, sem pergunta ou oferta adicional. Os testes foram isolados,
+sem mensagens enviadas ao WhatsApp nem e-mails à equipe.
+
+Validação local do código: 286 testes do motor, 911 da API e 372 do worker
+passaram. Integrações que dependem de PostgreSQL não configurado foram puladas.
+O lint dos arquivos alterados passou. Os prompts estão publicados. As proteções
+do motor exigem publicar API, worker e agentes; não exigem migração adicional.

@@ -10,6 +10,13 @@ from loguru import logger
 from agents import auto_search
 from agents.helpers import strip_messages
 from agents.legal_safety import LEGAL_SAFETY_RULE, REVIEW_ANSWER, legal_review_reason
+from agents.office_identity import (
+    DOCUMENT_DELIVERY_RULE,
+    document_acknowledgement,
+    generated_this_turn,
+    identity_rule,
+    requested_document_tool,
+)
 from agents.response_sources import (
     SOURCE_RULE,
     collect_search,
@@ -193,6 +200,26 @@ async def agent_node(state: dict) -> Command:
     if current is None:
         current = entry_point
 
+    filenames = generated_this_turn(state["messages"])
+    if filenames:
+        # Generation + private storage succeeded. The caller handles delivery;
+        # a second model response must not negotiate authorization or channels.
+        return Command(
+            update={
+                "messages": [
+                    AIMessage(
+                        content=document_acknowledgement(filenames),
+                        additional_kwargs={
+                            "response_sources": response_evidence(state, current, [])
+                        },
+                    )
+                ],
+                "current_agent_id": current["id"],
+                "receptive_message_specialist": False,
+            },
+            goto=END,
+        )
+
     is_entry_point = current["is_entry_point"]
     # O ponto de entrada nunca recebe a instrução de "primeira resposta" —
     # esse conceito é só do agente que ACABOU de receber uma transferência
@@ -305,7 +332,9 @@ async def agent_node(state: dict) -> Command:
 
     # Urgência no topo: no fim do prompt o modelo a ignorava ao transferir.
     prompt = (
-        LEGAL_SAFETY_RULE
+        identity_rule(current)
+        + DOCUMENT_DELIVERY_RULE
+        + LEGAL_SAFETY_RULE
         + "\n\n"
         + _urgency_rule()
         + current["instructions"]
@@ -435,10 +464,25 @@ async def tool_node(state: dict) -> dict:
 
     prepared = []
     blocked = set()
+    document_rejections = {}
+    requested_tool = requested_document_tool(state["messages"])
     pending_human = state.get("human_request_pending") or any(
         call["name"] == "solicitar_atendimento_humano" for call in tool_calls
     )
     for tool_call in tool_calls:
+        if (
+            not pending_human
+            and tool_call["name"] in DOCUMENT_TOOLS
+            and requested_tool
+            and tool_call["name"] != requested_tool
+        ):
+            document_rejections[tool_call["id"]] = (
+                "Geração recusada: a ferramenta escolhida não corresponde ao tipo de documento "
+                f"pedido pelo cliente. Use {requested_tool} com os dados já fornecidos, "
+                "sem transformar comunicado informativo em advertência ou sanção."
+            )
+            prepared.append((tool_call, None, None))
+            continue
         if pending_human and tool_call["name"] in DOCUMENT_TOOLS | {"transfer_to_agent"}:
             blocked.add(tool_call["id"])
             prepared.append((tool_call, None, None))
@@ -484,7 +528,8 @@ async def tool_node(state: dict) -> dict:
         if tool is None:
             messages.append(
                 ToolMessage(
-                    content=(
+                    content=document_rejections.get(tool_call["id"])
+                    or (
                         "Pedido humano pendente: permaneça no agente atual e ofereça apoio factual."
                         if tool_call["id"] in blocked
                         else "Finalize chamando responder_com_fontes sozinha, com answer não vazio."
@@ -524,11 +569,27 @@ async def tool_node(state: dict) -> dict:
                 if tool_call["name"] == "solicitar_atendimento_humano"
                 else ""
             )
+            documents = (observation.update or {}).get("generated_documents", [])
+            if documents:
+                content = (
+                    "PDF gerado com sucesso. A plataforma anexará automaticamente os arquivos "
+                    "a esta conversa: " + ", ".join(doc["filename"] for doc in documents) + ". "
+                    "Não peça autorização para enviar novamente; apenas confirme a geração. "
+                    "Isto confirma a geração, não o recebimento pelo cliente."
+                )
         else:
             content = str(observation)
+            documents = []
 
         messages.append(
-            ToolMessage(content=content, tool_call_id=tool_call["id"], name=tool_call["name"])
+            ToolMessage(
+                content=content,
+                tool_call_id=tool_call["id"],
+                name=tool_call["name"],
+                additional_kwargs={"generated_filenames": [doc["filename"] for doc in documents]}
+                if documents
+                else {},
+            )
         )
 
     # Só anuncie a transferência efetivada, depois das respostas de ferramentas

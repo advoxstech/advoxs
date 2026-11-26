@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.knowledge_tree import UNREADABLE_CATEGORY
-from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile
+from app.models import Agent, AgentKnowledgeBaseFile, KnowledgeBaseFile, Tenant
 
 
 async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) -> list[dict]:
@@ -50,11 +50,18 @@ async def load_agents_for_engine(session: AsyncSession, tenant_id: uuid.UUID) ->
         if category in {"constituicao", "legislacao_especifica", "decisoes_tribunais"}:
             legal_by_agent.setdefault(agent_id, []).append(str(file_id))
 
+    office_name = await session.scalar(select(Tenant.name).where(Tenant.id == tenant_id))
+
     return [
         {
             "id": str(agent.id),
             "name": agent.name,
             "instructions": agent.instructions,
+            **(
+                {"office_name": office_name}
+                if isinstance(office_name, str) and office_name.strip()
+                else {}
+            ),
             "is_entry_point": agent.is_entry_point,
             "knowledge_base_file_ids": kb_by_agent.get(agent.id, []),
             # Só quando há cópias de pacote (subconjunto da lista acima).
